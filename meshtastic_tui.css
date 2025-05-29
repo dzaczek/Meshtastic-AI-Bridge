@@ -1,0 +1,40 @@
+/* Meshtastic TUI CSS - Minimal version */
+
+Screen {
+    layout: vertical;
+}
+
+#app-grid {
+    layout: horizontal;
+    height: 100%;
+}
+
+#sidebar {
+    width: 30%;
+    dock: left;
+}
+
+#main-content {
+    width: 70%;
+}
+
+#chat-view-container {
+    height: 70%;
+}
+
+#logs-container {
+    height: 30%;
+}
+
+#chat_log {
+    height: 1fr;
+}
+
+#system_logs {
+    height: 1fr;
+}
+
+#message_input {
+    height: 3;
+    dock: bottom;
+}

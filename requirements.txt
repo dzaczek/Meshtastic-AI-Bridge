@@ -1,0 +1,20 @@
+# Core dependencies
+meshtastic>=2.2.0
+textual>=0.40.0
+rich>=13.7.0
+
+# AI and processing
+openai>=1.0.0  # For AI integration
+python-dotenv>=1.0.0  # For environment variables
+
+# Utilities
+pyserial>=3.5  # For future serial support
+typing-extensions>=4.8.0
+asyncio>=3.4.3
+aiohttp>=3.9.0  # For async HTTP requests
+
+# Development dependencies
+pytest>=7.4.0  # For testing
+black>=23.7.0  # For code formatting
+flake8>=6.1.0  # For linting
+mypy>=1.5.0  # For type checking 
