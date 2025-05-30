@@ -130,8 +130,38 @@ class NodeListItem(ListItem):
         """Compose the node item"""
         icon = "★" if self.is_favorite else "●"
         name = self.node_info.get('long_name', 'Unknown')
+        node_id = self.node_id
+        
+        # Check if this is a default Meshtastic name
+        # Default names are like "Meshtastic XXXX" where XXXX matches the last 4 chars of node ID
+        is_default_name = False
+        if name.startswith("Meshtastic ") and len(name) > 11:
+            # Extract the suffix from the name
+            name_suffix = name[11:].strip()
+            # Check if it matches the end of the node ID
+            if node_id.endswith(name_suffix.lower()):
+                is_default_name = True
+                # For default names, just show "Node" + suffix to avoid redundancy
+                name = f"Node {name_suffix}"
+        
+        # Add hop count to the name
+        hops_away = self.node_info.get('hops_away')
+        if hops_away is not None:
+            if hops_away == 0:
+                hop_indicator = " (D)"  # Direct connection
+            else:
+                hop_indicator = f" ({hops_away})"  # Number of hops
+        else:
+            hop_indicator = ""  # No hop count data available
+        
+        # For default names, we can skip showing the full node ID since it's redundant
+        if is_default_name:
+            display_text = f"{icon} {name}{hop_indicator}"
+        else:
+            display_text = f"{icon} {name}{hop_indicator} !{node_id}"
+        
         style = "reverse" if self.unread_count > 0 else ""
-        yield Label(f"{icon} {name} ({self.node_id})", classes=style)
+        yield Label(display_text, classes=style)
 
 class ChannelListItem(ListItem):
     """Custom list item for channels"""
@@ -513,7 +543,8 @@ class MeshtasticTUI(App):
                             'long_name': user.get('longName', 'Unknown'),
                             'short_name': user.get('shortName', 'UNK'),
                             'last_heard': node_info.get('lastHeard', time.time()),
-                            'is_favorite': node_info.get('isFavorite', False)
+                            'is_favorite': node_info.get('isFavorite', False),
+                            'hops_away': node_info.get('hopsAway', None)  # Add hop count if available
                         }
                 
                 self.update_node_list()
@@ -746,8 +777,22 @@ class MeshtasticTUI(App):
                 'long_name': sender_name,
                 'short_name': sender_name[:3].upper(),
                 'last_heard': time.time(),
-                'is_favorite': False
+                'is_favorite': False,
+                'hops_away': None  # Will be updated if available from meshtastic interface
             }
+        else:
+            # Update last heard time
+            self.nodes[sender_id]['last_heard'] = time.time()
+        
+        # Try to get hop count from meshtastic interface if available
+        if self.meshtastic_handler and self.meshtastic_handler.interface:
+            interface = self.meshtastic_handler.interface
+            if hasattr(interface, 'nodes') and interface.nodes:
+                # Find the node in the interface by numeric ID
+                for node_num, node_info in interface.nodes.items():
+                    node_id_str = self._norm_id(f"{node_num:x}") if isinstance(node_num, int) else self._norm_id(node_num)
+                    if node_id_str == sender_id and 'hopsAway' in node_info:
+                        self.nodes[sender_id]['hops_away'] = node_info.get('hopsAway')
         
         # Determine conversation
         effective_channel_id = channel_id if channel_id is not None else 0
