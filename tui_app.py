@@ -29,6 +29,93 @@ from rich.console import RenderableType
 import json
 import os
 import sys
+import re
+
+class AIProcessingWorker:
+    """Worker class to handle AI processing in a separate thread"""
+    def __init__(self, app, text: str, sender_id: str, sender_name: str, channel_id: int, is_dm: bool, conversation_id: str, url_pattern=None, skip_triage: bool = False):
+        self.app = app
+        self.text = text
+        self.sender_id = sender_id
+        self.sender_name = sender_name
+        self.channel_id = channel_id
+        self.is_dm = is_dm
+        self.conversation_id = conversation_id
+        self.url_pattern = url_pattern
+        # Always skip triage for DMs
+        self.skip_triage = True if is_dm else skip_triage
+
+    def run(self) -> None:
+        """Run the AI processing"""
+        try:
+            log_info = getattr(self.app, 'log_info', print)
+            log_error = getattr(self.app, 'log_error', print)
+            log_info(f"[AIWorker] Starting for conv_id={self.conversation_id}, is_dm={self.is_dm}, sender_id={self.sender_id}, channel_id={self.channel_id}")
+            context_history = self.app.conversation_manager.get_contextual_history(
+                self.conversation_id, 
+                for_user_name=self.sender_name
+            )
+            log_info(f"[AIWorker] Context history loaded: {context_history[-2:] if context_history else 'EMPTY'}")
+            web_analysis_summary = None
+            if self.url_pattern:
+                urls_found = self.url_pattern.findall(self.text)
+                if urls_found:
+                    detected_url = urls_found[0]
+                    try:
+                        web_analysis_summary = self.app.ai_bridge.analyze_url_content(detected_url)
+                        log_info(f"[AIWorker] Web analysis summary: {web_analysis_summary}")
+                    except Exception as e:
+                        web_analysis_summary = f"[Error analyzing URL: {str(e)}]"
+                        log_error(f"[AIWorker] Error analyzing URL: {e}")
+            ai_response = self.app.ai_bridge.get_response(
+                context_history,
+                self.text,
+                self.sender_name,
+                self.sender_id,
+                web_analysis_summary=web_analysis_summary
+            )
+            log_info(f"[AIWorker] AI response: {ai_response}")
+            if ai_response:
+                if self.app.ai_min_delay >= 0 and self.app.ai_max_delay > self.app.ai_min_delay:
+                    delay = random.uniform(self.app.ai_min_delay, self.app.ai_max_delay)
+                    log_info(f"[AIWorker] Applying delay: {delay:.2f}s")
+                    time.sleep(delay)
+                self.app.conversation_manager.add_message(
+                    self.conversation_id,
+                    "assistant",
+                    ai_response
+                )
+                self.app.last_response_times[self.conversation_id] = time.time()
+                if self.is_dm:
+                    log_info(f"[AIWorker] Sending DM reply to {self.sender_id} on channel {self.channel_id}")
+                    success, reason = self.app.meshtastic_handler.send_message(
+                        ai_response,
+                        destination_id_hex=self.sender_id,
+                        channel_index=self.channel_id
+                    )
+                else:
+                    log_info(f"[AIWorker] Sending channel reply on channel {self.channel_id}")
+                    success, reason = self.app.meshtastic_handler.send_message(
+                        ai_response,
+                        channel_index=self.channel_id
+                    )
+                log_info(f"[AIWorker] send_message result: success={success}, reason={reason}")
+                # Update UI
+                asyncio.run_coroutine_threadsafe(
+                    self.app.update_after_ai_response(
+                        self.conversation_id,
+                        success,
+                        reason,
+                        self.sender_name
+                    ),
+                    self.app.app_loop or asyncio.get_running_loop()
+                )
+            else:
+                log_error(f"[AIWorker] No valid AI response for {self.sender_name} in conv_id={self.conversation_id}")
+        except Exception as e:
+            log_error = getattr(self.app, 'log_error', print)
+            log_error(f"[AIWorker] Exception: {e}")
+            import traceback; log_error(traceback.format_exc())
 
 class NodeListItem(ListItem):
     """Custom list item for nodes"""
@@ -58,54 +145,6 @@ class ChannelListItem(ListItem):
         """Compose the channel item"""
         style = "reverse" if self.unread_count > 0 else ""
         yield Label(f"Ch {self.channel_id}: {self.channel_name}", classes=style)
-
-class MessageDisplay(ScrollableContainer):
-    """Widget to display chat messages"""
-    messages = reactive([])
-    
-    def compose(self) -> ComposeResult:
-        """Compose the message display"""
-        yield Container(id="message-container")
-    
-    def on_mount(self) -> None:
-        """Called when widget is mounted"""
-        self.update_messages()
-    
-    def watch_messages(self, messages: list) -> None:
-        """React to message changes"""
-        self.update_messages()
-    
-    def update_messages(self) -> None:
-        """Update the displayed messages"""
-        container = self.query_one("#message-container", Container)
-        container.remove_children()
-        
-        for msg in self.messages:
-            # Create message widget
-            timestamp = datetime.fromtimestamp(msg.get('timestamp', time.time())).strftime("%H:%M:%S")
-            sender = msg.get('user_name', 'Unknown')
-            content = msg.get('content', '')
-            role = msg.get('role', 'user')
-            
-            # Style based on role
-            if role == 'assistant':
-                style = "cyan"
-                sender = "AI"
-            elif sender == "You":
-                style = "green"
-            else:
-                style = "yellow"
-            
-            # Create rich text
-            message_text = Text()
-            message_text.append(f"[{timestamp}] ", style="dim")
-            message_text.append(f"{sender}: ", style=f"bold {style}")
-            message_text.append(content)
-            
-            container.mount(Static(message_text))
-        
-        # Scroll to bottom
-        self.scroll_end()
 
 class StatsPanel(Static):
     """Stats panel widget"""
@@ -193,6 +232,8 @@ class MeshtasticTUI(App):
         row-span: 4;
         border: solid yellow;
         height: 100%;
+        overflow: hidden;
+        layout: vertical;
     }
     
     #right-panel {
@@ -229,14 +270,49 @@ class MeshtasticTUI(App):
         background: $surface;
     }
     
-    MessageDisplay {
-        height: 100%;
+    #message-display {
+        height: 1fr;
         background: $surface;
+        overflow-y: scroll;
+        scrollbar-gutter: stable;
+        scrollbar-size: 1 1;
     }
     
-    Input {
+    #message-display:focus {
+        border: thick $accent;
+    }
+    
+    #message-container {
+        padding: 0 1;
+        width: 100%;
+    }
+    
+    #input-container {
+        layout: horizontal;
+        height: 3;
         dock: bottom;
-        margin: 1;
+        width: 100%;
+    }
+    
+    #message-input {
+        width: 1fr;
+        height: 3;
+    }
+    
+    #force-ai-button {
+        width: 10;
+        height: 3;
+        margin-left: 1;
+        background: #2c3e50;
+        color: white;
+    }
+    
+    #force-ai-button:hover {
+        background: #34495e;
+    }
+    
+    #force-ai-button:focus {
+        background: #1a252f;
     }
     
     Log {
@@ -267,6 +343,8 @@ class MeshtasticTUI(App):
         Binding("shift+tab", "focus_previous", "Previous"),
         Binding("c", "toggle_channel", "Channels"),
         Binding("n", "toggle_nodes", "Nodes"),
+        Binding("f", "force_ai", "Force AI Response"),
+        Binding("m", "focus_messages", "Focus Chat"),
     ]
     
     def __init__(self):
@@ -275,11 +353,41 @@ class MeshtasticTUI(App):
         self.ai_bridge = AIBridge(self.app_config)
         self.conversation_manager = ConversationManager(self.app_config, self.ai_bridge)
         
+        # Define helper functions first
+        self._norm_id = lambda s: s.lstrip('!').lower() if isinstance(s, str) else s
+        
+        # URL pattern for web content analysis
+        self.url_pattern = re.compile(r'https?://[^\s/$.?#].[^\s]*', re.IGNORECASE)
+        
         # State
         self.nodes: Dict[str, dict] = {}
         self.current_chat_type = "channel"
         self.current_chat_id = "0"
         self.message_queue = asyncio.Queue()
+        
+        # Initialize Meshtastic handler
+        self.meshtastic_handler = MeshtasticHandler(
+            connection_type=self.app_config.MESHTASTIC_CONNECTION_TYPE,
+            device_specifier=self.app_config.MESHTASTIC_DEVICE_SPECIFIER,
+            on_message_received_callback=self.handle_meshtastic_message
+        )
+        
+        # Get AI node ID
+        self.ai_node_id = self._norm_id(f"{self.meshtastic_handler.node_id:x}") if self.meshtastic_handler.node_id else None
+        
+        # Define DM conversation helper after ai_node_id is set
+        self._dm_conv = lambda remote: f"dm_{'_'.join(sorted([self._norm_id(remote), self.ai_node_id]))}"
+        
+        # AI settings
+        self.active_channel_for_ai_posts = getattr(self.app_config, 'ACTIVE_MESHTASTIC_CHANNEL_INDEX', 0)
+        self.last_response_times = {}
+        self.ai_response_probability = getattr(self.app_config, 'AI_RESPONSE_PROBABILITY', 0.85)
+        self.ai_min_delay = getattr(self.app_config, 'AI_MIN_RESPONSE_DELAY_S', 2)
+        self.ai_max_delay = getattr(self.app_config, 'AI_MAX_RESPONSE_DELAY_S', 8)
+        self.ai_cooldown = getattr(self.app_config, 'AI_RESPONSE_COOLDOWN_S', 60)
+        # AI Triage settings
+        self.enable_ai_triage = getattr(self.app_config, 'ENABLE_AI_TRIAGE_ON_CHANNELS', False)
+        self.triage_context_count = getattr(self.app_config, 'TRIAGE_CONTEXT_MESSAGE_COUNT', 3)
         
         # Unread message tracking
         self.unread_counts: Dict[str, int] = {}  # {conv_id: count}
@@ -291,37 +399,31 @@ class MeshtasticTUI(App):
         self.rx_count: int = 0  # received messages this session
         self.tx_count: int = 0  # sent messages this session
         
-        # <ADD> Reference to the asyncio event loop the UI will run on.
-        # It is set here to a best-guess value immediately and then updated
-        # during `on_mount` once the Textual App is fully running.
+        # Reference to the asyncio event loop the UI will run on
         self.app_loop: Optional[asyncio.AbstractEventLoop] = asyncio.get_event_loop()
-        
-        # Helper for consistent node-id handling
-        self._norm_id = lambda s: s.lstrip('!').lower() if isinstance(s, str) else s
-        
-        # Helper to build a stable DM conversation ID
-        self._dm_conv = lambda remote: f"dm_{'_'.join(sorted([self._norm_id(remote), self.ai_node_id]))}"
-        
-        # Initialize Meshtastic handler
-        self.meshtastic_handler = MeshtasticHandler(
-            connection_type=self.app_config.MESHTASTIC_CONNECTION_TYPE,
-            device_specifier=self.app_config.MESHTASTIC_DEVICE_SPECIFIER,
-            on_message_received_callback=self.handle_meshtastic_message
-        )
-        
-        # AI settings
-        self.ai_node_id = self._norm_id(f"{self.meshtastic_handler.node_id:x}") if self.meshtastic_handler.node_id else None
-        self.last_response_times = {}
-        self.ai_response_probability = getattr(self.app_config, 'AI_RESPONSE_PROBABILITY', 0.85)
-        self.ai_min_delay = getattr(self.app_config, 'AI_MIN_RESPONSE_DELAY_S', 2)
-        self.ai_max_delay = getattr(self.app_config, 'AI_MAX_RESPONSE_DELAY_S', 8)
-        self.ai_cooldown = getattr(self.app_config, 'AI_RESPONSE_COOLDOWN_S', 60)
-        # AI Triage settings
-        self.enable_ai_triage = getattr(self.app_config, 'ENABLE_AI_TRIAGE_ON_CHANNELS', False)
-        self.triage_context_count = getattr(self.app_config, 'TRIAGE_CONTEXT_MESSAGE_COUNT', 3)
         
         # Load persisted last viewed state
         self.load_last_viewed_state()
+    
+    def log_info(self, message: str) -> None:
+        """Log info message to file and console"""
+        import logging
+        logging.info(message)
+        try:
+            log_widget = self.query_one("#app-log", RichLog)
+            log_widget.write(f"[blue]{message}[/blue]")
+        except:
+            print(f"INFO: {message}")
+    
+    def log_error(self, message: str) -> None:
+        """Log error message to file and console"""
+        import logging
+        logging.error(message)
+        try:
+            log_widget = self.query_one("#app-log", RichLog)
+            log_widget.write(f"[red]{message}[/red]")
+        except:
+            print(f"ERROR: {message}")
     
     def compose(self) -> ComposeResult:
         """Create child widgets"""
@@ -345,8 +447,10 @@ class MeshtasticTUI(App):
         
         # Center panel - Messages
         with Container(id="center-panel"):
-            yield MessageDisplay(id="message-display")
-            yield Input(placeholder="Type a message...", id="message-input")
+            yield RichLog(id="message-display", wrap=True, markup=True, highlight=True, auto_scroll=True)
+            with Horizontal(id="input-container"):
+                yield Input(placeholder="Type a message...", id="message-input")
+                yield Button("🤖 Force AI", id="force-ai-button")
         
         # Right panel - Nodes
         with Container(id="right-panel"):
@@ -387,6 +491,9 @@ class MeshtasticTUI(App):
         
         # Initial info panel update
         self.refresh_info_panel()
+        
+        # Focus the message display for immediate scrolling
+        self.query_one("#message-display", RichLog).focus()
     
     def load_initial_nodes(self) -> None:
         """Load nodes from Meshtastic interface"""
@@ -463,14 +570,54 @@ class MeshtasticTUI(App):
     
     def load_conversation(self) -> None:
         """Load messages for current conversation"""
+        log_widget = self.query_one("#app-log", RichLog)
         if self.current_chat_type == "channel":
             conv_id = f"ch_{self.current_chat_id}_broadcast"
         else:
             conv_id = self._dm_conv(self.current_chat_id)
         
+        log_widget.write(f"[dodger_blue1]Loading conversation for conv_id: {conv_id}[/dodger_blue1]")
+
         messages = self.conversation_manager.load_conversation(conv_id)
-        message_display = self.query_one("#message-display", MessageDisplay)
-        message_display.messages = messages
+        
+        # Debug: Show the actual message count and some info about first/last messages
+        if messages:
+            first_msg = messages[0]
+            last_msg = messages[-1]
+            log_widget.write(f"[green]Loaded {len(messages)} total messages from file[/green]")
+            log_widget.write(f"[green]First: {first_msg.get('user_name', 'Unknown')} at {datetime.fromtimestamp(first_msg.get('timestamp', 0)).strftime('%Y-%m-%d %H:%M')}[/green]")
+            log_widget.write(f"[green]Last: {last_msg.get('user_name', 'Unknown')} at {datetime.fromtimestamp(last_msg.get('timestamp', 0)).strftime('%Y-%m-%d %H:%M')}[/green]")
+        else:
+            log_widget.write(f"[yellow]No messages found for conv_id: {conv_id}[/yellow]")
+        
+        message_display = self.query_one("#message-display", RichLog)
+        
+        # Clear the message display
+        message_display.clear()
+        
+        # Write all messages to the RichLog
+        if not messages:
+            message_display.write("[dim italic]No messages yet...[/dim italic]")
+        else:
+            for msg in messages:
+                # Format each message
+                timestamp = datetime.fromtimestamp(msg.get('timestamp', time.time())).strftime("%H:%M:%S")
+                sender = msg.get('user_name', 'Unknown')
+                content = msg.get('content', '')
+                role = msg.get('role', 'user')
+                
+                # Style based on role
+                if role == 'assistant':
+                    style = "cyan"
+                    sender = "AI"
+                elif sender == "You" or sender == "You (TUI)":
+                    style = "green"
+                    sender = "You"
+                else:
+                    style = "yellow"
+                
+                # Write the message with markup
+                message_display.write(f"[dim]{timestamp}[/dim] [{style} bold]{sender}:[/{style} bold] {content}")
         
         # Update last viewed count and persist it
         self.last_viewed_messages[conv_id] = len(messages)
@@ -480,6 +627,12 @@ class MeshtasticTUI(App):
         self.update_channel_list()
         self.update_node_list()
         self.refresh_info_panel()
+        
+        # Scroll to bottom to show newest messages
+        message_display.scroll_end(animate=False)
+        
+        # Focus the message display to enable scrolling
+        self.call_after_refresh(lambda: message_display.focus())
     
     def update_stats(self) -> None:
         """Update stats panel"""
@@ -576,12 +729,17 @@ class MeshtasticTUI(App):
     
     async def process_incoming_message(self, data: dict) -> None:
         """Process an incoming message"""
+        log_widget = self.query_one("#app-log", RichLog)
+        log_widget.write(f"[deep_sky_blue1]Processing incoming message data: {data!r}[/deep_sky_blue1]")
+
         text = data['text']
         sender_id = self._norm_id(data['sender_id'])
         sender_name = data['sender_name']
         destination_id = self._norm_id(data['destination_id'])
         channel_id = data['channel_id']
         
+        log_widget.write(f"[sky_blue1]  Parsed: sender_id={sender_id}, sender_name='{sender_name}', dest_id={destination_id}, ch_id={channel_id}[/sky_blue1]")
+
         # Update node info
         if sender_id not in self.nodes:
             self.nodes[sender_id] = {
@@ -593,65 +751,112 @@ class MeshtasticTUI(App):
         
         # Determine conversation
         effective_channel_id = channel_id if channel_id is not None else 0
-        is_broadcast = destination_id.lower() == f"{meshtastic.BROADCAST_NUM:x}".lower()
+        is_broadcast = destination_id.lower() == f"{meshtastic.BROADCAST_NUM:x}".lower() or destination_id.lower() == "broadcast"
         is_dm_to_ai = (self.ai_node_id and destination_id == self.ai_node_id)
         
+        log_widget.write(f"[sky_blue1]  Flags: is_broadcast={is_broadcast}, is_dm_to_ai={is_dm_to_ai}, self.ai_node_id={self.ai_node_id}[/sky_blue1]")
+
         if is_dm_to_ai:
-            conv_id = self._dm_conv(sender_id)
+            conv_id = self._dm_conv(sender_id) # DM with the sender of this message
         else:
             conv_id = f"ch_{effective_channel_id}_broadcast"
         
+        log_widget.write(f"[cyan1]  Calculated conv_id: {conv_id} (for sender_id: {sender_id})[/cyan1]")
+
         # Add message to conversation
+        # For incoming messages, the "role" is always "user" from the perspective of this conversation history
+        # user_name is the sender_name from the packet
+        log_widget.write(f"[cyan1]  Adding to ConversationManager: conv_id='{conv_id}', role='user', user_name='{sender_name}', node_id='{sender_id}'[/cyan1]")
         self.conversation_manager.add_message(conv_id, "user", text, user_name=sender_name, node_id=sender_id)
         
-        # Get current conversation ID
+        # Get current conversation ID that is being viewed
         current_conv_id = f"ch_{self.current_chat_id}_broadcast" if self.current_chat_type == "channel" else self._dm_conv(self.current_chat_id)
-        
-        # Update unread status if message is not in current conversation
-        if conv_id != current_conv_id:
-            # Update lists to show new unread status
+        log_widget.write(f"[plum2]  Currently viewing conv_id: {current_conv_id}[/plum2]")
+
+        # Update unread status and display
+        if conv_id == current_conv_id:
+            log_widget.write(f"[green3]  Incoming message for currently viewed chat. Reloading conversation.[/green3]")
+            self.load_conversation() # This also handles unread count for the current conversation
+        else:
+            log_widget.write(f"[yellow3]  Incoming message for a background chat. Updating unread lists.[/yellow3]")
+            # Update lists to show new unread status for background chats
             self.update_channel_list()
             self.update_node_list()
             self.refresh_info_panel()
         
-        # Update display if this message belongs to the conversation currently open
-        if conv_id == current_conv_id:
-            self.load_conversation()
-        
-        # Log message
-        log = self.query_one("#app-log", RichLog)
-        log.write(f"[yellow]Message from {sender_name}: {text[:50]}...[/yellow]")
+        # Log raw message to app log
+        log_widget.write(f"[yellow]MSG from {sender_name}: {text[:50].strip()}...[/yellow]")
         
         # rx counter update
         self.rx_count += 1
         
-        # Decide if the AI should respond
-        should_consider_reply = False
+        # STEP 2: Decide if our AI should respond to this incoming message
+        log_widget.write(f"[bright_magenta]AI Decision Logic: is_dm_to_ai={is_dm_to_ai}, channel_id={effective_channel_id}, active_ai_channel={self.active_channel_for_ai_posts}[/bright_magenta]")
+        
+        should_ai_respond = False
+        skip_triage = False
+        
+        # Check if AI should respond
         if is_dm_to_ai:
-            should_consider_reply = True
-        elif is_broadcast and effective_channel_id == self.app_config.ACTIVE_MESHTASTIC_CHANNEL_INDEX:
-            if self.enable_ai_triage:
-                history_for_triage_raw = self.conversation_manager.load_conversation(conv_id)
-                triage_context_messages = []
-                for msg_entry in history_for_triage_raw[-(self.triage_context_count + 1):-1]:
-                    if msg_entry.get("role") == "user":
-                        name = msg_entry.get("user_name", f"Node-{msg_entry.get('node_id','????')}")
-                        triage_context_messages.append(f"{name}: {msg_entry.get('content','')}")
-
-                triage_decision = self.ai_bridge.should_main_ai_respond(
-                    triage_context_messages, text, sender_name
-                )
-                log.write(f"[bright_yellow]Triage decision for {sender_name}: {'YES' if triage_decision else 'NO'}[/bright_yellow]")
-                should_consider_reply = triage_decision
+            log_widget.write(f"[bright_magenta]  This is a DM to AI - AI WILL respond (skip_triage=True)[/bright_magenta]")
+            should_ai_respond = True
+            skip_triage = True  # Always skip triage for DMs
+        elif effective_channel_id == self.active_channel_for_ai_posts and is_broadcast:
+            log_widget.write(f"[bright_magenta]  This is on AI's active channel {self.active_channel_for_ai_posts} - checking probability...[/bright_magenta]")
+            # Check cooldown
+            now = time.time()
+            if self.ai_cooldown > 0:
+                last_response_time = self.last_response_times.get(conv_id, 0)
+                time_since_last = now - last_response_time
+                if time_since_last < self.ai_cooldown:
+                    log_widget.write(f"[bright_magenta]  Cooldown active: {time_since_last:.1f}s < {self.ai_cooldown}s - AI will NOT respond[/bright_magenta]")
+                    should_ai_respond = False
+                else:
+                    # Check probability
+                    roll = random.random()
+                    if roll <= self.ai_response_probability:
+                        log_widget.write(f"[bright_magenta]  Probability check passed: {roll:.2f} <= {self.ai_response_probability} - AI WILL respond[/bright_magenta]")
+                        should_ai_respond = True
+                        skip_triage = not self.enable_ai_triage  # Use triage if enabled for channels
+                    else:
+                        log_widget.write(f"[bright_magenta]  Probability check failed: {roll:.2f} > {self.ai_response_probability} - AI will NOT respond[/bright_magenta]")
+                        should_ai_respond = False
             else:
-                should_consider_reply = True
-
-        if should_consider_reply:
-            threading.Thread(
-                target=self.handle_ai_response,
-                args=(text, sender_id, sender_name, effective_channel_id, is_dm_to_ai, conv_id),
-                daemon=True
-            ).start()
+                # No cooldown, just check probability
+                roll = random.random()
+                if roll <= self.ai_response_probability:
+                    log_widget.write(f"[bright_magenta]  Probability check passed: {roll:.2f} <= {self.ai_response_probability} - AI WILL respond[/bright_magenta]")
+                    should_ai_respond = True
+                    skip_triage = not self.enable_ai_triage  # Use triage if enabled for channels
+                else:
+                    log_widget.write(f"[bright_magenta]  Probability check failed: {roll:.2f} > {self.ai_response_probability} - AI will NOT respond[/bright_magenta]")
+                    should_ai_respond = False
+        else:
+            log_widget.write(f"[bright_magenta]  Not a DM to AI and not on AI's active channel - AI will NOT respond[/bright_magenta]")
+            should_ai_respond = False
+        
+        # Start AI worker if needed
+        if should_ai_respond:
+            log_widget.write(f"[bright_green]Starting AIProcessingWorker for {sender_name} in conv_id={conv_id}, skip_triage={skip_triage}[/bright_green]")
+            processor = AIProcessingWorker(
+                self,
+                text,
+                sender_id,
+                sender_name,
+                effective_channel_id,
+                is_dm_to_ai,
+                conv_id,
+                self.url_pattern,
+                skip_triage=skip_triage
+            )
+            self.run_worker(
+                processor.run,
+                exclusive=True,
+                group="ai_proc",
+                thread=True
+            )
+        else:
+            log_widget.write(f"[bright_red]AI will NOT respond to this message[/bright_red]")
     
     def handle_ai_response(self, text, sender_id, sender_name, channel_id, is_dm, conv_id):
         """Handle AI response generation"""
@@ -725,6 +930,10 @@ class MeshtasticTUI(App):
     def action_toggle_nodes(self) -> None:
         """Focus node list"""
         self.query_one("#node-list").focus()
+    
+    def action_focus_messages(self) -> None:
+        """Focus the message display for scrolling"""
+        self.query_one("#message-display", RichLog).focus()
 
     def refresh_info_panel(self):
         """Update the compact info panel with current stats."""
@@ -772,8 +981,91 @@ class MeshtasticTUI(App):
         self.save_last_viewed_state()
         # No need to call super() as we're handling the event directly
 
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button press events"""
+        if event.button.id == "force-ai-button":
+            await self.force_ai_response()
+
+    async def action_force_ai(self) -> None:
+        """Action handler for force AI keyboard shortcut"""
+        await self.force_ai_response()
+
+    async def force_ai_response(self) -> None:
+        """Force AI to respond to recent messages"""
+        if not self.current_chat_id:
+            self.query_one("#app-log", RichLog).write("[orange3]Cannot force AI response: No active chat.[/orange3]")
+            return
+        
+        # Determine conversation ID
+        if self.current_chat_type == "channel":
+            conv_id = f"ch_{self.current_chat_id}_broadcast"
+        else: # DM
+            conv_id = self._dm_conv(self.current_chat_id)
+        
+        history = self.conversation_manager.load_conversation(conv_id)
+        if not history:
+            # It's possible to force a reply in an empty chat, so create a minimal context
+            self.query_one("#app-log", RichLog).write("[grey53]Forcing AI response in empty chat.[/grey53]")
+            # No history, AI will respond based on the prompt alone
+        
+        # Get the last 3-4 messages if history exists
+        recent_messages = history[-4:] if history and len(history) >= 4 else (history if history else [])
+        
+        # Create a context from recent messages
+        context_str = "\n".join([
+            f"{msg.get('user_name', 'Unknown')}: {msg.get('content', '')}"
+            for msg in recent_messages
+        ])
+        
+        # Create a prompt for the AI
+        if recent_messages:
+            prompt = f"Recent conversation context:\n{context_str}\n\nPlease provide a natural response to this conversation."
+        else:
+            prompt = "Please provide a general, friendly opening message for this new conversation."
+
+        is_current_chat_dm = self.current_chat_type == "dm"
+        
+        # If DM, the AIProcessingWorker's 'sender_id' param becomes the destination_id_hex.
+        # If channel, it's context for the AI.
+        target_node_id_for_worker = self.current_chat_id if is_current_chat_dm else "local_tui_user"
+
+        # Log the details before starting worker
+        log_msg = f"Forcing AI response. DM: {is_current_chat_dm}, Target: {target_node_id_for_worker}, Conv: {conv_id}"
+        self.query_one("#app-log", RichLog).write(f"[grey53]{log_msg}[/grey53]")
+
+        processor = AIProcessingWorker(
+            self, # app instance
+            prompt, # text for AI
+            target_node_id_for_worker, # For DMs, this is the destination. For channels, context.
+            "You (TUI)", # sender_name for AI context (who is asking for the response)
+            self.active_channel_for_ai_posts, # channel_id to send on
+            is_current_chat_dm, # is_dm flag
+            conv_id, # conversation_id
+            self.url_pattern,
+            skip_triage=True  # Skip triage for forced responses
+        )
+        
+        self.run_worker(
+            processor.run, 
+            exclusive=True,
+            group="ai_proc",
+            thread=True
+        )
+
 def main():
     """Main entry point"""
+    # Set up logging to file
+    import logging
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(asctime)s %(levelname)s: %(message)s',
+        handlers=[
+            logging.FileHandler('tui.backend.log', mode='a'),
+            logging.StreamHandler()
+        ]
+    )
+    logging.info("Starting TUI application")
+    
     app = MeshtasticTUI()
     app.run()
 

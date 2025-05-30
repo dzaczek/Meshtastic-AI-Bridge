@@ -12,6 +12,10 @@ import random
 from collections import deque
 import logging
 from tui_app import main as tui_main
+from textual.app import App, ComposeResult
+from textual.containers import Horizontal, VerticalScroll, Container
+from textual.widgets import Header, Footer, ListView, RichLog, Input, Button
+from textual.reactive import reactive
 
 # --- Initial Setup & Debug Function ---
 print_debug = True 
@@ -159,23 +163,28 @@ class MeshtasticAIAppConsole:
 
     def handle_meshtastic_message(self, text, sender_id, sender_name, destination_id, channel_id):
         print(f"\n[RX CONSOLE] From: {sender_name} ({sender_id}) | To: {destination_id} | Ch: {channel_id} | Msg: \"{text[:100]}{'...' if len(text)>100 else ''}\"")
+        print(f"DEBUG: Entered handle_meshtastic_message with sender_id={sender_id}, destination_id={destination_id}, ai_node_id_hex={self.ai_node_id_hex}")
         effective_channel_id = channel_id
         is_broadcast_msg = destination_id.lower() == f"{meshtastic.BROADCAST_NUM:x}".lower() or destination_id.lower() == "broadcast"
         if effective_channel_id is None and is_broadcast_msg: effective_channel_id = 0 
         elif effective_channel_id is None and not is_broadcast_msg: effective_channel_id = 0
-        if self.ai_node_id_hex and sender_id.lower() == self.ai_node_id_hex.lower(): return
+        if self.ai_node_id_hex and sender_id.lower() == self.ai_node_id_hex.lower():
+            print("DEBUG: Message is from AI itself. Ignoring.")
+            return
         is_dm_to_ai = (self.ai_node_id_hex and destination_id.lower() == self.ai_node_id_hex.lower())
+        print(f"DEBUG: is_dm_to_ai={is_dm_to_ai}")
         is_on_ai_active_channel_broadcast = (effective_channel_id == self.active_channel_for_ai_posts and is_broadcast_msg)
         conv_id_params = {"sender_id_hex": sender_id, "channel_id": effective_channel_id if not is_dm_to_ai else None, "ai_node_id_hex": self.ai_node_id_hex, "destination_id_hex": destination_id}
         conversation_id = self.conversation_manager._get_conversation_id(**conv_id_params)
+        print(f"DEBUG: conversation_id={conversation_id}")
         self.conversation_manager.add_message(conversation_id, "user", text, user_name=sender_name, node_id=sender_id)
         should_consider_reply = False
         if is_dm_to_ai:
-            dprint(f"CLI: Message is DM to AI. Will consider responding.")
+            print(f"CLI: Message is DM to AI. Will consider responding.")
             should_consider_reply = True
         elif is_on_ai_active_channel_broadcast:
             if self.enable_ai_triage:
-                dprint(f"CLI: Message on active AI channel. Performing AI Triage for conv_id '{conversation_id}'...")
+                print(f"CLI: Message on active AI channel. Performing AI Triage for conv_id '{conversation_id}'...")
                 history_for_triage_raw = self.conversation_manager.load_conversation(conversation_id)
                 triage_context_messages = []
                 for msg_entry in history_for_triage_raw[-(self.triage_context_count + 1) : -1]: 
@@ -183,21 +192,23 @@ class MeshtasticAIAppConsole:
                         name = msg_entry.get("user_name", f"Node-{msg_entry.get('node_id','????')}")
                         triage_context_messages.append(f"{name}: {msg_entry.get('content','')}")
                 if self.ai_bridge.should_main_ai_respond(triage_context_messages, text, sender_name):
-                    dprint("CLI: AI Triage decided YES. AI will consider responding.")
+                    print("CLI: AI Triage decided YES. AI will consider responding.")
                     should_consider_reply = True
-                else: dprint("CLI: AI Triage decided NO. AI will not respond.")
+                else: print("CLI: AI Triage decided NO. AI will not respond.")
             else: 
-                dprint("CLI: Message on active AI channel (Triage disabled). AI will consider responding.")
+                print("CLI: Message on active AI channel (Triage disabled). AI will consider responding.")
                 should_consider_reply = True
-        if not should_consider_reply: return
+        if not should_consider_reply:
+            print("DEBUG: should_consider_reply is False. Exiting.")
+            return
         now = time.time()
         if self.ai_cooldown > 0:
             last_response_time = self.last_response_times.get(conversation_id, 0)
             if (now - last_response_time) < self.ai_cooldown:
-                dprint(f"CLI: AI Cooldown active for conv_id '{conversation_id}'. Skipping. Last response {now - last_response_time:.0f}s ago.")
+                print(f"CLI: AI Cooldown active for conv_id '{conversation_id}'. Skipping. Last response {now - last_response_time:.0f}s ago.")
                 return 
         if random.random() > self.ai_response_probability:
-            dprint(f"CLI: AI decided not to respond based on probability ({self.ai_response_probability*100:.0f}% chance).")
+            print(f"CLI: AI decided not to respond based on probability ({self.ai_response_probability*100:.0f}% chance).")
             return
         context_history = self.conversation_manager.get_contextual_history(conversation_id, for_user_name=sender_name)
         web_analysis_summary = None
@@ -210,12 +221,13 @@ class MeshtasticAIAppConsole:
                 if web_analysis_summary: print(f"INFO: Web analysis summary: {web_analysis_summary[:100]}...")
                 else: print(f"INFO: Web analysis for {detected_url} yielded no summary.")
             except Exception as e_web: print(f"ERROR: URL analysis failed: {e_web}"); traceback.print_exc(); web_analysis_summary = f"[Error analyzing URL]"
-        log_info(f"Getting AI response for {sender_name} ({sender_id})...")
+        print(f"DEBUG: Getting AI response for {sender_name} ({sender_id})...")
         ai_response_text = self.ai_bridge.get_response(context_history, text, sender_name, sender_id, web_analysis_summary=web_analysis_summary)
+        print(f"DEBUG: ai_response_text={ai_response_text}")
         if ai_response_text and ai_response_text.strip():
             if self.ai_min_delay >= 0 and self.ai_max_delay > self.ai_min_delay :
                 delay = random.uniform(self.ai_min_delay, self.ai_max_delay)
-                dprint(f"AI response generated. Applying random delay of {delay:.1f}s before sending.")
+                print(f"AI response generated. Applying random delay of {delay:.1f}s before sending.")
                 time.sleep(delay)
             print(f"[AI CONSOLE Replying -> {sender_name}] {ai_response_text[:100]}{'...' if len(ai_response_text)>100 else ''}")
             log_info(f"AI sent reply to {sender_name}")
@@ -225,10 +237,12 @@ class MeshtasticAIAppConsole:
             if self.meshtastic_handler and self.meshtastic_handler.is_connected:
                 if is_dm_to_ai:
                     success, reason = self.meshtastic_handler.send_message(ai_response_text, destination_id_hex=sender_id, channel_index=reply_channel_index)
+                    print(f"DEBUG: DM send_message result: success={success}, reason={reason}")
                     if not success:
                         print(f"ERROR: Failed to send DM reply: {reason}")
                 else:
                     success, reason = self.meshtastic_handler.send_message(ai_response_text, channel_index=reply_channel_index)
+                    print(f"DEBUG: Channel send_message result: success={success}, reason={reason}")
                     if not success:
                         print(f"ERROR: Failed to send channel reply: {reason}")
             else: print("ERROR: Cannot send AI reply, Meshtastic disconnected.")
@@ -402,6 +416,96 @@ def cli_connection_monitor_loop(app_instance_ref_list, stop_event_ref):
                     dprint("CLI Monitor: Connection restored.")
     dprint("CLI Connection monitor thread finished.")
 
+class MeshtasticTUI(App[None]):
+    TITLE = "Meshtastic AI Bridge - TUI"
+    CSS_PATH = "meshtastic_tui.css"
+    BINDINGS = [
+        ("q", "quit_app", "Quit"),
+        ("ctrl+c", "quit_app", "Quit"),
+        ("f", "force_ai", "Force AI Response")  # Add keyboard shortcut
+    ]
+    current_conversation_id = reactive(None, layout=True)
+    sidebar_conversations = reactive([], layout=True)
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        with Horizontal(id="app-grid"):
+            with VerticalScroll(id="sidebar", classes="sidebar-area"):
+                yield Label("Conversations", classes="sidebar-title")
+                yield ListView(id="conversation_list")
+            with Container(id="chat-view-container"):
+                yield RichLog(id="chat_log", wrap=True, markup=True, classes="chat-log-area")
+                with Horizontal(id="input-container"):
+                    yield Input(placeholder="Type message...", id="message_input")
+                    yield Button("🤖 Force AI", id="force_ai_button", classes="force-ai-button")
+        yield Footer()
+
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button press events"""
+        if event.button.id == "force_ai_button":
+            await self.force_ai_response()
+
+    async def action_force_ai(self) -> None:
+        """Action handler for force AI keyboard shortcut"""
+        await self.force_ai_response()
+
+    async def force_ai_response(self) -> None:
+        """Force AI to respond to recent messages"""
+        if not self.current_conversation_id:
+            return
+        
+        # Get the last few messages from the current conversation
+        history = self.conversation_manager.load_conversation(self.current_conversation_id)
+        if not history:
+            return
+        
+        # Get the last 3-4 messages
+        recent_messages = history[-4:] if len(history) >= 4 else history
+        
+        # Create a context from recent messages
+        context = "\n".join([
+            f"{msg.get('user_name', 'Unknown')}: {msg.get('content', '')}"
+            for msg in recent_messages
+        ])
+        
+        # Create a prompt for the AI
+        prompt = f"Recent conversation context:\n{context}\n\nPlease provide a natural response to this conversation."
+        
+        # Run AI worker without triage
+        self.run_worker(
+            AIProcessingWorker(
+                self,
+                prompt,
+                "local_tui_user",
+                "You (TUI)",
+                self.active_channel_for_ai_posts,
+                False,  # not a DM
+                self.current_conversation_id,
+                self.url_pattern,
+                skip_triage=True  # Skip triage for forced responses
+            ),
+            exclusive=True,
+            group="ai_proc",
+            thread=True
+        )
+
+    async def process_incoming_mesh_message(self, text, sender_id, sender_name, destination_id, channel_id):
+        str_ai_id = str(self.ai_node_id_hex or "").lower()
+        str_dest_id = str(destination_id or "").lower()
+        is_dm_to_ai = (str_ai_id and str_dest_id == str_ai_id)
+        eff_ch_id = channel_id if channel_id is not None else 0
+
+        # Determine conversation ID (mirroring CLI logic)
+        conv_params = {"sender_id_hex": str(sender_id), "channel_id": eff_ch_id if not is_dm_to_ai else None, "ai_node_id_hex": str_ai_id, "destination_id_hex": str_dest_id}
+        conv_id = self.conversation_manager._get_conversation_id(**conv_params)
+        self.conversation_manager.add_message(conv_id, "user", text, user_name=sender_name, node_id=str(sender_id))
+
+        if is_dm_to_ai:
+            dprint(f"TUI: AI to respond to DM. Starting worker for conv_id={conv_id}.")
+            self.run_worker(
+                AIProcessingWorker(self, text, str(sender_id), sender_name, eff_ch_id, True, conv_id, self.url_pattern),
+                exclusive=True, group="ai_proc", thread=True
+            )
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Meshtastic AI Bridge Application")

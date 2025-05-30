@@ -12,14 +12,22 @@ Screen {
 #sidebar {
     width: 30%;
     dock: left;
+    overflow-y: auto;
 }
 
 #main-content {
     width: 70%;
+    overflow-y: scroll;
+    padding: 0 1;
+    scrollbar-size: 1;
 }
 
 #chat-view-container {
-    height: 70%;
+    height: 100%;
+    overflow-y: scroll;
+    padding: 0 1;
+    scrollbar-size: 1;
+    layout: vertical;
 }
 
 #logs-container {
@@ -28,13 +36,53 @@ Screen {
 
 #chat_log {
     height: 1fr;
+    overflow-y: scroll;
+    padding: 0 1;
+    scrollbar-size: 1;
 }
 
 #system_logs {
     height: 1fr;
 }
 
-#message_input {
+#input-container {
+    layout: horizontal;
     height: 3;
     dock: bottom;
+    width: 100%;
+}
+
+#message_input {
+    width: 1fr;
+    height: 3;
+}
+
+#force_ai_button {
+    width: 10;
+    height: 3;
+    margin-left: 1;
+    background: #2c3e50;
+    color: white;
+}
+
+#force_ai_button:hover {
+    background: #34495e;
+}
+
+#force_ai_button:active {
+    background: #1a252f;
+}
+
+.sidebar-area {
+    border-right: solid #444;
+}
+
+.chat-log-area {
+    overflow-y: auto;
+}
+
+.sidebar-title {
+    text-align: center;
+    text-style: bold;
+    margin: 1 0;
 }
