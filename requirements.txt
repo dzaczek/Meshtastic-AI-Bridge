@@ -7,6 +7,16 @@ rich>=13.7.0
 openai>=1.0.0  # For AI integration
 python-dotenv>=1.0.0  # For environment variables
 google-generativeai
+
+# Web scraping and parsing
+playwright>=1.40.0  # For web automation
+beautifulsoup4>=4.12.0  # For HTML parsing
+requests>=2.31.0  # For HTTP requests
+nest-asyncio>=1.5.8  # For nested asyncio
+
+# Messaging and events
+PyPubSub>=4.0.3  # For pubsub pattern used in meshtastic_handler
+
 # Utilities
 pyserial>=3.5  # For future serial support
 typing-extensions>=4.8.0
