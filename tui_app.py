@@ -131,8 +131,13 @@ class NodeListItem(ListItem):
         icon = "★" if self.is_favorite else "●"
         # Get name and sanitize it to avoid markup issues
         name = self.node_info.get('long_name', 'Unknown')
-        # Remove any special characters that could interfere with markup
-        name = re.sub(r'[\[\]{}]', '', name)
+        # Remove any special characters and markup that could interfere with display
+        # This includes emoji, brackets, and other special characters
+        name = re.sub(r'[^\w\s\-\(\)\.]', '', name)
+        # Remove any remaining brackets and their contents
+        name = re.sub(r'\[.*?\]', '', name)
+        # Clean up any double spaces created by the replacements
+        name = re.sub(r'\s+', ' ', name).strip()
         node_id = self.node_id
         
         # Check if this is a default Meshtastic name
