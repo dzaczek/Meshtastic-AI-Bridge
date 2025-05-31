@@ -129,7 +129,10 @@ class NodeListItem(ListItem):
     def compose(self) -> ComposeResult:
         """Compose the node item"""
         icon = "★" if self.is_favorite else "●"
+        # Get name and sanitize it to avoid markup issues
         name = self.node_info.get('long_name', 'Unknown')
+        # Remove any special characters that could interfere with markup
+        name = re.sub(r'[\[\]{}]', '', name)
         node_id = self.node_id
         
         # Check if this is a default Meshtastic name
@@ -160,8 +163,9 @@ class NodeListItem(ListItem):
         else:
             display_text = f"{icon} {name}{hop_indicator} !{node_id}"
         
+        # Use plain text style to avoid markup issues
         style = "reverse" if self.unread_count > 0 else ""
-        yield Label(display_text, classes=style)
+        yield Label(display_text, classes=style, markup=False)
 
 class ChannelListItem(ListItem):
     """Custom list item for channels"""
