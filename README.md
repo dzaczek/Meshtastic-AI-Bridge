@@ -87,106 +87,22 @@ ACTIVE_MESHTASTIC_CHANNEL_INDEX = 0  # Primary channel
 
 ### Running the Main Application
 
-1. Start the application with TUI mode:
-```bash
-python main_app.py --textual_ui
-```
+The application now runs in interactive TUI mode by default:
 
-2. Start in console mode:
 ```bash
 python main_app.py
 ```
 
+You can also explicitly enable interactive mode:
+```bash
+python main_app.py -i
+```
+
+Additional options:
+- `--no-debug-prints`: Disable verbose DEBUG prints
+- `-d` or `--debug`: Enable ultra-verbose debug logging
+
 ### Chat Analysis Tool
 
 To analyze chat history:
-```bash
-cd conversations
-python chat_ui.py
 ```
-
-The chat analysis tool provides:
-- List of available chat history files
-- Message statistics per user
-- Channel participation metrics
-- Color-coded message display
-- Interactive navigation
-
-### Key Bindings
-
-#### Main Application
-- `q` - Quit application
-- `tab` - Focus next element
-- `shift+tab` - Focus previous element
-- `c` - Toggle channel list
-- `n` - Toggle node list
-
-#### Chat Analysis Tool
-- `q` - Quit
-- `r` - Refresh view
-- `f` - Focus file list
-- `m` - Focus messages
-- `s` - Focus statistics
-
-## Project Structure
-
-```
-Meshtastic-AI-Bridge/
-├── main_app.py              # Main application entry point
-├── tui_app.py              # Textual TUI implementation
-├── meshtastic_handler.py   # Meshtastic connection handling
-├── ai_bridge.py           # AI integration
-├── conversation_manager.py # Chat history management
-├── config.py              # Configuration file
-├── config_template.py     # Configuration template
-├── requirements.txt       # Python dependencies
-├── conversations/         # Chat history and analysis
-│   ├── chat_ui.py        # Chat analysis tool
-│   └── *.json           # Chat history files
-└── README.md             # This file
-```
-
-## Connection Types
-
-### TCP Connection (Tested)
-- Supports connection to Meshtastic devices via TCP
-- Default port: 4403
-- Example: `localhost:4403`
-
-### Serial Connection (Planned)
-- Future support for direct serial connection
-- Will support USB and other serial interfaces
-- Configuration via device path (e.g., `/dev/ttyUSB0`)
-
-## Contributing
-_At the moment, I don't have time to check the code, so we need automated unit tests and less vibework._
-
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Acknowledgments
-
-- [Meshtastic](https://meshtastic.org/) for the mesh networking protocol
-- [Textual](https://github.com/Textualize/textual) for the TUI framework
-- [Rich](https://github.com/Textualize/rich) for beautiful terminal formatting
-
-## Support
-
-For issues and feature requests, please use the GitHub issue tracker.
-
-## Roadmap
-
-- [ ] Serial connection support
-   - [X] Tested on LilyGo T-Beam SUPREME 
-- [ ] Enhanced AI capabilities
-- [ ] Message encryption
-- [ ] Additional chat analysis features
-- [ ] Mobile device support
-- [ ] Web interface 

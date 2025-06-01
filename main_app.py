@@ -20,10 +20,10 @@ from textual.reactive import reactive
 # --- Initial Setup & Debug Function ---
 print_debug = True 
 
-# Global log buffer for TUI mode
-tui_log_buffer = deque(maxlen=50)  # Keep last 50 log entries
+# Global log buffer for interactive mode
+interactive_log_buffer = deque(maxlen=50)  # Keep last 50 log entries
 
-LOG_FILE_PATH = "tui.backend.log"
+LOG_FILE_PATH = "interactive.backend.log"
 logging.basicConfig(
     filename=LOG_FILE_PATH,
     filemode='a',
@@ -35,25 +35,25 @@ def dprint(message: str):
     if print_debug:
         try:
             print(f"DEBUG: {message}")
-            # Also add to TUI log buffer
-            tui_log_buffer.append(f"DEBUG: {message}")
+            # Also add to interactive log buffer
+            interactive_log_buffer.append(f"DEBUG: {message}")
             logging.debug(message)
         except UnicodeEncodeError:
             fallback_msg = f"DEBUG (ascii-fallback): {message.encode('ascii', 'replace').decode('ascii')}"
             print(fallback_msg)
-            tui_log_buffer.append(fallback_msg)
+            interactive_log_buffer.append(fallback_msg)
             logging.debug(fallback_msg)
 
 def log_info(message: str):
-    """Log info messages that should appear in both console and TUI logs"""
+    """Log info messages that should appear in both console and interactive logs"""
     print(f"INFO: {message}")
-    tui_log_buffer.append(f"INFO: {message}")
+    interactive_log_buffer.append(f"INFO: {message}")
     logging.info(message)
 
 def log_error(message: str):
-    """Log error messages that should appear in both console and TUI logs"""
+    """Log error messages that should appear in both console and interactive logs"""
     print(f"ERROR: {message}")
-    tui_log_buffer.append(f"ERROR: {message}")
+    interactive_log_buffer.append(f"ERROR: {message}")
     logging.error(message)
 
 dprint("main_app.py - Script execution started (Top of file).")
@@ -416,8 +416,8 @@ def cli_connection_monitor_loop(app_instance_ref_list, stop_event_ref):
                     dprint("CLI Monitor: Connection restored.")
     dprint("CLI Connection monitor thread finished.")
 
-class MeshtasticTUI(App[None]):
-    TITLE = "Meshtastic AI Bridge - TUI"
+class MeshtasticInteractive(App[None]):
+    TITLE = "Meshtastic AI Bridge - Interactive Interface"
     CSS_PATH = "meshtastic_tui.css"
     BINDINGS = [
         ("q", "quit_app", "Quit"),
@@ -509,8 +509,7 @@ class MeshtasticTUI(App[None]):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Meshtastic AI Bridge Application")
-    parser.add_argument("-tui", "--textual_ui", action="store_true", help="Run with Textual TUI instead of console UI")
-    parser.add_argument("-i", "--interactive", action="store_true", help="Run with interactive curses-based TUI")
+    parser.add_argument("-i", "--interactive", action="store_true", help="Run with interactive TUI (default)")
     parser.add_argument("--no-debug-prints", action="store_true", help="Disable verbose DEBUG prints")
     parser.add_argument("-d", "--debug", action="store_true", help="Enable ultra-verbose debug logging")
     cmd_args = parser.parse_args()
@@ -522,6 +521,10 @@ if __name__ == "__main__":
     if cmd_args.debug: print_debug = True
     dprint(f"main_app.py - Parsed cmd args: {cmd_args}")
     
+    # Default to interactive mode if no other mode specified
+    if not cmd_args.interactive and not any([cmd_args.no_debug_prints, cmd_args.debug]):
+        cmd_args.interactive = True
+    
     if cmd_args.interactive:
         dprint("Starting Interactive TUI mode...")
         try:
@@ -530,55 +533,8 @@ if __name__ == "__main__":
             print(f"ERROR: Interactive TUI failed to start: {e}")
             traceback.print_exc()
         dprint("Interactive TUI mode ended.")
-    elif not cmd_args.textual_ui:
-        dprint("Starting Console UI mode...")
-        initial_connection_attempts = 0
-        max_startup_retries = getattr(config, 'INITIAL_CONNECTION_MAX_RETRIES', 5) 
-        startup_retry_delay = getattr(config, 'INITIAL_CONNECTION_RETRY_DELAY', 30) 
-        if max_startup_retries is None: max_startup_retries = float('inf')
-
-        while initial_connection_attempts < max_startup_retries:
-            active_cli_app_wrapper[0] = try_create_cli_app_instance(initial_connection_attempts + 1)
-            if active_cli_app_wrapper[0] and \
-               active_cli_app_wrapper[0].meshtastic_handler and \
-               active_cli_app_wrapper[0].meshtastic_handler.is_connected:
-                print("INFO: CLI Application initialized successfully."); break 
-            initial_connection_attempts += 1
-            if initial_connection_attempts < max_startup_retries:
-                print(f"INFO: Waiting {startup_retry_delay}s before next startup attempt ({initial_connection_attempts}/{'infinite' if max_startup_retries == float('inf') else max_startup_retries}).")
-                try:
-                    for _ in range(startup_retry_delay): time.sleep(1)
-                except KeyboardInterrupt:
-                    print("\nINFO: Startup retry delay interrupted by user. Exiting.")
-                    active_cli_app_wrapper[0] = None 
-                    break 
-            else: 
-                print("CRITICAL: Maximum initial connection attempts reached. CLI Application will not start.")
-                active_cli_app_wrapper[0] = None; break 
-        
-        active_cli_app = active_cli_app_wrapper[0]
-        if active_cli_app:
-            try:
-                cli_monitor_thread = threading.Thread(target=cli_connection_monitor_loop, args=(active_cli_app_wrapper, active_cli_app._stop_event), daemon=True)
-                active_cli_app.reconnection_monitor_thread = cli_monitor_thread
-                cli_monitor_thread.start()
-                active_cli_app.run_console_ui()
-            except KeyboardInterrupt: 
-                print("\nINFO: main_app.py - CLI Main run interrupted by user.")
-                if active_cli_app: active_cli_app._stop_event.set()
-            except Exception as e_main_run: 
-                print(f"CRITICAL CLI Exception: {e_main_run}")
-                traceback.print_exc()
-                if active_cli_app: active_cli_app._stop_event.set()
-            finally:
-                dprint("CLI Main execution finished. Entering finally...")
-                if active_cli_app: 
-                    dprint("Calling app.close_app() for CLI cleanup...")
-                    active_cli_app.close_app() 
-                dprint("CLI Application terminated.")
-        else: 
-            print("INFO: CLI Application did not start.")
-        print("ERROR: Textual UI mode is no longer supported. Use -i for interactive TUI mode.")
+    else:
+        print("ERROR: Interactive TUI mode is now the default. Use -i to explicitly enable it.")
         sys.exit(1)
 
     dprint("main_app.py - Script finished.")

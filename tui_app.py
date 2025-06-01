@@ -243,8 +243,8 @@ class InfoPanel(Static):
             table.add_row(key, str(val))
         return Panel(table, title="Info", border_style="green")
 
-class MeshtasticTUI(App):
-    """Main TUI Application using Textual"""
+class MeshtasticInteractive(App):
+    """Main Interactive Application using Textual"""
     
     CSS = """
     Screen {
@@ -1114,13 +1114,13 @@ def main():
         level=logging.DEBUG,
         format='%(asctime)s %(levelname)s: %(message)s',
         handlers=[
-            logging.FileHandler('tui.backend.log', mode='a'),
+            logging.FileHandler('interactive.backend.log', mode='a'),
             logging.StreamHandler()
         ]
     )
-    logging.info("Starting TUI application")
+    logging.info("Starting interactive application")
     
-    app = MeshtasticTUI()
+    app = MeshtasticInteractive()
     app.run()
 
 if __name__ == "__main__":
