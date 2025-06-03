@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 """
-Diagnostic script to identify TUI message sending issue
+Diagnostic script to identify message sending issues in interactive mode
 """
 import sys
 import time
 
-print("=== TUI Message Sending Diagnostic ===")
+print("=== Interactive Mode Message Sending Diagnostic ===")
 print("\nChecking logs for key patterns...\n")
 
 # Read the log file
-log_file = "tui.backend.log"
+log_file = "interactive.backend.log"
 try:
     with open(log_file, 'r') as f:
         lines = f.readlines()
 except FileNotFoundError:
-    print(f"ERROR: {log_file} not found. Please run TUI mode first.")
+    print(f"ERROR: {log_file} not found. Please run the application in interactive mode first.")
     sys.exit(1)
 
 # Analysis patterns

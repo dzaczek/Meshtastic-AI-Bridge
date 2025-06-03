@@ -105,4 +105,3 @@ Additional options:
 ### Chat Analysis Tool
 
 To analyze chat history:
-```
