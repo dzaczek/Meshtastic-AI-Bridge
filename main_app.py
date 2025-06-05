@@ -16,6 +16,7 @@ from textual.app import App, ComposeResult
 from textual.containers import Horizontal, VerticalScroll, Container
 from textual.widgets import Header, Footer, ListView, RichLog, Input, Button
 from textual.reactive import reactive
+from hal_bot import HalBot
 
 # --- Initial Setup & Debug Function ---
 print_debug = True 
@@ -24,7 +25,7 @@ print_debug = True
 interactive_log_buffer = deque(maxlen=50)  # Keep last 50 log entries
 
 LOG_FILE_PATH = "interactive.backend.log"
-logging.basicConfig(
+logging.basicConfig(    
     filename=LOG_FILE_PATH,
     filemode='a',
     format='%(asctime)s %(levelname)s: %(message)s',
@@ -133,37 +134,85 @@ class MeshtasticAIAppConsole:
         self.triage_context_count = getattr(self.app_config, 'TRIAGE_CONTEXT_MESSAGE_COUNT', 3)
         dprint(f"MeshtasticAIAppConsole.__init__ - Human-like settings: Prob={self.ai_response_probability*100:.0f}%, Delay=({self.ai_min_delay}-{self.ai_max_delay}s), Cooldown={self.ai_cooldown}s, Triage={self.enable_ai_triage}")
 
-        dprint("MeshtasticAIAppConsole.__init__ - Initializing Meshtastic Handler...")
-        self.meshtastic_handler = MeshtasticHandler(
-            connection_type=self.app_config.MESHTASTIC_CONNECTION_TYPE,
-            device_specifier=self.app_config.MESHTASTIC_DEVICE_SPECIFIER,
-            on_message_received_callback=self.handle_meshtastic_message
-        )
-        
-        connect_wait_retries = 7
-        initial_connection_confirmed = False
-        while connect_wait_retries > 0:
-            if self.meshtastic_handler and self.meshtastic_handler.is_connected:
-                initial_connection_confirmed = True; break
-            # dprint(f"MeshtasticAIAppConsole.__init__ - Waiting for connection... ({connect_wait_retries})") # Can be too noisy
-            time.sleep(1); connect_wait_retries -= 1
+        try:
+            dprint("MeshtasticAIAppConsole.__init__ - Initializing Meshtastic Handler...")
+            self.meshtastic_handler = MeshtasticHandler(
+                connection_type=self.app_config.MESHTASTIC_CONNECTION_TYPE,
+                device_specifier=self.app_config.MESHTASTIC_DEVICE_SPECIFIER,
+                on_message_received_callback=self.handle_meshtastic_message
+            )
+            
+            # Wait for connection with timeout
+            connect_wait_retries = 5  # Reduced from 7 to 5
+            initial_connection_confirmed = False
+            while connect_wait_retries > 0:
+                try:
+                    if self.meshtastic_handler and self.meshtastic_handler.is_connected:
+                        initial_connection_confirmed = True
+                        break
+                    time.sleep(1)
+                    connect_wait_retries -= 1
+                except KeyboardInterrupt:
+                    if self.meshtastic_handler:
+                        self.meshtastic_handler.close()
+                    raise KeyboardInterrupt("Connection attempt cancelled by user")
 
-        if not initial_connection_confirmed:
-            if self.meshtastic_handler: self.meshtastic_handler.close()
-            raise ConnectionError("CLI: Meshtastic handler initialized, but connection not confirmed (is_connected is False).")
+            if not initial_connection_confirmed:
+                if self.meshtastic_handler:
+                    self.meshtastic_handler.close()
+                raise ConnectionError("CLI: Meshtastic handler initialized, but connection not confirmed (is_connected is False).")
 
-        if self.meshtastic_handler.node_id is not None:
-            self.ai_node_id_hex = f"{self.meshtastic_handler.node_id:x}"
-            dprint(f"MeshtasticAIAppConsole.__init__ - Handler connected. AI Node ID: {self.ai_node_id_hex}")
-        else:
-            if self.meshtastic_handler: self.meshtastic_handler.close()
-            raise ConnectionError("CLI: Handler reported connected but node_id is None.")
-        
-        dprint("MeshtasticAIAppConsole.__init__ - Initialization complete.")
+            if self.meshtastic_handler.node_id is not None:
+                self.ai_node_id_hex = f"{self.meshtastic_handler.node_id:x}"
+                dprint(f"MeshtasticAIAppConsole.__init__ - Handler connected. AI Node ID: {self.ai_node_id_hex}")
+            else:
+                if self.meshtastic_handler:
+                    self.meshtastic_handler.close()
+                raise ConnectionError("CLI: Handler reported connected but node_id is None.")
+            
+            dprint("MeshtasticAIAppConsole.__init__ - Initialization complete.")
+            self.hal_bot = HalBot(self.meshtastic_handler)
+            
+        except KeyboardInterrupt:
+            if self.meshtastic_handler:
+                self.meshtastic_handler.close()
+            raise KeyboardInterrupt("Connection attempt cancelled by user")
+        except Exception as e:
+            if self.meshtastic_handler:
+                self.meshtastic_handler.close()
+            raise
 
     def handle_meshtastic_message(self, text, sender_id, sender_name, destination_id, channel_id):
         print(f"\n[RX CONSOLE] From: {sender_name} ({sender_id}) | To: {destination_id} | Ch: {channel_id} | Msg: \"{text[:100]}{'...' if len(text)>100 else ''}\"")
         print(f"DEBUG: Entered handle_meshtastic_message with sender_id={sender_id}, destination_id={destination_id}, ai_node_id_hex={self.ai_node_id_hex}")
+        
+        # Check if this is a HAL bot command
+        if self.hal_bot.should_handle_message(text):
+            print("DEBUG: Message is a HAL bot command. Processing...")
+            hal_result = self.hal_bot.handle_command(text, sender_id, sender_name, channel_id)
+            if hal_result and isinstance(hal_result, dict):
+                response_text = hal_result['response']  # Extract just the response text
+                is_channel_message = hal_result.get('is_channel_message', False)
+                
+                print(f"[HAL BOT] Sending response to {sender_name}")
+                if self.meshtastic_handler and self.meshtastic_handler.is_connected:
+                    if is_channel_message:
+                        # Send to channel
+                        success, reason = self.meshtastic_handler.send_message(
+                            response_text,  # Use the extracted response text
+                            channel_index=channel_id
+                        )
+                    else:
+                        # Send as DM
+                        success, reason = self.meshtastic_handler.send_message(
+                            response_text,  # Use the extracted response text
+                            destination_id_hex=sender_id,
+                            channel_index=channel_id
+                        )
+                    if not success:
+                        print(f"ERROR: Failed to send HAL bot response: {reason}")
+                return
+
         effective_channel_id = channel_id
         is_broadcast_msg = destination_id.lower() == f"{meshtastic.BROADCAST_NUM:x}".lower() or destination_id.lower() == "broadcast"
         if effective_channel_id is None and is_broadcast_msg: effective_channel_id = 0 
@@ -335,14 +384,24 @@ class MeshtasticAIAppConsole:
 # --- Main Execution & Reconnection Logic (Helper Functions MUST be defined before __main__) ---
 def try_create_cli_app_instance(attempt_num):
     try: 
+        print(f"\nAttempting to start console mode (attempt {attempt_num})...")
+        print("Press Ctrl+C to cancel if connection takes too long")
         app_instance = MeshtasticAIAppConsole(attempt_number=attempt_num)
         return app_instance 
+    except KeyboardInterrupt:
+        print("\nConnection attempt cancelled by user")
+        return None
     except ConnectionError as e: 
-        print(f"ERROR on CLI app creation attempt {attempt_num} (ConnectionError): {e}")
+        print(f"\nERROR on CLI app creation attempt {attempt_num} (ConnectionError): {e}")
+        print("Please check:")
+        print("  1. Is your Meshtastic device connected?")
+        print("  2. Is the device path correct in config.py?")
+        print("  3. Is another program using the device?")
+        return None
     except Exception as e: 
-        print(f"ERROR on CLI app creation attempt {attempt_num} (Unexpected Exception): {e}")
+        print(f"\nERROR on CLI app creation attempt {attempt_num} (Unexpected Exception): {e}")
         traceback.print_exc()
-    return None
+        return None
 
 def cli_connection_monitor_loop(app_instance_ref_list, stop_event_ref):
     dprint("CLI Connection monitor thread started.")
@@ -427,6 +486,10 @@ class MeshtasticInteractive(App[None]):
     current_conversation_id = reactive(None, layout=True)
     sidebar_conversations = reactive([], layout=True)
 
+    def __init__(self):
+        super().__init__()
+        self.hal_bot = HalBot(self.meshtastic_handler)
+
     def compose(self) -> ComposeResult:
         yield Header()
         with Horizontal(id="app-grid"):
@@ -507,9 +570,36 @@ class MeshtasticInteractive(App[None]):
                 exclusive=True, group="ai_proc", thread=True
             )
 
+        # Check if this is a HAL bot command
+        if self.hal_bot.should_handle_message(text):
+            log_widget.write(f"[bright_green]Message is a HAL bot command. Processing...[/bright_green]")
+            hal_result = self.hal_bot.handle_command(text, sender_id, sender_name, eff_ch_id)
+            if hal_result and isinstance(hal_result, dict):
+                response_text = hal_result['response']  # Extract just the response text
+                is_channel_message = hal_result.get('is_channel_message', False)
+                
+                log_widget.write(f"[bright_green]Sending HAL bot response to {sender_name}[/bright_green]")
+                if self.meshtastic_handler and self.meshtastic_handler.is_connected:
+                    if is_channel_message:
+                        # Send to channel
+                        success, reason = self.meshtastic_handler.send_message(
+                            response_text,  # Use the extracted response text
+                            channel_index=eff_ch_id
+                        )
+                    else:
+                        # Send as DM
+                        success, reason = self.meshtastic_handler.send_message(
+                            response_text,  # Use the extracted response text
+                            destination_id_hex=sender_id,
+                            channel_index=eff_ch_id
+                        )
+                    if not success:
+                        log_widget.write(f"[red]Failed to send HAL bot response: {reason}[/red]")
+                return
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Meshtastic AI Bridge Application")
-    parser.add_argument("-i", "--interactive", action="store_true", help="Run with interactive TUI (default)")
+    parser.add_argument("-i", "--interactive", action="store_true", help="Run with interactive TUI")
     parser.add_argument("--no-debug-prints", action="store_true", help="Disable verbose DEBUG prints")
     parser.add_argument("-d", "--debug", action="store_true", help="Enable ultra-verbose debug logging")
     cmd_args = parser.parse_args()
@@ -521,22 +611,56 @@ if __name__ == "__main__":
     if cmd_args.debug: print_debug = True
     dprint(f"main_app.py - Parsed cmd args: {cmd_args}")
     
-    # Default to interactive mode if no other mode specified
-    if not cmd_args.interactive and not any([cmd_args.no_debug_prints, cmd_args.debug]):
-        cmd_args.interactive = True
-    
     if cmd_args.interactive:
         dprint("Starting Interactive TUI mode...")
         try:
             tui_main()
+        except KeyboardInterrupt:
+            print("\nInteractive TUI mode cancelled by user")
+            sys.exit(0)
+        except ConnectionError as e:
+            print(f"\nERROR: Failed to connect to Meshtastic device: {e}")
+            print("Please check:")
+            print("  1. Is your Meshtastic device connected?")
+            print("  2. Is the device path correct in config.py?")
+            print("  3. Is another program using the device?")
+            sys.exit(1)
         except Exception as e:
-            print(f"ERROR: Interactive TUI failed to start: {e}")
+            print(f"\nERROR: Interactive TUI failed to start: {e}")
             traceback.print_exc()
+            sys.exit(1)
         dprint("Interactive TUI mode ended.")
     else:
-        print("ERROR: Interactive TUI mode is now the default. Use -i to explicitly enable it.")
-        sys.exit(1)
-
+        # Run in console mode
+        dprint("Starting Console mode...")
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
+            app_instance = try_create_cli_app_instance(attempt)
+            if app_instance:
+                active_cli_app_wrapper[0] = app_instance
+                stop_event = threading.Event()
+                monitor_thread = threading.Thread(
+                    target=cli_connection_monitor_loop,
+                    args=(active_cli_app_wrapper, stop_event),
+                    daemon=True
+                )
+                monitor_thread.start()
+                try:
+                    app_instance.run_console_ui()
+                except KeyboardInterrupt:
+                    print("\nConsole mode cancelled by user")
+                    break
+                finally:
+                    stop_event.set()
+                    app_instance.close_app()
+                break
+            elif attempt < max_attempts:
+                print(f"\nRetrying console mode (attempt {attempt + 1}/{max_attempts})...")
+                time.sleep(2)  # Wait before retrying
+            else:
+                print("\nERROR: Failed to start console mode after multiple attempts.")
+                sys.exit(1)
+    
     dprint("main_app.py - Script finished.")
 
 

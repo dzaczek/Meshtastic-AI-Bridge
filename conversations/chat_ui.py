@@ -134,7 +134,7 @@ class MessageDisplay(ScrollableContainer):
     
     def compose(self) -> ComposeResult:
         """Compose the message display"""
-        yield Container(id="message-container")
+        yield RichLog(id="message-log", wrap=True, markup=True, highlight=True, auto_scroll=True)
     
     def on_mount(self) -> None:
         """Called when widget is mounted"""
@@ -146,12 +146,16 @@ class MessageDisplay(ScrollableContainer):
     
     def update_messages(self) -> None:
         """Update the displayed messages"""
-        container = self.query_one("#message-container", Container)
-        container.remove_children()
+        message_log = self.query_one("#message-log", RichLog)
+        message_log.clear()
+        
+        if not self.messages:
+            message_log.write("[dim italic]No messages to display...[/dim italic]")
+            return
         
         for msg in self.messages:
             # Create message widget
-            timestamp = datetime.fromtimestamp(msg.get('timestamp', 0)).strftime("%H:%M:%S")
+            timestamp = datetime.fromtimestamp(msg.get('timestamp', 0)).strftime("%Y-%m-%d %H:%M:%S")
             sender = msg.get('user_name', 'Unknown')
             content = msg.get('content', '')
             role = msg.get('role', 'user')
@@ -163,16 +167,11 @@ class MessageDisplay(ScrollableContainer):
             else:
                 style = self.get_user_color(sender)
             
-            # Create rich text
-            message_text = Text()
-            message_text.append(f"[{timestamp}] ", style="dim")
-            message_text.append(f"{sender}: ", style=f"bold {style}")
-            message_text.append(content)
-            
-            container.mount(Static(message_text))
+            # Write message with markup
+            message_log.write(f"[dim]{timestamp}[/dim] [{style} bold]{sender}:[/{style} bold] {content}")
         
         # Scroll to bottom
-        self.scroll_end()
+        message_log.scroll_end(animate=False)
 
 class ChatAnalysisApp(App):
     """Main Chat Analysis Application"""
@@ -180,44 +179,68 @@ class ChatAnalysisApp(App):
     CSS = """
     Screen {
         layout: grid;
-        grid-size: 3 4;
-        grid-columns: 1fr 2fr 1fr;
-        grid-rows: auto 1fr 1fr auto;
+        grid-size: 2 1;
+        grid-columns: 1fr 3fr;
+        grid-rows: 1fr;
     }
     
     Header {
-        column-span: 3;
-    }
-    
-    #file-list {
-        column-span: 1;
-        row-span: 2;
-        border: solid green;
-        height: 100%;
-    }
-    
-    #message-display {
-        column-span: 1;
-        row-span: 2;
-        border: solid yellow;
-        height: 100%;
-    }
-    
-    #stats-panel {
-        column-span: 1;
-        row-span: 2;
-        border: solid blue;
-        height: 100%;
-    }
-    
-    #channel-stats {
-        column-span: 3;
-        border: solid cyan;
-        height: 100%;
+        dock: top;
     }
     
     Footer {
-        column-span: 3;
+        dock: bottom;
+    }
+    
+    #left-panel {
+        height: 100%;
+        border-right: solid $accent;
+        layout: vertical;
+    }
+    
+    #file-list {
+        height: 30%;
+        border-bottom: solid $accent;
+        background: $surface;
+    }
+    
+    #stats-container {
+        height: 70%;
+        layout: vertical;
+        background: $surface;
+    }
+    
+    #user-stats {
+        height: 50%;
+        border-bottom: solid $accent;
+    }
+    
+    #channel-stats-panel {
+        height: 50%;
+    }
+    
+    #right-panel {
+        height: 100%;
+        layout: vertical;
+    }
+    
+    #message-display {
+        height: 100%;
+        border: solid $accent;
+        background: $surface;
+        overflow-y: scroll;
+        scrollbar-gutter: stable;
+        scrollbar-size: 1 1;
+    }
+    
+    #message-display:focus {
+        border: thick $accent;
+    }
+    
+    #message-log {
+        height: 100%;
+        background: $surface;
+        padding: 1;
     }
     
     ListView {
@@ -225,9 +248,12 @@ class ChatAnalysisApp(App):
         background: $surface;
     }
     
-    MessageDisplay {
-        height: 100%;
-        background: $surface;
+    .title {
+        text-align: center;
+        padding: 1;
+        background: $accent;
+        color: $text;
+        text-style: bold;
     }
     """
     
@@ -237,6 +263,10 @@ class ChatAnalysisApp(App):
         Binding("f", "focus_file_list", "Files"),
         Binding("m", "focus_messages", "Messages"),
         Binding("s", "focus_stats", "Stats"),
+        Binding("up", "scroll_up", "Scroll Up", show=False),
+        Binding("down", "scroll_down", "Scroll Down", show=False),
+        Binding("pageup", "page_up", "Page Up", show=False),
+        Binding("pagedown", "page_down", "Page Down", show=False),
     ]
     
     def __init__(self):
@@ -250,22 +280,20 @@ class ChatAnalysisApp(App):
         """Create child widgets"""
         yield Header()
         
-        # Left panel - File list
-        with Container(id="file-list"):
-            yield Label("History Files", classes="title")
-            yield ListView(id="history-list")
+        # Left panel - File list and stats
+        with Container(id="left-panel"):
+            with Container(id="file-list"):
+                yield Label("History Files", classes="title")
+                yield ListView(id="history-list")
+            
+            with Container(id="stats-container"):
+                yield UserStatsPanel(id="user-stats")
+                yield ChannelStatsPanel(id="channel-stats-panel")
         
-        # Center panel - Messages
-        with Container(id="message-display"):
-            yield MessageDisplay(id="messages")
-        
-        # Right panel - User stats
-        with Container(id="stats-panel"):
-            yield UserStatsPanel(id="user-stats")
-        
-        # Bottom panel - Channel stats
-        with Container(id="channel-stats"):
-            yield ChannelStatsPanel(id="channel-stats-panel")
+        # Right panel - Messages
+        with Container(id="right-panel"):
+            with Container(id="message-display"):
+                yield MessageDisplay(id="messages")
         
         yield Footer()
     

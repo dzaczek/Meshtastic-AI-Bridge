@@ -3,10 +3,12 @@ import meshtastic.serial_interface
 import meshtastic.tcp_interface
 import meshtastic.util
 from meshtastic import mesh_pb2 
+from meshtastic.mesh_interface import MeshInterface
 from pubsub import pub
 import time
 import traceback
 from datetime import datetime
+from typing import Tuple
 
 def log_info(msg):
     print(f"INFO: {msg}")
@@ -26,34 +28,62 @@ class MeshtasticHandler:
 
         try:
             if connection_type == "serial":
-                self.interface = meshtastic.serial_interface.SerialInterface(devPath=device_specifier)
+                # Set a shorter timeout for serial connection
+                self.interface = meshtastic.serial_interface.SerialInterface(
+                    devPath=device_specifier,
+                    connectNow=False  # Don't connect immediately
+                )
+                # Try to connect with a timeout
+                try:
+                    self.interface.connect()
+                    # Wait for connection with timeout
+                    if not self.interface.isConnected.wait(timeout=5.0):  # 5 second timeout
+                        raise TimeoutError("Connection timeout waiting for Meshtastic device")
+                except KeyboardInterrupt:
+                    if self.interface:
+                        try: self.interface.close()
+                        except: pass
+                    raise KeyboardInterrupt("Connection attempt interrupted by user")
             elif connection_type == "tcp":
                 if not device_specifier:
                     raise ValueError("Hostname/IP (device_specifier) is required for TCP connection. It can include 'hostname:port'.")
                 self.interface = meshtastic.tcp_interface.TCPInterface(hostname=device_specifier)
             else:
                 raise ValueError(f"Unsupported connection_type: {connection_type}")
+        except KeyboardInterrupt:
+            print("\nConnection attempt interrupted by user")
+            if self.interface:
+                try: self.interface.close()
+                except: pass
+            raise
         except Exception as e:
             print(f"Error initializing Meshtastic interface object: {e}")
             if connection_type == "serial" and device_specifier is None:
                 print("Attempted auto-detect for serial. If a device is connected, try specifying its path directly.")
-            if isinstance(e, (meshtastic.MeshtasticException, ConnectionRefusedError, TimeoutError, OSError, TypeError)):
-                 raise ConnectionError(f"Failed to create Meshtastic interface object: {e}") from e
+            if isinstance(e, (MeshInterface.MeshInterfaceError, ConnectionRefusedError, TimeoutError, OSError, TypeError)):
+                raise ConnectionError(f"Failed to create Meshtastic interface object: {e}") from e
             else:
                 raise
         
         if not self.interface:
-             raise ConnectionError("Meshtastic interface object could not be established (is None after init attempt).")
+            raise ConnectionError("Meshtastic interface object could not be established (is None after init attempt).")
 
-        retries = 10
+        # Try to get node info with timeout
+        retries = 5  # Reduced from 10 to 5 retries
         while retries > 0 and (not hasattr(self.interface, 'myInfo') or self.interface.myInfo is None or \
-                               not hasattr(self.interface.myInfo, 'my_node_num')):
-            print(f"Waiting for Meshtastic interface to get myInfo (node details)... ({retries} retries left)")
-            time.sleep(1.5)
-            if hasattr(self.interface, '_readFromRadio'):
-                try: self.interface._readFromRadio()
-                except: pass
-            retries -= 1
+                             not hasattr(self.interface.myInfo, 'my_node_num')):
+            try:
+                print(f"Waiting for Meshtastic interface to get myInfo (node details)... ({retries} retries left)")
+                time.sleep(1.0)  # Reduced from 1.5 to 1.0
+                if hasattr(self.interface, '_readFromRadio'):
+                    try: self.interface._readFromRadio()
+                    except: pass
+                retries -= 1
+            except KeyboardInterrupt:
+                if self.interface:
+                    try: self.interface.close()
+                    except: pass
+                raise KeyboardInterrupt("Connection attempt interrupted by user")
         
         if not hasattr(self.interface, 'myInfo') or self.interface.myInfo is None or \
            not hasattr(self.interface.myInfo, 'my_node_num'):
@@ -70,15 +100,21 @@ class MeshtasticHandler:
         pub.subscribe(self._on_connection_established, "meshtastic.connection.established")
         pub.subscribe(self._on_connection_lost, "meshtastic.connection.lost")
         
-        time.sleep(0.5) 
-        if self.interface and hasattr(self.interface, 'isConnected') and self.interface.isConnected:
-            self.is_connected = True
-            print(f"Meshtastic initially reported as connected. Node ID: {self.node_id:x}")
-            if hasattr(self.interface.myInfo, 'long_name') and hasattr(self.interface.myInfo, 'short_name'):
-                print(f"Node Name: {self.interface.myInfo.long_name} ({self.interface.myInfo.short_name})")
-        elif self.interface and self.node_id is not None: 
-            print(f"Meshtastic Node ID {self.node_id:x} retrieved. Waiting for 'established' event for full connected state.")
-
+        # Wait briefly for connection confirmation
+        try:
+            time.sleep(0.5)
+            if self.interface and hasattr(self.interface, 'isConnected') and self.interface.isConnected:
+                self.is_connected = True
+                print(f"Meshtastic initially reported as connected. Node ID: {self.node_id:x}")
+                if hasattr(self.interface.myInfo, 'long_name') and hasattr(self.interface.myInfo, 'short_name'):
+                    print(f"Node Name: {self.interface.myInfo.long_name} ({self.interface.myInfo.short_name})")
+            elif self.interface and self.node_id is not None: 
+                print(f"Meshtastic Node ID {self.node_id:x} retrieved. Waiting for 'established' event for full connected state.")
+        except KeyboardInterrupt:
+            if self.interface:
+                try: self.interface.close()
+                except: pass
+            raise KeyboardInterrupt("Connection attempt interrupted by user")
 
     def _on_connection_established(self, interface):
         print(f"Meshtastic Connection Event: Established (Interface: {interface})")
@@ -89,12 +125,10 @@ class MeshtasticHandler:
         else:
              print("Warning: myInfo not fully available on 'connection established' event. Node ID might be stale if interface reconnected without full init.")
 
-
     def _on_connection_lost(self, interface):
         print(f"Meshtastic Connection Event: Lost (Interface: {interface})")
         self.is_connected = False
         print("Meshtastic connection lost.")
-
 
     def _on_receive_internal(self, packet, interface):
         if not packet: return
@@ -158,14 +192,18 @@ class MeshtasticHandler:
             print(f"ERROR in _on_receive_internal (From: {error_user_context}). Packet: {packet}. Error: {e}")
             traceback.print_exc()
 
-    def send_message(self, text, destination_id_hex=None, channel_index=0):
-        """
-        Send a message via Meshtastic. Logs all parameters, attempts, and errors.
-        Returns (success: bool, reason: str)
-        """
+    def send_message(self, text: str, destination_id_hex: str = None, channel_index: int = None) -> Tuple[bool, str]:
+        """Send a message to a specific node or channel"""
+        if not self.is_connected:
+            return False, "Not connected to Meshtastic device"
+            
         log_prefix = f"[send_message@{datetime.now().isoformat()}]"
+        # Ensure text is a string and handle it safely for logging
+        text_str = str(text) if text is not None else ""
         log_info(f"{log_prefix} Attempting to send message.")
-        log_info(f"{log_prefix} Params: text='{text[:50]}', destination_id_hex={destination_id_hex}, channel_index={channel_index}")
+        log_info(f"{log_prefix} Text type: {type(text)}")
+        log_info(f"{log_prefix} Text value: {repr(text)}")
+        log_info(f"{log_prefix} Params: text='{text_str[:50]}', destination_id_hex={destination_id_hex}, channel_index={channel_index}")
         
         if not self.interface or not self.is_connected:
             msg = f"{log_prefix} ERROR: Meshtastic not connected. Cannot send message."
