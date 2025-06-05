@@ -128,18 +128,46 @@ class NodeListItem(ListItem):
         self.is_favorite = is_favorite
         self.unread_count = unread_count
         
-    def compose(self) -> ComposeResult:
-        """Compose the node item"""
-        icon = "★" if self.is_favorite else "●"
-        # Get name and sanitize it to avoid markup issues
-        name = self.node_info.get('long_name', 'Unknown')
-        # Remove any special characters and markup that could interfere with display
-        # This includes emoji, brackets, and other special characters
-        name = re.sub(r'[^\w\s\-\(\)\.]', '', name)
-        # Remove any remaining brackets and their contents
-        name = re.sub(r'\[.*?\]', '', name)
+        # Define fallback icons for terminals with limited Unicode support
+        self.favorite_icon = "★"  # Unicode star
+        self.favorite_icon_fallback = "*"  # ASCII fallback
+        self.node_icon = "●"  # Unicode circle
+        self.node_icon_fallback = "o"  # ASCII fallback
+        self.mqtt_icon = "🌐"  # Unicode globe
+        self.mqtt_icon_fallback = "[M]"  # ASCII fallback
+        
+    def _get_icon(self, unicode_icon: str, fallback_icon: str) -> str:
+        """Try to use Unicode icon, fall back to ASCII if terminal doesn't support it"""
+        try:
+            # Test if terminal can display the Unicode character
+            unicode_icon.encode('utf-8').decode('utf-8')
+            return unicode_icon
+        except UnicodeError:
+            return fallback_icon
+        
+    def _sanitize_name(self, name: str) -> str:
+        """Sanitize node name while preserving UTF-8 characters"""
+        if not name:
+            return "Unknown"
+            
+        # Remove any markup that could interfere with display
+        name = re.sub(r'\[.*?\]', '', name)  # Remove any remaining brackets and their contents
+        
+        # Remove control characters but preserve printable Unicode
+        name = ''.join(char for char in name if char.isprintable() or char.isspace())
+        
         # Clean up any double spaces created by the replacements
         name = re.sub(r'\s+', ' ', name).strip()
+        
+        return name
+        
+    def compose(self) -> ComposeResult:
+        """Compose the node item"""
+        # Get appropriate icons with fallbacks
+        icon = self._get_icon(self.favorite_icon, self.favorite_icon_fallback) if self.is_favorite else self._get_icon(self.node_icon, self.node_icon_fallback)
+        
+        # Get name and sanitize it while preserving UTF-8
+        name = self._sanitize_name(self.node_info.get('long_name', 'Unknown'))
         node_id = self.node_id
         
         # Check if this is a default Meshtastic name
@@ -165,7 +193,8 @@ class NodeListItem(ListItem):
             hop_indicator = ""  # No hop count data available
 
         # Add MQTT indicator if node is connected via TCP/MQTT
-        mqtt_indicator = " 🌐" if self.node_info.get('connection_type') == 'tcp' else ""
+        mqtt_icon = self._get_icon(self.mqtt_icon, self.mqtt_icon_fallback) if self.node_info.get('connection_type') == 'tcp' else ""
+        mqtt_indicator = f" {mqtt_icon}" if mqtt_icon else ""
         
         # For default names, we can skip showing the full node ID since it's redundant
         if is_default_name:
