@@ -1,6 +1,6 @@
 # Configuration Guide
 
-This guide provides detailed information about configuring the Meshtastic-AI-Bridge application.
+This guide provides detailed information about configuring the Meshtastic-AI-Bridge v5.8 application.
 
 ## Configuration File Overview
 

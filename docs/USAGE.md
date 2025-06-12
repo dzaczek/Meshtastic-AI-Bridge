@@ -1,6 +1,6 @@
 # Usage Guide
 
-This guide provides detailed instructions for using the Meshtastic-AI-Bridge application.
+This guide provides detailed instructions for using the Meshtastic-AI-Bridge v5.8 application.
 
 ## Getting Started
 
