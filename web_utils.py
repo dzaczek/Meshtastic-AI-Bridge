@@ -7,7 +7,7 @@ import requests
 import nest_asyncio # Make sure this is installed: pip install nest_asyncio
 
 # Asynchronous version (recommended for non-blocking IO)
-async def capture_screenshot_from_url_async(url_to_capture: str, timeout_ms: int = 15000) -> bytes | None:
+async def capture_screenshot_from_url_async(url_to_capture: str, timeout_ms: int = 30000) -> bytes | None:
     """
     Captures a screenshot of a given URL using Playwright (async).
     Returns screenshot as PNG bytes or None if an error occurs.
@@ -22,8 +22,8 @@ async def capture_screenshot_from_url_async(url_to_capture: str, timeout_ms: int
                 viewport={'width': 1280, 'height': 720}
             )
             page = await context.new_page()
-            await page.goto(url_to_capture, timeout=timeout_ms, wait_until="networkidle")
-            await asyncio.sleep(2) # Allow time for JS rendering after networkidle
+            await page.goto(url_to_capture, timeout=timeout_ms, wait_until="domcontentloaded")
+            await asyncio.sleep(1) # Allow time for basic rendering
             screenshot_bytes = await page.screenshot(type="png", full_page=False) # full_page=False for viewport
             await browser.close()
             print(f"WEB_UTILS: Successfully captured screenshot for {url_to_capture}")

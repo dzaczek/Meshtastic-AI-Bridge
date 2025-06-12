@@ -227,9 +227,10 @@ class MeshtasticHandler:
             if destination_id_hex and not is_broadcast_destination:
                 try:
                     dest_node_num = int(destination_id_hex, 16)
-                    log_info(f"{log_prefix} Sending DM to node {dest_node_num:x} on channel {channel_index}")
+                    log_info(f"{log_prefix} Sending DM to node {dest_node_num:x}")
                     before = datetime.now()
-                    self.interface.sendText(text, destinationId=dest_node_num, channelIndex=channel_index, wantAck=True)
+                    # For DMs, don't specify channelIndex to use default channel
+                    self.interface.sendText(text, destinationId=dest_node_num, wantAck=True)
                     after = datetime.now()
                     log_info(f"{log_prefix} sendText() for DM completed in {(after-before).total_seconds():.3f}s")
                     return (True, "dm_sent")

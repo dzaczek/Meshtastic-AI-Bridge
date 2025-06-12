@@ -26,7 +26,10 @@ class ConversationManager:
         sender_id_hex_str = str(sender_id_hex).lower()
         ai_node_id_hex_str = str(ai_node_id_hex).lower() if ai_node_id_hex else None
         destination_id_hex_str = str(destination_id_hex).lower() if destination_id_hex else None
-        channel_id_str = str(channel_id) if channel_id is not None else None
+        
+        # Treat None channel_id as channel 0
+        effective_channel_id = channel_id if channel_id is not None else 0
+        channel_id_str = str(effective_channel_id)
 
         is_dm_to_ai = (ai_node_id_hex_str and destination_id_hex_str == ai_node_id_hex_str and sender_id_hex_str != ai_node_id_hex_str)
         is_dm_from_ai_to_user = (ai_node_id_hex_str and sender_id_hex_str == ai_node_id_hex_str and \
@@ -42,7 +45,7 @@ class ConversationManager:
             user_ids = sorted([ai_node_id_hex_str, destination_id_hex_str])
             return f"dm_{user_ids[0]}_{user_ids[1]}"
         elif channel_id_str is not None:
-            return f"channel_{channel_id_str}"
+            return f"ch_{channel_id_str}_broadcast"
         else:
             print(f"Warning: Fallback conversation ID for sender {sender_id_hex_str}, (To: {destination_id_hex_str}, Ch: {channel_id_str}).")
             if destination_id_hex_str and destination_id_hex_str != "broadcast" and destination_id_hex_str != f"{meshtastic.BROADCAST_NUM:x}".lower():
@@ -85,6 +88,19 @@ class ConversationManager:
             if node_id: message_entry["node_id"] = node_id
         
         history.append(message_entry)
+        self.save_conversation(conversation_id, history)
+        return history
+
+    def add_url_analysis(self, conversation_id, url, analysis_summary):
+        """Add URL analysis to conversation history so AI remembers it"""
+        history = self.load_conversation(conversation_id)
+        analysis_entry = {
+            "role": "system", 
+            "content": f"[URL Analysis for {url}: {analysis_summary}]",
+            "timestamp": time.time(),
+            "url_analysis": True
+        }
+        history.append(analysis_entry)
         self.save_conversation(conversation_id, history)
         return history
 

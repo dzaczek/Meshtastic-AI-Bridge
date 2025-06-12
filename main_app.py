@@ -125,6 +125,11 @@ class MeshtasticAIAppConsole:
         self.url_pattern = re.compile(r'https?://[^\s/$.?#].[^\s]*', re.IGNORECASE)
         dprint("MeshtasticAIAppConsole.__init__ - URL pattern compiled.")
 
+        # Add patterns for specific information requests
+        self.weather_pattern = re.compile(r'(?:weather|temperature|temp|pogoda|temperatura)\s+(?:in|for|w|dla)?\s+([a-zA-Z\s]+)', re.IGNORECASE)
+        self.search_pattern = re.compile(r'(?:search|find|szukaj|znajdź|szukam|chcę|chce|potrzebuję|potrzebuje)\s+(?:for|dla|mi)?\s*(.+)', re.IGNORECASE)
+        self.extract_pattern = re.compile(r'(?:extract|get|pobierz|weź|wez)\s+(temperature|price|title|description|news|weather|pogoda|cenę|cene|tytuł|tytul|opis)\s+(?:from|z|ze)?\s+(https?://[^\s]+)', re.IGNORECASE)
+        
         self.last_response_times = {} 
         self.ai_response_probability = getattr(self.app_config, 'AI_RESPONSE_PROBABILITY', 0.85)
         self.ai_min_delay = getattr(self.app_config, 'AI_MIN_RESPONSE_DELAY_S', 2)
@@ -186,10 +191,20 @@ class MeshtasticAIAppConsole:
         print(f"\n[RX CONSOLE] From: {sender_name} ({sender_id}) | To: {destination_id} | Ch: {channel_id} | Msg: \"{text[:100]}{'...' if len(text)>100 else ''}\"")
         print(f"DEBUG: Entered handle_meshtastic_message with sender_id={sender_id}, destination_id={destination_id}, ai_node_id_hex={self.ai_node_id_hex}")
         
+        effective_channel_id = channel_id
+        is_broadcast_msg = destination_id.lower() == f"{meshtastic.BROADCAST_NUM:x}".lower() or destination_id.lower() == "broadcast"
+        if effective_channel_id is None and is_broadcast_msg: effective_channel_id = 0 
+        elif effective_channel_id is None and not is_broadcast_msg: effective_channel_id = 0
+        if self.ai_node_id_hex and sender_id.lower() == self.ai_node_id_hex.lower():
+            print("DEBUG: Message is from AI itself. Ignoring.")
+            return
+        is_dm_to_ai = (self.ai_node_id_hex and destination_id.lower() == self.ai_node_id_hex.lower())
+        print(f"DEBUG: is_dm_to_ai={is_dm_to_ai}")
+        
         # Check if this is a HAL bot command
         if self.hal_bot.should_handle_message(text):
             print("DEBUG: Message is a HAL bot command. Processing...")
-            hal_result = self.hal_bot.handle_command(text, sender_id, sender_name, channel_id)
+            hal_result = self.hal_bot.handle_command(text, sender_id, sender_name, effective_channel_id, is_dm_to_ai)
             if hal_result and isinstance(hal_result, dict):
                 response_text = hal_result['response']  # Extract just the response text
                 is_channel_message = hal_result.get('is_channel_message', False)
@@ -200,28 +215,19 @@ class MeshtasticAIAppConsole:
                         # Send to channel
                         success, reason = self.meshtastic_handler.send_message(
                             response_text,  # Use the extracted response text
-                            channel_index=channel_id
+                            channel_index=effective_channel_id
                         )
                     else:
                         # Send as DM
                         success, reason = self.meshtastic_handler.send_message(
                             response_text,  # Use the extracted response text
                             destination_id_hex=sender_id,
-                            channel_index=channel_id
+                            channel_index=0  # DMs always use channel 0
                         )
                     if not success:
                         print(f"ERROR: Failed to send HAL bot response: {reason}")
                 return
 
-        effective_channel_id = channel_id
-        is_broadcast_msg = destination_id.lower() == f"{meshtastic.BROADCAST_NUM:x}".lower() or destination_id.lower() == "broadcast"
-        if effective_channel_id is None and is_broadcast_msg: effective_channel_id = 0 
-        elif effective_channel_id is None and not is_broadcast_msg: effective_channel_id = 0
-        if self.ai_node_id_hex and sender_id.lower() == self.ai_node_id_hex.lower():
-            print("DEBUG: Message is from AI itself. Ignoring.")
-            return
-        is_dm_to_ai = (self.ai_node_id_hex and destination_id.lower() == self.ai_node_id_hex.lower())
-        print(f"DEBUG: is_dm_to_ai={is_dm_to_ai}")
         is_on_ai_active_channel_broadcast = (effective_channel_id == self.active_channel_for_ai_posts and is_broadcast_msg)
         conv_id_params = {"sender_id_hex": sender_id, "channel_id": effective_channel_id if not is_dm_to_ai else None, "ai_node_id_hex": self.ai_node_id_hex, "destination_id_hex": destination_id}
         conversation_id = self.conversation_manager._get_conversation_id(**conv_id_params)
@@ -261,17 +267,98 @@ class MeshtasticAIAppConsole:
             return
         context_history = self.conversation_manager.get_contextual_history(conversation_id, for_user_name=sender_name)
         web_analysis_summary = None
+        
+        # Check for specific information requests first
+        specific_info = None
+        
+        # Check for weather requests
+        weather_match = self.weather_pattern.search(text)
+        if weather_match:
+            city = weather_match.group(1).strip()
+            print(f"INFO: Weather request detected for city: {city}")
+            specific_info = self.ai_bridge.get_weather_data(city)
+            print(f"INFO: Weather data: {specific_info}")
+            
+        # Check for search requests
+        elif self.search_pattern.search(text):
+            search_match = self.search_pattern.search(text)
+            query = search_match.group(1).strip()
+            print(f"INFO: Search request detected for query: {query}")
+            specific_info = self.ai_bridge.search_web(query)
+            print(f"INFO: Search results: {specific_info[:100]}...")
+            
+        # Check for specific data extraction
+        elif self.extract_pattern.search(text):
+            extract_match = self.extract_pattern.search(text)
+            info_type = extract_match.group(1).strip()
+            url = extract_match.group(2).strip()
+            print(f"INFO: Data extraction request: {info_type} from {url}")
+            specific_info = self.ai_bridge.extract_specific_info(url, info_type)
+            print(f"INFO: Extracted data: {specific_info}")
+            
+        # Use AI Web Agent for all other queries (AI decides if web search is needed)
+        else:
+            print(f"INFO: Using AI Web Agent for intelligent response")
+            ai_response_text = self.ai_bridge.get_response_with_web_search(
+                context_history, text, sender_name, sender_id
+            )
+            print(f"INFO: AI Web Agent response: {ai_response_text[:100]}...")
+            
+            # If AI Web Agent returned a response, use it directly
+            if ai_response_text and ai_response_text.strip():
+                if self.ai_min_delay >= 0 and self.ai_max_delay > self.ai_min_delay :
+                    delay = random.uniform(self.ai_min_delay, self.ai_max_delay)
+                    print(f"AI response generated. Applying random delay of {delay:.1f}s before sending.")
+                    time.sleep(delay)
+                print(f"[AI CONSOLE Replying -> {sender_name}] {ai_response_text[:100]}{'...' if len(ai_response_text)>100 else ''}")
+                log_info(f"AI sent reply to {sender_name}")
+                self.conversation_manager.add_message(conversation_id, "assistant", ai_response_text) 
+                self.last_response_times[conversation_id] = time.time()
+                reply_channel_index = effective_channel_id
+                if self.meshtastic_handler and self.meshtastic_handler.is_connected:
+                    if is_dm_to_ai:
+                        success, reason = self.meshtastic_handler.send_message(ai_response_text, destination_id_hex=sender_id, channel_index=0)
+                        print(f"DEBUG: DM send_message result: success={success}, reason={reason}")
+                        if not success:
+                            print(f"ERROR: Failed to send DM reply: {reason}")
+                    else:
+                        success, reason = self.meshtastic_handler.send_message(ai_response_text, channel_index=reply_channel_index)
+                        print(f"DEBUG: Channel send_message result: success={success}, reason={reason}")
+                        if not success:
+                            print(f"ERROR: Failed to send channel reply: {reason}")
+                else: print("ERROR: Cannot send AI reply, Meshtastic disconnected.")
+                return  # Exit early since we already handled the response
+                
+        # Handle cases where we have specific_info (weather, search, extract) - use normal AI response
+        web_analysis_summary = None
+        
+        # Check for URL analysis (existing functionality)
         urls_found = self.url_pattern.findall(text)
         if urls_found:
             detected_url = urls_found[0] 
             print(f"INFO: URL detected: {detected_url}. Analyzing content...")
             try:
                 web_analysis_summary = self.ai_bridge.analyze_url_content(detected_url)
-                if web_analysis_summary: print(f"INFO: Web analysis summary: {web_analysis_summary[:100]}...")
-                else: print(f"INFO: Web analysis for {detected_url} yielded no summary.")
-            except Exception as e_web: print(f"ERROR: URL analysis failed: {e_web}"); traceback.print_exc(); web_analysis_summary = f"[Error analyzing URL]"
+                if web_analysis_summary: 
+                    print(f"INFO: Web analysis summary: {web_analysis_summary[:100]}...")
+                    # Save URL analysis to conversation history so AI remembers it
+                    self.conversation_manager.add_url_analysis(conversation_id, detected_url, web_analysis_summary)
+                else: 
+                    print(f"INFO: Web analysis for {detected_url} yielded no summary.")
+            except Exception as e_web: 
+                print(f"ERROR: URL analysis failed: {e_web}"); 
+                traceback.print_exc(); 
+                web_analysis_summary = f"[Error analyzing URL]"
+                
+        # Add specific info to web analysis if available
+        if specific_info:
+            if web_analysis_summary:
+                web_analysis_summary = f"{web_analysis_summary}\n\nSpecific Information: {specific_info}"
+            else:
+                web_analysis_summary = f"Specific Information: {specific_info}"
+                
         print(f"DEBUG: Getting AI response for {sender_name} ({sender_id})...")
-        ai_response_text = self.ai_bridge.get_response(context_history, text, sender_name, sender_id, web_analysis_summary=web_analysis_summary)
+        ai_response_text = self.ai_bridge.get_response(context_history, text, sender_name, sender_id, web_analysis_summary=web_analysis_summary, skip_triage=is_dm_to_ai)
         print(f"DEBUG: ai_response_text={ai_response_text}")
         if ai_response_text and ai_response_text.strip():
             if self.ai_min_delay >= 0 and self.ai_max_delay > self.ai_min_delay :
@@ -285,7 +372,7 @@ class MeshtasticAIAppConsole:
             reply_channel_index = effective_channel_id
             if self.meshtastic_handler and self.meshtastic_handler.is_connected:
                 if is_dm_to_ai:
-                    success, reason = self.meshtastic_handler.send_message(ai_response_text, destination_id_hex=sender_id, channel_index=reply_channel_index)
+                    success, reason = self.meshtastic_handler.send_message(ai_response_text, destination_id_hex=sender_id, channel_index=0)
                     print(f"DEBUG: DM send_message result: success={success}, reason={reason}")
                     if not success:
                         print(f"ERROR: Failed to send DM reply: {reason}")
@@ -573,7 +660,7 @@ class MeshtasticInteractive(App[None]):
         # Check if this is a HAL bot command
         if self.hal_bot.should_handle_message(text):
             log_widget.write(f"[bright_green]Message is a HAL bot command. Processing...[/bright_green]")
-            hal_result = self.hal_bot.handle_command(text, sender_id, sender_name, eff_ch_id)
+            hal_result = self.hal_bot.handle_command(text, sender_id, sender_name, eff_ch_id, is_dm_to_ai)
             if hal_result and isinstance(hal_result, dict):
                 response_text = hal_result['response']  # Extract just the response text
                 is_channel_message = hal_result.get('is_channel_message', False)
@@ -591,7 +678,7 @@ class MeshtasticInteractive(App[None]):
                         success, reason = self.meshtastic_handler.send_message(
                             response_text,  # Use the extracted response text
                             destination_id_hex=sender_id,
-                            channel_index=eff_ch_id
+                            channel_index=0  # DMs always use channel 0
                         )
                     if not success:
                         log_widget.write(f"[red]Failed to send HAL bot response: {reason}[/red]")
