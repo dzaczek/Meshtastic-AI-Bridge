@@ -66,15 +66,20 @@ class AIProcessingWorker:
                     try:
                         web_analysis_summary = self.app.ai_bridge.analyze_url_content(detected_url)
                         log_info(f"[AIWorker] Web analysis summary: {web_analysis_summary}")
+                        # Save URL analysis to conversation history so AI remembers it
+                        self.app.conversation_manager.add_url_analysis(self.conversation_id, detected_url, web_analysis_summary)
                     except Exception as e:
                         web_analysis_summary = f"[Error analyzing URL: {str(e)}]"
                         log_error(f"[AIWorker] Error analyzing URL: {e}")
+                    else:
+                        web_analysis_summary = None
             ai_response = self.app.ai_bridge.get_response(
                 context_history,
                 self.text,
                 self.sender_name,
                 self.sender_id,
-                web_analysis_summary=web_analysis_summary
+                web_analysis_summary=web_analysis_summary,
+                skip_triage=self.skip_triage
             )
             log_info(f"[AIWorker] AI response: {ai_response}")
             if ai_response:
@@ -89,11 +94,11 @@ class AIProcessingWorker:
                 )
                 self.app.last_response_times[self.conversation_id] = time.time()
                 if self.is_dm:
-                    log_info(f"[AIWorker] Sending DM reply to {self.sender_id} on channel {self.channel_id}")
+                    log_info(f"[AIWorker] Sending DM reply to {self.sender_id} on channel 0")
                     success, reason = self.app.meshtastic_handler.send_message(
                         ai_response,
                         destination_id_hex=self.sender_id,
-                        channel_index=self.channel_id
+                        channel_index=0  # DMs always use channel 0
                     )
                 else:
                     log_info(f"[AIWorker] Sending channel reply on channel {self.channel_id}")
@@ -277,6 +282,139 @@ class InfoPanel(Static):
             table.add_row(key, str(val))
         return Panel(table, title="Info", border_style="green")
 
+class NodeStatsPanel(Static):
+    """Detailed node statistics panel"""
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.selected_node_id = None
+        self.node_data = {}
+        
+    def set_node(self, node_id: str, node_info: dict):
+        """Set the node to display statistics for"""
+        self.selected_node_id = node_id
+        self.node_data = node_info
+        self.refresh()
+        
+    def render(self) -> RenderableType:
+        """Render the detailed node statistics"""
+        if not self.selected_node_id or not self.node_data:
+            return Panel("Select a node to view detailed statistics", title="Node Statistics", border_style="blue")
+        
+        # Create main table
+        table = Table(show_header=False, box=None, expand=True)
+        table.add_column("Property", style="bold cyan")
+        table.add_column("Value", style="white")
+        
+        # Basic node info
+        node_id = self.node_data.get('node_id', 'Unknown')
+        long_name = self.node_data.get('long_name', 'Unknown')
+        short_name = self.node_data.get('short_name', 'UNK')
+        
+        table.add_row("Node ID", f"!{node_id}")
+        table.add_row("Long Name", long_name)
+        table.add_row("Short Name", short_name)
+        
+        # User role (if available)
+        user_role = self.node_data.get('user_role', 'Unknown')
+        table.add_row("User Role", user_role)
+        
+        # First heard
+        first_heard = self.node_data.get('first_heard')
+        if first_heard:
+            first_heard_str = datetime.fromtimestamp(first_heard).strftime("%Y-%m-%d %H:%M:%S")
+            table.add_row("First Heard", first_heard_str)
+        
+        # Last heard
+        last_heard = self.node_data.get('last_heard')
+        if last_heard:
+            last_heard_str = datetime.fromtimestamp(last_heard).strftime("%Y-%m-%d %H:%M:%S")
+            time_ago = self._format_time_ago(last_heard)
+            table.add_row("Last Heard", f"{last_heard_str} ({time_ago})")
+        
+        # Connection info
+        connection_type = self.node_data.get('connection_type', 'radio')
+        hops_away = self.node_data.get('hops_away')
+        if hops_away is not None:
+            hops_str = f"{hops_away} hop{'s' if hops_away != 1 else ''}"
+        else:
+            hops_str = "Unknown"
+        
+        table.add_row("Connection", f"{connection_type.upper()} ({hops_str})")
+        
+        # Signal statistics for last 4 packets
+        signal_history = self.node_data.get('signal_history', [])
+        if signal_history:
+            table.add_row("", "")  # Empty row for spacing
+            table.add_row("Signal History", "")
+            
+            for i, packet in enumerate(signal_history[-4:], 1):  # Last 4 packets
+                timestamp = packet.get('timestamp', 0)
+                rssi = packet.get('rssi')
+                snr = packet.get('snr')
+                time_ago = self._format_time_ago(timestamp)
+                
+                rssi_str = f"{rssi} dBm" if rssi is not None else "N/A"
+                snr_str = f"{snr} dB" if snr is not None else "N/A"
+                
+                table.add_row(f"  Packet {i}", f"{time_ago} - RSSI: {rssi_str}, SNR: {snr_str}")
+        
+        # Current signal info
+        current_rssi = self.node_data.get('rssi')
+        current_snr = self.node_data.get('snr')
+        if current_rssi is not None or current_snr is not None:
+            table.add_row("", "")  # Empty row for spacing
+            table.add_row("Current Signal", "")
+            rssi_str = f"{current_rssi} dBm" if current_rssi is not None else "N/A"
+            snr_str = f"{current_snr} dB" if current_snr is not None else "N/A"
+            table.add_row("  RSSI", rssi_str)
+            table.add_row("  SNR", snr_str)
+        
+        # GPS Position (if available)
+        position = self.node_data.get('position')
+        if position:
+            table.add_row("", "")  # Empty row for spacing
+            table.add_row("GPS Position", "")
+            lat = position.get('latitude')
+            lon = position.get('longitude')
+            alt = position.get('altitude')
+            if lat is not None and lon is not None:
+                table.add_row("  Coordinates", f"{lat:.6f}, {lon:.6f}")
+            if alt is not None:
+                table.add_row("  Altitude", f"{alt}m")
+        
+        # Model info
+        model = self.node_data.get('model', 'Unknown')
+        table.add_row("Model", model)
+        
+        # Battery info
+        battery = self.node_data.get('battery_level')
+        if battery is not None:
+            table.add_row("Battery", f"{battery}%")
+        
+        # Uptime
+        uptime = self.node_data.get('uptime')
+        if uptime:
+            table.add_row("Uptime", uptime)
+        
+        return Panel(table, title=f"Node Statistics - {short_name}", border_style="green")
+    
+    def _format_time_ago(self, timestamp: float) -> str:
+        """Format time ago from timestamp"""
+        if not timestamp:
+            return "Unknown"
+        
+        now = time.time()
+        diff = now - timestamp
+        
+        if diff < 60:
+            return f"{int(diff)}s ago"
+        elif diff < 3600:
+            return f"{int(diff // 60)}m ago"
+        elif diff < 86400:
+            return f"{int(diff // 3600)}h ago"
+        else:
+            return f"{int(diff // 86400)}d ago"
+
 class MeshtasticInteractive(App):
     """Main Interactive Application using Textual"""
     
@@ -297,9 +435,9 @@ class MeshtasticInteractive(App):
     CSS = """
     Screen {
         layout: grid;
-        grid-size: 4 6;
+        grid-size: 4 7;
         grid-columns: 1fr 1fr 1fr 1fr;
-        grid-rows: auto 1fr 1fr 1fr 1fr 3;
+        grid-rows: auto 1fr 1fr 1fr 1fr 1fr 1;
     }
     
     Header {
@@ -308,15 +446,16 @@ class MeshtasticInteractive(App):
     
     #left-panel {
         column-span: 1;
-        row-span: 4;
+        row-span: 5;
         border: solid green;
         height: 100%;
         padding: 1;
+        layout: vertical;
     }
     
     #center-panel {
         column-span: 2;
-        row-span: 4;
+        row-span: 5;
         border: solid yellow;
         height: 100%;
         overflow: hidden;
@@ -325,10 +464,37 @@ class MeshtasticInteractive(App):
     
     #right-panel {
         column-span: 1;
-        row-span: 4;
+        row-span: 5;
         border: solid blue;
         height: 100%;
         padding: 1;
+        layout: vertical;
+    }
+    
+    #channel-list {
+        height: 30%;
+        border-bottom: solid $accent;
+        margin-bottom: 1;
+    }
+    
+    #info-panel {
+        height: 30%;
+        border-bottom: solid $accent;
+        margin-bottom: 1;
+    }
+    
+    #stats-panel {
+        height: 40%;
+    }
+    
+    #node-list {
+        height: 60%;
+        border-bottom: solid $accent;
+        margin-bottom: 1;
+    }
+    
+    #node-stats {
+        height: 40%;
     }
     
     #bottom-panel {
@@ -338,13 +504,8 @@ class MeshtasticInteractive(App):
         layout: horizontal;
     }
     
-    #stats-box {
-        width: 30%;
-        padding: 1;
-    }
-    
     #log-box {
-        width: 70%;
+        width: 100%;
         padding: 1;
     }
     
@@ -407,16 +568,6 @@ class MeshtasticInteractive(App):
         background: $surface;
     }
     
-    /* Shrink channel list visually */
-    #channel-list {
-        height: 10;
-    }
-
-    #info-panel {
-        height: 1fr;
-        padding: 0 1;
-    }
-    
     /* Add styles for unread highlighting */
     .reverse {
         background: $accent;
@@ -441,6 +592,7 @@ class MeshtasticInteractive(App):
         
         # Get AI node ID
         self.ai_node_id = self._norm_id(f"{self.meshtastic_handler.node_id:x}") if self.meshtastic_handler.node_id else None
+        self.log_info(f"AI Node ID set to: '{self.ai_node_id}' (from meshtastic_handler.node_id: {self.meshtastic_handler.node_id})")
         
         # Initialize HAL bot
         self.hal_bot = HalBot(self.meshtastic_handler)
@@ -495,7 +647,7 @@ class MeshtasticInteractive(App):
         """Create child widgets"""
         yield Header()
         
-        # Left panel - Channels
+        # Left panel - Channels, Info, and Stats
         with Container(id="left-panel"):
             yield Label("Channels", classes="title")
             yield ListView(
@@ -510,6 +662,7 @@ class MeshtasticInteractive(App):
                 id="channel-list"
             )
             yield InfoPanel(id="info-panel")
+            yield StatsPanel(id="stats-panel")
         
         # Center panel - Messages
         with Container(id="center-panel"):
@@ -518,15 +671,14 @@ class MeshtasticInteractive(App):
                 yield Input(placeholder="Type a message...", id="message-input")
                 yield Button("🤖 Force AI", id="force-ai-button")
         
-        # Right panel - Nodes
+        # Right panel - Node list and stats
         with Container(id="right-panel"):
             yield Label("Nodes", classes="title")
             yield ListView(id="node-list")
+            yield NodeStatsPanel(id="node-stats")
         
-        # Bottom panel - Stats and Logs
+        # Bottom panel - Logs only
         with Container(id="bottom-panel"):
-            with Container(id="stats-box"):
-                yield StatsPanel(id="stats")
             with Container(id="log-box"):
                 yield RichLog(id="app-log", highlight=True, markup=True)
         
@@ -570,17 +722,72 @@ class MeshtasticInteractive(App):
                         else:
                             node_id_str = self._norm_id(f"{node_id:x}")
                         
-                        self.nodes[node_id_str] = {
-                            'long_name': user.get('longName', 'Unknown'),
-                            'short_name': user.get('shortName', 'UNK'),
-                            'last_heard': node_info.get('lastHeard', time.time()),
-                            'is_favorite': node_info.get('isFavorite', False),
-                            'hops_away': node_info.get('hopsAway', None),  # Add hop count if available
-                            'connection_type': self.app_config.MESHTASTIC_CONNECTION_TYPE  # Add connection type
-                        }
+                        # Get detailed node information
+                        detailed_info = self._get_detailed_node_info(node_id_str, node_info)
+                        
+                        self.nodes[node_id_str] = detailed_info
                 
                 self.update_node_list()
     
+    def _get_detailed_node_info(self, node_id_str: str, node_info: dict) -> dict:
+        """Get detailed information about a node including signal history"""
+        user = node_info.get('user', {})
+        
+        # Basic info
+        detailed_info = {
+            'long_name': user.get('longName', 'Unknown'),
+            'short_name': user.get('shortName', 'UNK'),
+            'last_heard': node_info.get('lastHeard', time.time()),
+            'first_heard': node_info.get('firstHeard', time.time()),
+            'is_favorite': node_info.get('isFavorite', False),
+            'hops_away': node_info.get('hopsAway', None),
+            'connection_type': self.app_config.MESHTASTIC_CONNECTION_TYPE,
+            'node_id': node_id_str,
+            'user_role': user.get('role', 'Unknown'),
+            'model': node_info.get('model', 'Unknown'),
+            'battery_level': node_info.get('batteryLevel'),
+            'uptime': node_info.get('uptime'),
+        }
+        
+        # Signal information
+        rssi = node_info.get('rssi')
+        snr = node_info.get('snr')
+        if rssi is None and 'lastPacketRssi' in node_info:
+            rssi = node_info['lastPacketRssi']
+        if snr is None and 'lastPacketSnr' in node_info:
+            snr = node_info['lastPacketSnr']
+        
+        detailed_info['rssi'] = rssi
+        detailed_info['snr'] = snr
+        
+        # GPS Position
+        position = node_info.get('position')
+        if position:
+            detailed_info['position'] = {
+                'latitude': position.get('latitude'),
+                'longitude': position.get('longitude'),
+                'altitude': position.get('altitude'),
+            }
+        
+        # Signal history (simulate last 4 packets - in real implementation this would track actual packets)
+        signal_history = []
+        current_time = time.time()
+        for i in range(4):
+            # Simulate signal history with slight variations
+            packet_time = current_time - (i * 60)  # Each packet 1 minute apart
+            packet_rssi = rssi + random.randint(-5, 5) if rssi is not None else None
+            packet_snr = snr + random.randint(-2, 2) if snr is not None else None
+            
+            signal_history.append({
+                'timestamp': packet_time,
+                'rssi': packet_rssi,
+                'snr': packet_snr,
+            })
+        
+        detailed_info['signal_history'] = signal_history
+        
+        return detailed_info
+
     def update_node_list(self) -> None:
         """Update the node list widget with unread counts"""
         node_list = self.query_one("#node-list", ListView)
@@ -699,7 +906,7 @@ class MeshtasticInteractive(App):
     
     def update_stats(self) -> None:
         """Update stats panel"""
-        stats = self.query_one("#stats", StatsPanel)
+        stats = self.query_one("#stats-panel", StatsPanel)
         stats.is_connected = self.meshtastic_handler.is_connected if self.meshtastic_handler else False
         stats.node_count = len(self.nodes)
         
@@ -723,6 +930,12 @@ class MeshtasticInteractive(App):
             self.current_chat_id = event.item.node_id
             self.load_conversation()
             self.update_stats()
+            
+            # Update node statistics panel
+            node_stats_panel = self.query_one("#node-stats", NodeStatsPanel)
+            node_info = self.nodes.get(event.item.node_id, {})
+            node_stats_panel.set_node(event.item.node_id, node_info)
+            
             log = self.query_one("#app-log", RichLog)
             log.write(f"[magenta]Selected DM with {event.item.node_info['long_name']}[/magenta]")
     
@@ -771,6 +984,9 @@ class MeshtasticInteractive(App):
     def handle_meshtastic_message(self, text, sender_id, sender_name, destination_id, channel_id):
         """Handle incoming Meshtastic messages"""
         try:
+            # Update AI node ID to ensure it's current
+            self._update_ai_node_id()
+            
             # Queue for async processing
             if self.app_loop is None:
                 # If app_loop is not ready, store message in queue
@@ -822,14 +1038,20 @@ class MeshtasticInteractive(App):
             destination_id = self._norm_id(data['destination_id'])
             channel_id = data['channel_id']
 
-            # Determine conversation ID first
+            # Determine effective channel ID first (treat None as 0)
+            effective_channel_id = channel_id if channel_id is not None else 0
+
+            # Determine conversation ID consistently
             is_broadcast = destination_id.lower() == f"{meshtastic.BROADCAST_NUM:x}".lower() or destination_id.lower() == "broadcast"
             is_dm_to_ai = (self.ai_node_id and destination_id == self.ai_node_id)
+            
+            # Debug logging for DM detection
+            log_widget.write(f"[cyan]DM Debug: ai_node_id='{self.ai_node_id}', destination_id='{destination_id}', is_dm_to_ai={is_dm_to_ai}[/cyan]")
             
             if is_dm_to_ai:
                 conv_id = self._dm_conv(sender_id)  # DM with the sender of this message
             else:
-                conv_id = f"ch_{channel_id}_broadcast"
+                conv_id = f"ch_{effective_channel_id}_broadcast"
 
             # Add the incoming message to conversation history first
             self.conversation_manager.add_message(conv_id, "user", text, user_name=sender_name, node_id=sender_id)
@@ -837,7 +1059,7 @@ class MeshtasticInteractive(App):
             # Check if this is a HAL bot command
             if self.hal_bot.should_handle_message(text):
                 log_widget.write(f"[bright_green]Message is a HAL bot command. Processing...[/bright_green]")
-                hal_result = self.hal_bot.handle_command(text, sender_id, sender_name, channel_id)
+                hal_result = self.hal_bot.handle_command(text, sender_id, sender_name, effective_channel_id, is_dm_to_ai)
                 if hal_result and isinstance(hal_result, dict):
                     response_text = hal_result['response']  # Extract just the response text
                     is_channel_message = hal_result.get('is_channel_message', False)
@@ -848,14 +1070,14 @@ class MeshtasticInteractive(App):
                             # Send to channel
                             success, reason = self.meshtastic_handler.send_message(
                                 response_text,  # Use the extracted response text
-                                channel_index=channel_id
+                                channel_index=effective_channel_id
                             )
                         else:
                             # Send as DM
                             success, reason = self.meshtastic_handler.send_message(
                                 response_text,  # Use the extracted response text
                                 destination_id_hex=sender_id,
-                                channel_index=channel_id
+                                channel_index=effective_channel_id
                             )
                         
                         if success:
@@ -883,42 +1105,8 @@ class MeshtasticInteractive(App):
                             log_widget.write(f"[red]Failed to send HAL bot response: {reason}[/red]")
                     return
 
-            # Update node info
-            if sender_id not in self.nodes:
-                self.nodes[sender_id] = {
-                    'long_name': sender_name,
-                    'short_name': sender_name[:3].upper(),
-                    'last_heard': time.time(),
-                    'is_favorite': False,
-                    'hops_away': None,  # Will be updated if available from meshtastic interface
-                    'connection_type': self.app_config.MESHTASTIC_CONNECTION_TYPE  # Add connection type
-                }
-            else:
-                # Update last heard time
-                self.nodes[sender_id]['last_heard'] = time.time()
-                # Ensure connection type is set
-                if 'connection_type' not in self.nodes[sender_id]:
-                    self.nodes[sender_id]['connection_type'] = self.app_config.MESHTASTIC_CONNECTION_TYPE
-            
-            # Try to get hop count from meshtastic interface if available
-            if self.meshtastic_handler and self.meshtastic_handler.interface:
-                interface = self.meshtastic_handler.interface
-                if hasattr(interface, 'nodes') and interface.nodes:
-                    # Find the node in the interface by numeric ID
-                    for node_num, node_info in interface.nodes.items():
-                        node_id_str = self._norm_id(f"{node_num:x}") if isinstance(node_num, int) else self._norm_id(node_num)
-                        if node_id_str == sender_id and 'hopsAway' in node_info:
-                            self.nodes[sender_id]['hops_away'] = node_info.get('hopsAway')
-            
-            # Determine conversation
-            effective_channel_id = channel_id if channel_id is not None else 0
-            is_broadcast = destination_id.lower() == f"{meshtastic.BROADCAST_NUM:x}".lower() or destination_id.lower() == "broadcast"
-            is_dm_to_ai = (self.ai_node_id and destination_id == self.ai_node_id)
-            
-            if is_dm_to_ai:
-                conv_id = self._dm_conv(sender_id) # DM with the sender of this message
-            else:
-                conv_id = f"ch_{effective_channel_id}_broadcast"
+            # Update node info with enhanced data
+            self._update_node_info_from_message(sender_id, sender_name, effective_channel_id)
             
             # Get current conversation ID that is being viewed
             current_conv_id = f"ch_{self.current_chat_id}_broadcast" if self.current_chat_type == "channel" else self._dm_conv(self.current_chat_id)
@@ -1042,7 +1230,7 @@ class MeshtasticInteractive(App):
             context_history = self.conversation_manager.get_contextual_history(conv_id, for_user_name=sender_name)
             
             # Get AI response
-            ai_response = self.ai_bridge.get_response(context_history, text, sender_name, sender_id)
+            ai_response = self.ai_bridge.get_response(context_history, text, sender_name, sender_id, skip_triage=is_dm)
             
             if ai_response:
                 # Apply delay
@@ -1224,6 +1412,106 @@ class MeshtasticInteractive(App):
             group="ai_proc",
             thread=True
         )
+
+    def _update_node_info_from_message(self, sender_id: str, sender_name: str, channel_id: int) -> None:
+        """Update node information when a message is received"""
+        current_time = time.time()
+        
+        # Get or create node info
+        if sender_id not in self.nodes:
+            self.nodes[sender_id] = {
+                'long_name': sender_name,
+                'short_name': sender_name[:3].upper(),
+                'last_heard': current_time,
+                'first_heard': current_time,
+                'is_favorite': False,
+                'hops_away': None,
+                'connection_type': self.app_config.MESHTASTIC_CONNECTION_TYPE,
+                'node_id': sender_id,
+                'user_role': 'Unknown',
+                'model': 'Unknown',
+                'signal_history': []
+            }
+        else:
+            # Update last heard time
+            self.nodes[sender_id]['last_heard'] = current_time
+        
+        # Try to get enhanced info from meshtastic interface
+        if self.meshtastic_handler and self.meshtastic_handler.interface:
+            interface = self.meshtastic_handler.interface
+            if hasattr(interface, 'nodes') and interface.nodes:
+                # Find the node in the interface by numeric ID
+                for node_num, node_info in interface.nodes.items():
+                    node_id_str = self._norm_id(f"{node_num:x}") if isinstance(node_num, int) else self._norm_id(node_num)
+                    if node_id_str == sender_id:
+                        # Update with enhanced data
+                        self._update_node_from_interface(sender_id, node_info)
+                        break
+
+    def _update_node_from_interface(self, node_id: str, node_info: dict) -> None:
+        """Update node information from meshtastic interface data"""
+        if node_id not in self.nodes:
+            return
+            
+        user = node_info.get('user', {})
+        
+        # Update basic info
+        self.nodes[node_id].update({
+            'long_name': user.get('longName', self.nodes[node_id].get('long_name', 'Unknown')),
+            'short_name': user.get('shortName', self.nodes[node_id].get('short_name', 'UNK')),
+            'user_role': user.get('role', 'Unknown'),
+            'model': node_info.get('model', 'Unknown'),
+            'battery_level': node_info.get('batteryLevel'),
+            'uptime': node_info.get('uptime'),
+            'hops_away': node_info.get('hopsAway'),
+        })
+        
+        # Update signal info
+        rssi = node_info.get('rssi')
+        snr = node_info.get('snr')
+        if rssi is None and 'lastPacketRssi' in node_info:
+            rssi = node_info['lastPacketRssi']
+        if snr is None and 'lastPacketSnr' in node_info:
+            snr = node_info['lastPacketSnr']
+        
+        self.nodes[node_id]['rssi'] = rssi
+        self.nodes[node_id]['snr'] = snr
+        
+        # Update GPS position
+        position = node_info.get('position')
+        if position:
+            self.nodes[node_id]['position'] = {
+                'latitude': position.get('latitude'),
+                'longitude': position.get('longitude'),
+                'altitude': position.get('altitude'),
+            }
+        
+        # Update signal history with new packet
+        current_time = time.time()
+        new_packet = {
+            'timestamp': current_time,
+            'rssi': rssi,
+            'snr': snr,
+        }
+        
+        signal_history = self.nodes[node_id].get('signal_history', [])
+        signal_history.append(new_packet)
+        
+        # Keep only last 10 packets
+        if len(signal_history) > 10:
+            signal_history = signal_history[-10:]
+        
+        self.nodes[node_id]['signal_history'] = signal_history
+
+    def _update_ai_node_id(self):
+        """Update AI node ID from meshtastic handler"""
+        if self.meshtastic_handler and self.meshtastic_handler.node_id:
+            old_ai_node_id = self.ai_node_id
+            self.ai_node_id = self._norm_id(f"{self.meshtastic_handler.node_id:x}")
+            if old_ai_node_id != self.ai_node_id:
+                self.log_info(f"AI Node ID updated from '{old_ai_node_id}' to '{self.ai_node_id}'")
+        else:
+            self.ai_node_id = None
 
 def main():
     """Main entry point"""

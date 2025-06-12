@@ -17,12 +17,34 @@ except ImportError:
     def capture_screenshot_from_url_sync(url, timeout_s=15): return None
     def extract_text_from_url(url, timeout_s=10): return None
 
+# Import web spider for advanced data extraction
+try:
+    from web_spider import WebSpider, extract_weather_sync, search_duckduckgo_sync, extract_specific_data_sync
+    WEB_SPIDER_AVAILABLE = True
+except ImportError:
+    print("WARNING (ai_bridge.py): web_spider.py not found. Advanced data extraction will be disabled.")
+    WEB_SPIDER_AVAILABLE = False
+
+# Import AI Web Agent for intelligent web scraping
+try:
+    from ai_web_agent import process_query_sync
+    AI_WEB_AGENT_AVAILABLE = True
+except ImportError:
+    print("WARNING (ai_bridge.py): ai_web_agent.py not found. AI-powered web scraping will be disabled.")
+    AI_WEB_AGENT_AVAILABLE = False
+
 
 class AIBridge:
     def __init__(self, app_config):
         self.config = app_config
         self.current_ai_service = self.config.DEFAULT_AI_SERVICE
         self.current_persona = self.config.DEFAULT_PERSONA
+        
+        # Set web spider availability
+        self.web_spider_available = WEB_SPIDER_AVAILABLE
+        
+        # Set AI Web Agent availability
+        self.ai_web_agent_available = AI_WEB_AGENT_AVAILABLE
         
         # Main model names from config
         self.openai_model_name = getattr(self.config, 'OPENAI_MODEL_NAME', "gpt-3.5-turbo")
@@ -107,12 +129,12 @@ class AIBridge:
                     {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": f"This is a screenshot of the webpage at {url}. Please summarize its main content and purpose in under {getattr(self.config, 'MAX_WEB_SUMMARY_LENGTH', 150)} characters. Focus on information useful for text-based chat."},
+                            {"type": "text", "text": f"This is a screenshot of the webpage at {url}. Please provide a detailed analysis including: main headlines, key articles, navigation structure, and any notable content visible. Focus on information that would be useful for answering follow-up questions about the page content. Keep it under {getattr(self.config, 'MAX_WEB_SUMMARY_LENGTH', 800)} characters."},
                             {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}}
                         ],
                     }
                 ],
-                max_tokens=150 
+                max_tokens=500 
             )
             summary = response.choices[0].message.content.strip()
             return summary
@@ -127,7 +149,7 @@ class AIBridge:
         # print(f"DEBUG (ai_bridge): Sending screenshot of {url} to Gemini Vision ({self.gemini_vision_model_name})...")
         try:
             image_part = {"mime_type": "image/png", "data": screenshot_bytes}
-            prompt_text = f"This is a screenshot of the webpage at {url}. Please summarize its main content and purpose in under {getattr(self.config, 'MAX_WEB_SUMMARY_LENGTH', 150)} characters. Focus on information useful for text-based chat."
+            prompt_text = f"This is a screenshot of the webpage at {url}. Please provide a detailed analysis including: main headlines, key articles, navigation structure, and any notable content visible. Focus on information that would be useful for answering follow-up questions about the page content. Keep it under {getattr(self.config, 'MAX_WEB_SUMMARY_LENGTH', 800)} characters."
             
             response = self.gemini_vision_model.generate_content([prompt_text, image_part])
             summary = response.text.strip()
@@ -140,7 +162,7 @@ class AIBridge:
     def analyze_url_content(self, url: str) -> str | None:
         if not WEB_UTILS_AVAILABLE:
             print("WARNING (ai_bridge): web_utils not available, cannot analyze URL content.")
-            return f"https://github.com/open-webui/open-webui/issues/3071"
+            return f"[URL analysis not available - web_utils module missing]"
             
         print(f"INFO (ai_bridge): Starting analysis for URL: {url}")
         summary = None
@@ -174,7 +196,176 @@ class AIBridge:
         
         return summary if summary else f"[No analysis available for URL {url}]"
 
-    def get_response(self, conversation_history, user_message_text, user_name="User", node_id="UnknownNode", web_analysis_summary=None):
+    def get_weather_data(self, city: str) -> str:
+        """Get current weather data for a city using web spider"""
+        if not self.web_spider_available:
+            return f"[Weather data extraction not available - web_spider module missing]"
+            
+        print(f"INFO (ai_bridge): Getting weather data for {city}")
+        try:
+            weather_data = extract_weather_sync(city)
+            if weather_data.get('temperature'):
+                result = f"Weather in {city}: {weather_data['temperature']}°"
+                if weather_data.get('condition'):
+                    result += f", {weather_data['condition']}"
+                if weather_data.get('source'):
+                    result += f" (Source: {weather_data['source']})"
+                return result
+            else:
+                return f"[Could not find weather data for {city}]"
+        except Exception as e:
+            print(f"ERROR (ai_bridge): Weather extraction failed: {e}")
+            return f"[Error getting weather data for {city}]"
+
+    def search_web(self, query: str, max_results: int = 3) -> str:
+        """Search the web using DuckDuckGo and return results"""
+        if not self.web_spider_available:
+            return f"[Web search not available - web_spider module missing]"
+            
+        print(f"INFO (ai_bridge): Searching web for '{query}'")
+        try:
+            results = search_duckduckgo_sync(query, max_results)
+            if results:
+                result_text = f"Search results for '{query}':\n"
+                for i, result in enumerate(results, 1):
+                    result_text += f"{i}. {result['title']}"
+                    if result.get('url'):
+                        result_text += f" ({result['url']})"
+                    result_text += "\n"
+                return result_text
+            else:
+                return f"[No search results found for '{query}']"
+        except Exception as e:
+            print(f"ERROR (ai_bridge): Web search failed: {e}")
+            return f"[Error searching for '{query}']"
+
+    def extract_specific_info(self, url: str, info_type: str) -> str:
+        """Extract specific information from a URL based on type"""
+        if not self.web_spider_available:
+            return f"[Specific data extraction not available - web_spider module missing]"
+            
+        print(f"INFO (ai_bridge): Extracting {info_type} from {url}")
+        try:
+            # Define selectors for different types of information
+            selectors = {
+                'temperature': ['.temp', '.temperature', '.weather-temp', '[data-temp]'],
+                'price': ['.price', '.cost', '.amount', '[data-price]'],
+                'title': ['h1', '.title', '.headline', '[data-title]'],
+                'description': ['.description', '.summary', '.content', '.text'],
+                'news': ['.news-item', '.article', '.story', '.post'],
+                'weather': ['.weather', '.forecast', '.conditions']
+            }
+            
+            if info_type not in selectors:
+                return f"[Unknown info type: {info_type}. Available: {', '.join(selectors.keys())}]"
+                
+            # Try each selector for the given type
+            for selector in selectors[info_type]:
+                try:
+                    data = extract_specific_data_sync(url, {info_type: selector})
+                    if data.get(info_type):
+                        return f"Found {info_type}: {data[info_type]}"
+                except Exception as e:
+                    continue
+                    
+            return f"[Could not extract {info_type} from {url}]"
+            
+        except Exception as e:
+            print(f"ERROR (ai_bridge): Specific data extraction failed: {e}")
+            return f"[Error extracting {info_type} from {url}]"
+
+    def process_query_with_ai_agent(self, user_query: str) -> str:
+        """Process a user query using AI Web Agent for intelligent web scraping"""
+        if not self.ai_web_agent_available:
+            return f"[AI Web Agent not available - ai_web_agent module missing]"
+            
+        if not self.openai_client:
+            return f"[OpenAI client not available for AI Web Agent]"
+            
+        print(f"INFO (ai_bridge): Processing query with AI Web Agent: {user_query}")
+        try:
+            result = process_query_sync(user_query, self.openai_client)
+            return result
+        except Exception as e:
+            print(f"ERROR (ai_bridge): AI Web Agent failed: {e}")
+            return f"[Error processing query with AI Web Agent: {str(e)}]"
+
+    def get_response_with_web_search(self, conversation_history, user_message_text, user_name="User", node_id="UnknownNode"):
+        """Get AI response with automatic web search when needed"""
+        if not self.openai_client:
+            return "OpenAI client not available"
+            
+        # First, let AI analyze if web search is needed
+        analysis_prompt = f"""
+        Analyze this user message and decide if web search is needed to provide a good answer.
+        
+        User message: {user_message_text}
+        
+        Respond with JSON:
+        {{
+            "needs_web_search": true/false,
+            "reason": "explanation why search is needed or not",
+            "search_query": "optimized search query if needed"
+        }}
+        
+        Examples:
+        - "jaka jest pogoda" -> needs_web_search: true, search_query: "current weather"
+        - "ile kosztuje frank" -> needs_web_search: true, search_query: "CHF exchange rate"
+        - "jak się masz" -> needs_web_search: false
+        - "opowiedz żart" -> needs_web_search: false
+        """
+        
+        try:
+            analysis_response = self.openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant that analyzes if web search is needed."},
+                    {"role": "user", "content": analysis_prompt}
+                ],
+                max_tokens=200
+            )
+            
+            analysis_text = analysis_response.choices[0].message.content.strip()
+            
+            # Try to parse JSON
+            try:
+                import json
+                analysis = json.loads(analysis_text)
+                needs_search = analysis.get("needs_web_search", False)
+                search_query = analysis.get("search_query", "")
+                
+                print(f"INFO (ai_bridge): Web search analysis: needs_search={needs_search}, query='{search_query}'")
+                
+                if needs_search and self.ai_web_agent_available:
+                    print(f"INFO (ai_bridge): Using AI Web Agent for search")
+                    web_result = self.process_query_with_ai_agent(search_query)
+                    
+                    # Add web search result to conversation context
+                    enhanced_message = f"{user_message_text}\n\n[Web search result: {web_result}]"
+                    
+                    # Get AI response with web search context
+                    return self.get_response(
+                        conversation_history, 
+                        enhanced_message, 
+                        user_name, 
+                        node_id,
+                        web_analysis_summary=web_result
+                    )
+                else:
+                    # Normal response without web search
+                    return self.get_response(conversation_history, user_message_text, user_name, node_id)
+                    
+            except json.JSONDecodeError:
+                print(f"WARNING (ai_bridge): Could not parse web search analysis: {analysis_text}")
+                # Fallback to normal response
+                return self.get_response(conversation_history, user_message_text, user_name, node_id)
+                
+        except Exception as e:
+            print(f"ERROR (ai_bridge): Web search analysis failed: {e}")
+            # Fallback to normal response
+            return self.get_response(conversation_history, user_message_text, user_name, node_id)
+
+    def get_response(self, conversation_history, user_message_text, user_name="User", node_id="UnknownNode", web_analysis_summary=None, skip_triage=False):
         if (self.current_ai_service == "openai" and not self.openai_client) or \
            (self.current_ai_service == "gemini" and not self.gemini_text_model): # Check primary text model
             print(f"ERROR (ai_bridge): {self.current_ai_service} text AI service not configured/available for get_response.")
@@ -189,7 +380,7 @@ class AIBridge:
 
         current_turn_content_parts = []
         if web_analysis_summary:
-            max_len_web_context = 500 
+            max_len_web_context = 1500 
             context_str = web_analysis_summary.strip()
             if len(context_str) > max_len_web_context:
                 context_str = context_str[:max_len_web_context] + "..."
@@ -256,7 +447,11 @@ class AIBridge:
             if ai_reply_text: # Suppress non-answers
                 suppress_phrases = ["i cannot fulfill", "i'm unable to", "i am unable", "as an ai", "i'm sorry, but i cannot", "...", "hmm"]
                 ai_reply_lower = ai_reply_text.lower()
-                if not ai_reply_text.strip() or len(ai_reply_text.strip()) < 5 or \
+                
+                # Adjust minimum length based on whether this is a DM (skip_triage=True) or channel message
+                min_length = 3 if skip_triage else 5  # Allow shorter responses for DMs
+                
+                if not ai_reply_text.strip() or len(ai_reply_text.strip()) < min_length or \
                    any(phrase in ai_reply_lower for phrase in suppress_phrases):
                     print(f"INFO (ai_bridge): AI returned non-answer/refusal: '{ai_reply_text[:100]}...'. Suppressing.")
                     ai_reply_text = None

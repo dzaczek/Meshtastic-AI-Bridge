@@ -282,18 +282,18 @@ class ChatAnalysisApp(App):
         
         # Left panel - File list and stats
         with Container(id="left-panel"):
-            with Container(id="file-list"):
-                yield Label("History Files", classes="title")
-                yield ListView(id="history-list")
-            
+        with Container(id="file-list"):
+            yield Label("History Files", classes="title")
+            yield ListView(id="history-list")
+        
             with Container(id="stats-container"):
                 yield UserStatsPanel(id="user-stats")
                 yield ChannelStatsPanel(id="channel-stats-panel")
         
         # Right panel - Messages
         with Container(id="right-panel"):
-            with Container(id="message-display"):
-                yield MessageDisplay(id="messages")
+        with Container(id="message-display"):
+            yield MessageDisplay(id="messages")
         
         yield Footer()
     

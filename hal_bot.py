@@ -230,7 +230,7 @@ HAL9000 (!{self.meshtastic_handler.node_id:x})
         
         return None
 
-    def handle_command(self, text: str, sender_id: str, sender_name: str, channel_id: int = None) -> Optional[dict]:
+    def handle_command(self, text: str, sender_id: str, sender_name: str, channel_id: int = None, is_dm: bool = False) -> Optional[dict]:
         """Handle HAL bot commands"""
         # Clean up the text and check for direct commands
         text = text.strip()
@@ -285,7 +285,7 @@ HAL9000 (!{self.meshtastic_handler.node_id:x})
             return {
                 'response': response_text,  # This should be a string
                 'channel_id': channel_id,  # Pass through the channel ID
-                'is_channel_message': channel_id is not None  # Flag to indicate if this was a channel message
+                'is_channel_message': not is_dm  # Use is_dm parameter to determine if this was a channel message
             }
                 
         elif command == 'traceroute':
