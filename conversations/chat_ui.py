@@ -67,7 +67,7 @@ class UserStatsPanel(Static):
         total_messages = self.stats.get('total_messages', 0)
         user_stats = self.stats.get('user_stats', {})
         
-        # Sort users by message count
+        # Sort users by message coun
         sorted_users = sorted(user_stats.items(), key=lambda x: x[1]['count'], reverse=True)
         
         for user, data in sorted_users:
