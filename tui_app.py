@@ -369,8 +369,8 @@ class MeshtasticInteractive(App):
 
     TITLE = "Eva  Mesh AI"
     BINDINGS = [
-        Binding("ctrl+c", "quit_app", "Quit"),
-        Binding("ctrl+q", "quit_app", "Quit"),
+        Binding("ctrl+c", "quit", "Quit"),
+        Binding("ctrl+q", "quit", "Quit"),
         Binding("f5", "force_ai", "AI Reply", show=True),
         Binding("f1", "focus_channel_list", "Channels", show=True),
         Binding("f2", "focus_node_list", "Nodes", show=True),
