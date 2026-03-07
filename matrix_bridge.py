@@ -26,12 +26,17 @@ except ImportError:
 
 import logging
 
+# Silence nio library loggers that flood stdout and break TUI
+for _nio_logger_name in ("nio", "nio.rooms", "nio.client.base_client", "nio.responses"):
+    logging.getLogger(_nio_logger_name).setLevel(logging.WARNING)
+
 _matrix_logger = logging.getLogger("matrix_bridge")
 if not _matrix_logger.handlers:
     _fh = logging.FileHandler("matrix_bridge.log", mode="a")
     _fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s: %(message)s"))
     _matrix_logger.addHandler(_fh)
     _matrix_logger.setLevel(logging.DEBUG)
+    _matrix_logger.propagate = False
 
 def log_info(msg):
     _matrix_logger.info(msg)
