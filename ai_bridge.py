@@ -17,21 +17,25 @@ except ImportError:
     def capture_screenshot_from_url_sync(url, timeout_s=15): return None
     def extract_text_from_url(url, timeout_s=10): return None
 
-# Import web spider for advanced data extraction
+# Import unified web agent (falls back to legacy modules)
 try:
-    from web_spider import WebSpider, extract_weather_sync, search_duckduckgo_sync, extract_specific_data_sync
+    from web_agent import extract_weather_sync, search_sync as search_duckduckgo_sync, extract_specific_data_sync, process_query_sync
     WEB_SPIDER_AVAILABLE = True
-except ImportError:
-    print("WARNING (ai_bridge.py): web_spider.py not found. Advanced data extraction will be disabled.")
-    WEB_SPIDER_AVAILABLE = False
-
-# Import AI Web Agent for intelligent web scraping
-try:
-    from ai_web_agent import process_query_sync
     AI_WEB_AGENT_AVAILABLE = True
 except ImportError:
-    print("WARNING (ai_bridge.py): ai_web_agent.py not found. AI-powered web scraping will be disabled.")
-    AI_WEB_AGENT_AVAILABLE = False
+    # Fallback to legacy modules
+    try:
+        from web_spider import extract_weather_sync, search_duckduckgo_sync, extract_specific_data_sync
+        WEB_SPIDER_AVAILABLE = True
+    except ImportError:
+        print("WARNING (ai_bridge.py): No web agent available. Advanced data extraction will be disabled.")
+        WEB_SPIDER_AVAILABLE = False
+
+    try:
+        from ai_web_agent import process_query_sync
+        AI_WEB_AGENT_AVAILABLE = True
+    except ImportError:
+        AI_WEB_AGENT_AVAILABLE = False
 
 
 class AIBridge:

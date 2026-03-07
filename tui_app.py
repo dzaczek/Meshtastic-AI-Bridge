@@ -21,6 +21,7 @@ from meshtastic_handler import MeshtasticHandler
 from ai_bridge import AIBridge
 from conversation_manager import ConversationManager
 from hal_bot import HalBot
+from message_router import MessageRouter, RouteResult
 import config
 import random
 from rich.text import Text
@@ -594,8 +595,13 @@ class MeshtasticInteractive(App):
         self.ai_node_id = self._norm_id(f"{self.meshtastic_handler.node_id:x}") if self.meshtastic_handler.node_id else None
         self.log_info(f"AI Node ID set to: '{self.ai_node_id}' (from meshtastic_handler.node_id: {self.meshtastic_handler.node_id})")
         
-        # Initialize HAL bot
-        self.hal_bot = HalBot(self.meshtastic_handler)
+        # Initialize HAL bot and message router
+        self.hal_bot = HalBot(self.meshtastic_handler, self.app_config)
+        self.router = MessageRouter(
+            self.app_config, self.ai_bridge,
+            self.conversation_manager, self.hal_bot,
+            self.meshtastic_handler
+        )
         
         # Other initializations
         self.url_pattern = re.compile(r'https?://[^\s/$.?#].[^\s]*', re.IGNORECASE)
@@ -1027,10 +1033,9 @@ class MeshtasticInteractive(App):
                 await asyncio.sleep(1)  # Longer delay on error
     
     async def process_incoming_message(self, data: dict) -> None:
-        """Process an incoming message"""
+        """Process an incoming message via the central MessageRouter."""
         try:
             log_widget = self.query_one("#app-log", RichLog)
-            log_widget.write(f"[deep_sky_blue1]Processing incoming message data: {data!r}[/deep_sky_blue1]")
 
             text = data['text']
             sender_id = self._norm_id(data['sender_id'])
@@ -1038,162 +1043,74 @@ class MeshtasticInteractive(App):
             destination_id = self._norm_id(data['destination_id'])
             channel_id = data['channel_id']
 
-            # Determine effective channel ID first (treat None as 0)
-            effective_channel_id = channel_id if channel_id is not None else 0
+            # Update AI node ID
+            self._update_ai_node_id()
 
-            # Determine conversation ID consistently
-            is_broadcast = destination_id.lower() == f"{meshtastic.BROADCAST_NUM:x}".lower() or destination_id.lower() == "broadcast"
-            is_dm_to_ai = (self.ai_node_id and destination_id == self.ai_node_id)
-            
-            # Debug logging for DM detection
-            log_widget.write(f"[cyan]DM Debug: ai_node_id='{self.ai_node_id}', destination_id='{destination_id}', is_dm_to_ai={is_dm_to_ai}[/cyan]")
-            
-            if is_dm_to_ai:
-                conv_id = self._dm_conv(sender_id)  # DM with the sender of this message
-            else:
-                conv_id = f"ch_{effective_channel_id}_broadcast"
+            # --- Route via centralised router ---
+            result = self.router.on_message(
+                text, sender_id, sender_name, destination_id,
+                channel_id, self.ai_node_id
+            )
+            conv_id = result.conversation_id
 
-            # Add the incoming message to conversation history first
-            self.conversation_manager.add_message(conv_id, "user", text, user_name=sender_name, node_id=sender_id)
+            # Update node info
+            eff_ch = channel_id if channel_id is not None else 0
+            self._update_node_info_from_message(sender_id, sender_name, eff_ch)
 
-            # Check if this is a HAL bot command
-            if self.hal_bot.should_handle_message(text):
-                log_widget.write(f"[bright_green]Message is a HAL bot command. Processing...[/bright_green]")
-                hal_result = self.hal_bot.handle_command(text, sender_id, sender_name, effective_channel_id, is_dm_to_ai)
-                if hal_result and isinstance(hal_result, dict):
-                    response_text = hal_result['response']  # Extract just the response text
-                    is_channel_message = hal_result.get('is_channel_message', False)
-                    
-                    log_widget.write(f"[bright_green]Sending HAL bot response to {sender_name}[/bright_green]")
-                    if self.meshtastic_handler and self.meshtastic_handler.is_connected:
-                        if is_channel_message:
-                            # Send to channel
-                            success, reason = self.meshtastic_handler.send_message(
-                                response_text,  # Use the extracted response text
-                                channel_index=effective_channel_id
-                            )
-                        else:
-                            # Send as DM
-                            success, reason = self.meshtastic_handler.send_message(
-                                response_text,  # Use the extracted response text
-                                destination_id_hex=sender_id,
-                                channel_index=effective_channel_id
-                            )
-                        
-                        if success:
-                            log_widget.write(f"[green]HAL bot response sent successfully[/green]")
-                            self.tx_count += 1
-                            
-                            # Add HAL bot response to conversation history
-                            self.conversation_manager.add_message(
-                                conv_id, 
-                                "assistant", 
-                                response_text, 
-                                user_name="HAL9000", 
-                                node_id=f"{self.meshtastic_handler.node_id:x}"
-                            )
-                            
-                            # Update display if this is the current conversation
-                            current_conv_id = f"ch_{self.current_chat_id}_broadcast" if self.current_chat_type == "channel" else self._dm_conv(self.current_chat_id)
-                            if conv_id == current_conv_id:
-                                self.load_conversation()
-                            else:
-                                self.update_channel_list()
-                                self.update_node_list()
-                                self.refresh_info_panel()
-                        else:
-                            log_widget.write(f"[red]Failed to send HAL bot response: {reason}[/red]")
-                    return
-
-            # Update node info with enhanced data
-            self._update_node_info_from_message(sender_id, sender_name, effective_channel_id)
-            
-            # Get current conversation ID that is being viewed
-            current_conv_id = f"ch_{self.current_chat_id}_broadcast" if self.current_chat_type == "channel" else self._dm_conv(self.current_chat_id)
-            log_widget.write(f"[plum2]  Currently viewing conv_id: {current_conv_id}[/plum2]")
-
-            # Update unread status and display
+            # Refresh UI
+            current_conv_id = (f"ch_{self.current_chat_id}_broadcast"
+                               if self.current_chat_type == "channel"
+                               else self._dm_conv(self.current_chat_id))
             if conv_id == current_conv_id:
-                log_widget.write(f"[green3]  Incoming message for currently viewed chat. Reloading conversation.[/green3]")
-                self.load_conversation() # This also handles unread count for the current conversation
+                self.load_conversation()
             else:
-                log_widget.write(f"[yellow3]  Incoming message for a background chat. Updating unread lists.[/yellow3]")
-                # Update lists to show new unread status for background chats
                 self.update_channel_list()
                 self.update_node_list()
                 self.refresh_info_panel()
-            
-            # Log raw message to app log
-            log_widget.write(f"[yellow]MSG from {sender_name}: {text[:50].strip()}...[/yellow]")
-            
-            # rx counter update
+
+            log_widget.write(f"[yellow]MSG from {sender_name}: {text[:50].strip()}[/yellow]")
             self.rx_count += 1
-            
-            # STEP 2: Decide if our AI should respond to this incoming message
-            log_widget.write(f"[bright_magenta]AI Decision Logic: is_dm_to_ai={is_dm_to_ai}, channel_id={effective_channel_id}, active_ai_channel={self.active_channel_for_ai_posts}[/bright_magenta]")
-            
-            should_ai_respond = False
-            skip_triage = False
-            
-            # Check if AI should respond
-            if is_dm_to_ai:
-                log_widget.write(f"[bright_magenta]  This is a DM to AI - AI WILL respond (skip_triage=True)[/bright_magenta]")
-                should_ai_respond = True
-                skip_triage = True  # Always skip triage for DMs
-            elif effective_channel_id == self.active_channel_for_ai_posts and is_broadcast:
-                log_widget.write(f"[bright_magenta]  This is on AI's active channel {self.active_channel_for_ai_posts} - checking probability...[/bright_magenta]")
-                # Check cooldown
-                now = time.time()
-                if self.ai_cooldown > 0:
-                    last_response_time = self.last_response_times.get(conv_id, 0)
-                    time_since_last = now - last_response_time
-                    if time_since_last < self.ai_cooldown:
-                        log_widget.write(f"[bright_magenta]  Cooldown active: {time_since_last:.1f}s < {self.ai_cooldown}s - AI will NOT respond[/bright_magenta]")
-                        should_ai_respond = False
+
+            # --- Broadcast SOS alert ---
+            if result.broadcast_alert and self.meshtastic_handler and self.meshtastic_handler.is_connected:
+                for ch in result.broadcast_channels:
+                    self.meshtastic_handler.send_message(result.broadcast_alert, channel_index=ch)
+                log_widget.write(f"[red bold]SOS ALERT broadcast on {len(result.broadcast_channels)} channel(s)[/red bold]")
+
+            # --- Send direct reply (HAL bot / help confirmation) ---
+            if result.reply_text and result.handled:
+                if self.meshtastic_handler and self.meshtastic_handler.is_connected:
+                    if result.reply_as_dm:
+                        success, reason = self.meshtastic_handler.send_message(
+                            result.reply_text, destination_id_hex=result.reply_destination, channel_index=0
+                        )
                     else:
-                        # Check probability
-                        roll = random.random()
-                        if roll <= self.ai_response_probability:
-                            log_widget.write(f"[bright_magenta]  Probability check passed: {roll:.2f} <= {self.ai_response_probability} - AI WILL respond[/bright_magenta]")
-                            should_ai_respond = True
-                            skip_triage = not self.enable_ai_triage  # Use triage if enabled for channels
-                        else:
-                            log_widget.write(f"[bright_magenta]  Probability check failed: {roll:.2f} > {self.ai_response_probability} - AI will NOT respond[/bright_magenta]")
-                            should_ai_respond = False
-                else:
-                    # No cooldown, just check probability
-                    roll = random.random()
-                    if roll <= self.ai_response_probability:
-                        log_widget.write(f"[bright_magenta]  Probability check passed: {roll:.2f} <= {self.ai_response_probability} - AI WILL respond[/bright_magenta]")
-                        should_ai_respond = True
-                        skip_triage = not self.enable_ai_triage  # Use triage if enabled for channels
+                        success, reason = self.meshtastic_handler.send_message(
+                            result.reply_text, channel_index=result.reply_channel
+                        )
+                    if success:
+                        log_widget.write(f"[green]Bot response sent to {sender_name}[/green]")
+                        self.tx_count += 1
+                        self.conversation_manager.add_message(
+                            conv_id, "assistant", result.reply_text,
+                            user_name="HAL9000",
+                            node_id=f"{self.meshtastic_handler.node_id:x}"
+                        )
+                        if conv_id == current_conv_id:
+                            self.load_conversation()
                     else:
-                        log_widget.write(f"[bright_magenta]  Probability check failed: {roll:.2f} > {self.ai_response_probability} - AI will NOT respond[/bright_magenta]")
-                        should_ai_respond = False
-            else:
-                log_widget.write(f"[bright_magenta]  Not a DM to AI and not on AI's active channel - AI will NOT respond[/bright_magenta]")
-                should_ai_respond = False
-            
-            # Start AI worker if needed
-            if should_ai_respond:
-                log_widget.write(f"[bright_green]Starting AIProcessingWorker for {sender_name} in conv_id={conv_id}, skip_triage={skip_triage}[/bright_green]")
+                        log_widget.write(f"[red]Failed to send bot response: {reason}[/red]")
+                return
+
+            # --- AI response needed: spawn worker ---
+            if result.needs_ai_response:
+                log_widget.write(f"[bright_green]Starting AI worker for {sender_name} (conv={conv_id})[/bright_green]")
                 processor = AIProcessingWorker(
-                    self,
-                    text,
-                    sender_id,
-                    sender_name,
-                    effective_channel_id,
-                    is_dm_to_ai,
-                    conv_id,
-                    self.url_pattern,
-                    skip_triage=skip_triage
+                    self, text, sender_id, sender_name, eff_ch,
+                    result.reply_as_dm, conv_id, self.router.url_pattern,
+                    skip_triage=result.skip_triage
                 )
-                self.run_worker(
-                    processor.run,
-                    exclusive=True,
-                    group="ai_proc",
-                    thread=True
-                )
+                self.run_worker(processor.run, exclusive=True, group="ai_proc", thread=True)
             else:
                 log_widget.write(f"[bright_red]AI will NOT respond to this message[/bright_red]")
 
