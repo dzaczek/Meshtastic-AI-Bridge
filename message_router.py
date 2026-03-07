@@ -119,6 +119,7 @@ class MessageRouter:
         self.ai_min_delay = getattr(app_config, 'AI_MIN_RESPONSE_DELAY_S', 2)
         self.ai_max_delay = getattr(app_config, 'AI_MAX_RESPONSE_DELAY_S', 8)
         self.ai_cooldown = getattr(app_config, 'AI_RESPONSE_COOLDOWN_S', 60)
+        self.bot_name = getattr(app_config, 'BOT_NAME', 'Eva')
         self.enable_ai_triage = getattr(app_config, 'ENABLE_AI_TRIAGE_ON_CHANNELS', False)
         self.triage_context_count = getattr(app_config, 'TRIAGE_CONTEXT_MESSAGE_COUNT', 3)
         self.active_channel = getattr(app_config, 'ACTIVE_MESHTASTIC_CHANNEL_INDEX', 0)
@@ -276,7 +277,7 @@ class MessageRouter:
 
         # Confirmation back to sender
         num_ch = len(channels)
-        confirm = f"HAL9000: Your distress message has been broadcast on {num_ch} channel(s). Help is on the way."
+        confirm = f"{self.bot_name}: Your distress message has been broadcast on {num_ch} channel(s). Help is on the way."
 
         return RouteResult(
             reply_text=confirm,
@@ -340,20 +341,33 @@ class MessageRouter:
         skip_triage = False
 
         if ctx.is_dm_to_ai:
+            # DMs always get a response
             should_respond = True
             skip_triage = True
-        elif ctx.channel_id == self.active_channel and ctx.is_broadcast:
-            if self.enable_ai_triage:
+        elif ctx.is_broadcast:
+            # Check if bot is mentioned by name
+            text_lower = ctx.text.lower()
+            bot_name_lower = self.bot_name.lower()
+            directly_addressed = bot_name_lower in text_lower
+
+            if directly_addressed:
+                # Someone called Eva by name -> always respond
+                should_respond = True
+                skip_triage = True
+            elif self.enable_ai_triage:
+                # Let triage AI decide if Eva should join the conversation
                 history_raw = self.conversation_manager.load_conversation(ctx.conversation_id)
                 triage_msgs = []
                 for entry in history_raw[-(self.triage_context_count + 1):-1]:
                     if entry.get("role") == "user":
                         name = entry.get("user_name", f"Node-{entry.get('node_id', '????')}")
                         triage_msgs.append(f"{name}: {entry.get('content', '')}")
+                    elif entry.get("role") == "assistant":
+                        triage_msgs.append(f"{self.bot_name}: {entry.get('content', '')}")
                 if self.ai_bridge.should_main_ai_respond(triage_msgs, ctx.text, ctx.sender_name):
                     should_respond = True
-                # else stays False
             else:
+                # No triage enabled — use probability only
                 should_respond = True
 
         if not should_respond:
@@ -366,9 +380,10 @@ class MessageRouter:
             if (now - last) < self.ai_cooldown:
                 return result
 
-        # Probability check
-        if random.random() > self.ai_response_probability:
-            return result
+        # Probability check (skip if directly addressed)
+        if not (ctx.is_dm_to_ai or self.bot_name.lower() in ctx.text.lower()):
+            if random.random() > self.ai_response_probability:
+                return result
 
         result.needs_ai_response = True
         result.skip_triage = skip_triage

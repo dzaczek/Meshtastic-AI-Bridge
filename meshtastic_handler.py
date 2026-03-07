@@ -2,13 +2,15 @@ import meshtastic
 import meshtastic.serial_interface
 import meshtastic.tcp_interface
 import meshtastic.util
-from meshtastic import mesh_pb2 
+from meshtastic import mesh_pb2
 from meshtastic.mesh_interface import MeshInterface
 from pubsub import pub
 import time
 import traceback
+import threading
 from datetime import datetime
-from typing import Tuple
+from typing import Tuple, Optional
+from connection_manager import ConnectionStateMachine, ConnectionConfig, ConnectionState
 
 def log_info(msg):
     print(f"INFO: {msg}")
@@ -22,34 +24,65 @@ class MeshtasticHandler:
         self.on_message_received_callback = on_message_received_callback
         self.interface = None
         self.node_id = None
-        self.is_connected = False
+        self._connection_type = connection_type
+        self._device_specifier = device_specifier
+
+        # Initialize connection state machine
+        self._conn_sm = ConnectionStateMachine(
+            config=ConnectionConfig(
+                initial_timeout=5.0,
+                max_retries=5,
+                base_retry_delay=2.0,
+                max_retry_delay=60.0,
+                connection_check_interval=30.0,
+            ),
+            on_state_change=self._on_state_change,
+        )
 
         print(f"Attempting Meshtastic connection: type='{connection_type}', specifier='{device_specifier or 'auto-detect'}'")
+        self._conn_sm.start_connection()
+        self._do_connect()
 
+    @property
+    def is_connected(self) -> bool:
+        return self._conn_sm.state == ConnectionState.CONNECTED
+
+    @is_connected.setter
+    def is_connected(self, value: bool):
+        # Backward-compat setter: only handle disconnection signals
+        if not value and self._conn_sm.state == ConnectionState.CONNECTED:
+            self._conn_sm.connection_failed(Exception("Connection lost (flagged externally)"))
+
+    def _on_state_change(self, old_state: ConnectionState, new_state: ConnectionState):
+        """React to state machine transitions."""
+        log_info(f"Connection state: {old_state.name} -> {new_state.name}")
+        if new_state == ConnectionState.CONNECTING and old_state in {ConnectionState.RECONNECTING, ConnectionState.FAILED}:
+            # State machine scheduled a reconnect — attempt it in a background thread
+            threading.Thread(target=self._do_reconnect, daemon=True).start()
+
+    def _do_connect(self):
+        """Perform the initial connection."""
         try:
-            if connection_type == "serial":
-                # Set a shorter timeout for serial connection
+            if self._connection_type == "serial":
                 self.interface = meshtastic.serial_interface.SerialInterface(
-                    devPath=device_specifier,
-                    connectNow=False  # Don't connect immediately
+                    devPath=self._device_specifier,
+                    connectNow=False,
                 )
-                # Try to connect with a timeout
                 try:
                     self.interface.connect()
-                    # Wait for connection with timeout
-                    if not self.interface.isConnected.wait(timeout=5.0):  # 5 second timeout
+                    if not self.interface.isConnected.wait(timeout=5.0):
                         raise TimeoutError("Connection timeout waiting for Meshtastic device")
                 except KeyboardInterrupt:
                     if self.interface:
                         try: self.interface.close()
                         except: pass
                     raise KeyboardInterrupt("Connection attempt interrupted by user")
-            elif connection_type == "tcp":
-                if not device_specifier:
-                    raise ValueError("Hostname/IP (device_specifier) is required for TCP connection. It can include 'hostname:port'.")
-                self.interface = meshtastic.tcp_interface.TCPInterface(hostname=device_specifier)
+            elif self._connection_type == "tcp":
+                if not self._device_specifier:
+                    raise ValueError("Hostname/IP (device_specifier) is required for TCP connection.")
+                self.interface = meshtastic.tcp_interface.TCPInterface(hostname=self._device_specifier)
             else:
-                raise ValueError(f"Unsupported connection_type: {connection_type}")
+                raise ValueError(f"Unsupported connection_type: {self._connection_type}")
         except KeyboardInterrupt:
             print("\nConnection attempt interrupted by user")
             if self.interface:
@@ -58,23 +91,25 @@ class MeshtasticHandler:
             raise
         except Exception as e:
             print(f"Error initializing Meshtastic interface object: {e}")
-            if connection_type == "serial" and device_specifier is None:
+            if self._connection_type == "serial" and self._device_specifier is None:
                 print("Attempted auto-detect for serial. If a device is connected, try specifying its path directly.")
             if isinstance(e, (MeshInterface.MeshInterfaceError, ConnectionRefusedError, TimeoutError, OSError, TypeError)):
+                self._conn_sm.connection_failed(e)
                 raise ConnectionError(f"Failed to create Meshtastic interface object: {e}") from e
             else:
                 raise
-        
+
         if not self.interface:
+            self._conn_sm.connection_failed(Exception("Interface is None"))
             raise ConnectionError("Meshtastic interface object could not be established (is None after init attempt).")
 
         # Try to get node info with timeout
-        retries = 5  # Reduced from 10 to 5 retries
+        retries = 5
         while retries > 0 and (not hasattr(self.interface, 'myInfo') or self.interface.myInfo is None or \
                              not hasattr(self.interface.myInfo, 'my_node_num')):
             try:
                 print(f"Waiting for Meshtastic interface to get myInfo (node details)... ({retries} retries left)")
-                time.sleep(1.0)  # Reduced from 1.5 to 1.0
+                time.sleep(1.0)
                 if hasattr(self.interface, '_readFromRadio'):
                     try: self.interface._readFromRadio()
                     except: pass
@@ -84,32 +119,34 @@ class MeshtasticHandler:
                     try: self.interface.close()
                     except: pass
                 raise KeyboardInterrupt("Connection attempt interrupted by user")
-        
+
         if not hasattr(self.interface, 'myInfo') or self.interface.myInfo is None or \
            not hasattr(self.interface.myInfo, 'my_node_num'):
             if self.interface:
                 try: self.interface.close()
                 except: pass
-            raise ConnectionError("Failed to get valid node info (myInfo.my_node_num) from Meshtastic device. Device might be unconfigured, unresponsive, or an old firmware.")
+            self._conn_sm.connection_failed(Exception("No myInfo from device"))
+            raise ConnectionError("Failed to get valid node info (myInfo.my_node_num) from Meshtastic device.")
 
         self.node_id = self.interface.myInfo.my_node_num
-        
+
         print(f"Meshtastic interface initialized. Attempting to confirm connection status...")
-        
+
         pub.subscribe(self._on_receive_internal, "meshtastic.receive")
         pub.subscribe(self._on_connection_established, "meshtastic.connection.established")
         pub.subscribe(self._on_connection_lost, "meshtastic.connection.lost")
-        
+
         # Wait briefly for connection confirmation
         try:
             time.sleep(0.5)
             if self.interface and hasattr(self.interface, 'isConnected') and self.interface.isConnected:
-                self.is_connected = True
-                print(f"Meshtastic initially reported as connected. Node ID: {self.node_id:x}")
+                self._conn_sm.connection_succeeded()
+                print(f"Meshtastic connected. Node ID: {self.node_id:x}")
                 if hasattr(self.interface.myInfo, 'long_name') and hasattr(self.interface.myInfo, 'short_name'):
                     print(f"Node Name: {self.interface.myInfo.long_name} ({self.interface.myInfo.short_name})")
-            elif self.interface and self.node_id is not None: 
-                print(f"Meshtastic Node ID {self.node_id:x} retrieved. Waiting for 'established' event for full connected state.")
+            elif self.interface and self.node_id is not None:
+                self._conn_sm.connection_succeeded()
+                print(f"Meshtastic Node ID {self.node_id:x} retrieved. Waiting for 'established' event.")
         except KeyboardInterrupt:
             if self.interface:
                 try: self.interface.close()
@@ -118,22 +155,77 @@ class MeshtasticHandler:
 
     def _on_connection_established(self, interface):
         print(f"Meshtastic Connection Event: Established (Interface: {interface})")
-        self.is_connected = True
+        self._conn_sm.connection_succeeded()
         if self.interface and hasattr(self.interface, 'myInfo') and self.interface.myInfo and hasattr(self.interface.myInfo, 'my_node_num'):
-             self.node_id = self.interface.myInfo.my_node_num 
+             self.node_id = self.interface.myInfo.my_node_num
              print(f"Connection established. AI Node ID confirmed: {self.node_id:x}")
         else:
-             print("Warning: myInfo not fully available on 'connection established' event. Node ID might be stale if interface reconnected without full init.")
+             print("Warning: myInfo not fully available on 'connection established' event.")
 
     def _on_connection_lost(self, interface):
         print(f"Meshtastic Connection Event: Lost (Interface: {interface})")
-        self.is_connected = False
-        print("Meshtastic connection lost.")
+        self._conn_sm.connection_failed(Exception("Connection lost event from Meshtastic"))
+        print("Meshtastic connection lost. State machine will handle reconnection.")
+
+    def _do_reconnect(self):
+        """Background reconnection attempt triggered by the state machine."""
+        log_info("Attempting reconnection...")
+        try:
+            # Close old interface
+            if self.interface:
+                try:
+                    pub.unsubscribe(self._on_receive_internal, "meshtastic.receive")
+                    pub.unsubscribe(self._on_connection_established, "meshtastic.connection.established")
+                    pub.unsubscribe(self._on_connection_lost, "meshtastic.connection.lost")
+                except Exception:
+                    pass
+                try:
+                    self.interface.close()
+                except Exception:
+                    pass
+                self.interface = None
+
+            # Recreate interface
+            if self._connection_type == "serial":
+                self.interface = meshtastic.serial_interface.SerialInterface(
+                    devPath=self._device_specifier,
+                    connectNow=False,
+                )
+                self.interface.connect()
+                if not self.interface.isConnected.wait(timeout=5.0):
+                    raise TimeoutError("Reconnection timeout")
+            elif self._connection_type == "tcp":
+                self.interface = meshtastic.tcp_interface.TCPInterface(hostname=self._device_specifier)
+
+            if not self.interface:
+                raise ConnectionError("Interface is None after reconnect")
+
+            # Wait for myInfo
+            for _ in range(5):
+                if hasattr(self.interface, 'myInfo') and self.interface.myInfo and hasattr(self.interface.myInfo, 'my_node_num'):
+                    break
+                time.sleep(1.0)
+
+            if hasattr(self.interface, 'myInfo') and self.interface.myInfo and hasattr(self.interface.myInfo, 'my_node_num'):
+                self.node_id = self.interface.myInfo.my_node_num
+
+            pub.subscribe(self._on_receive_internal, "meshtastic.receive")
+            pub.subscribe(self._on_connection_established, "meshtastic.connection.established")
+            pub.subscribe(self._on_connection_lost, "meshtastic.connection.lost")
+
+            self._conn_sm.connection_succeeded()
+            log_info(f"Reconnection successful. Node ID: {self.node_id:x}")
+
+        except Exception as e:
+            log_error(f"Reconnection failed: {e}")
+            self._conn_sm.connection_failed(e)
 
     def _on_receive_internal(self, packet, interface):
         if not packet: return
-        sender_id_hex = "" 
-        user_name_to_use = "" 
+        # Update state machine activity on every received packet
+        self._conn_sm.update_activity()
+        sender_id_hex = ""
+        user_name_to_use = ""
         try:
             sender_id_num = packet.get('from')
             if sender_id_num is None: return
@@ -233,6 +325,7 @@ class MeshtasticHandler:
                     self.interface.sendText(text, destinationId=dest_node_num, wantAck=True)
                     after = datetime.now()
                     log_info(f"{log_prefix} sendText() for DM completed in {(after-before).total_seconds():.3f}s")
+                    self._conn_sm.update_activity()
                     return (True, "dm_sent")
                 except ValueError:
                     msg = f"{log_prefix} ERROR: Invalid destination_id_hex format '{destination_id_hex}'. Cannot send DM."
@@ -245,6 +338,7 @@ class MeshtasticHandler:
                 self.interface.sendText(text, channelIndex=channel_index, wantAck=False)
                 after = datetime.now()
                 log_info(f"{log_prefix} sendText() for channel completed in {(after-before).total_seconds():.3f}s")
+                self._conn_sm.update_activity()
                 return (True, "channel_sent")
         except BrokenPipeError as bpe:
             msg = f"{log_prefix} ERROR sending Meshtastic message (BrokenPipeError): {bpe}. Connection likely lost."
@@ -306,22 +400,28 @@ class MeshtasticHandler:
             traceback.print_exc()
         return channels_info
 
+    def get_connection_status(self):
+        """Get detailed connection status from state machine."""
+        return self._conn_sm.get_connection_status()
+
     def close(self):
+        print("Closing Meshtastic interface...")
+        # Shutdown state machine (stops monitor thread, timers)
+        self._conn_sm.shutdown()
+
         if self.interface:
-            print("Closing Meshtastic interface...")
             try:
                 pub.unsubscribe(self._on_receive_internal, "meshtastic.receive")
                 pub.unsubscribe(self._on_connection_established, "meshtastic.connection.established")
                 pub.unsubscribe(self._on_connection_lost, "meshtastic.connection.lost")
-            except Exception as e_unsub: 
+            except Exception as e_unsub:
                 print(f"Warning: Error during pubsub unsubscribe: {e_unsub}")
-            
+
             try:
                 self.interface.close()
-            except Exception as e_close: 
+            except Exception as e_close:
                 print(f"Warning: Error closing Meshtastic interface: {e_close}")
-            
+
             self.interface = None
-        self.is_connected = False
         print("Meshtastic interface closed.")
 

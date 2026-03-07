@@ -9,6 +9,7 @@ class HalBot:
     def __init__(self, meshtastic_handler, app_config=None):
         self.meshtastic_handler = meshtastic_handler
         self.app_config = app_config
+        self.bot_name = getattr(app_config, 'BOT_NAME', 'Eva') if app_config else 'Eva'
         self.command_pattern = re.compile(r'^(?:HAL\s+)?(\w+)(?:\s+(.+))?$', re.IGNORECASE)
         self.admin_pattern = re.compile(r'^!admin\s+(\w+)(?:\s+(.+))?$', re.IGNORECASE)
         self.traceroute_timeout = 30  # seconds
@@ -120,7 +121,7 @@ class HalBot:
         hops_str = f"{node_info['hops_away']} hop{'s' if node_info['hops_away'] != 1 else ''}" if node_info['hops_away'] is not None else "unknown"
         mqtt_str = "MQTT connected" if node_info['connection_type'] == 'mqtt' else "LoRa only"
         
-        response = f"HAL9000: {command.upper()} status for node {node_info['node_id']} ({node_info['long_name']}):\n"
+        response = f"{self.bot_name}: {command.upper()} status for node {node_info['node_id']} ({node_info['long_name']}):\n"
         response += f"• Status: {status}\n"
         response += f"• Signal: {rssi_str}\n"
         response += f"• Distance: {hops_str}\n"
@@ -182,7 +183,7 @@ class HalBot:
         if is_mqtt:
             return f"""[TRACEROUTE] MQTT route to !{target_id}:
 
-HAL9000 (!{self.meshtastic_handler.node_id:x})
+{self.bot_name} (!{self.meshtastic_handler.node_id:x})
 ↳ MQTT Broker: {self.mqtt_broker}
 ↳ !{target_id} (subscribed) ✅
 🌐 Path type: MQTT-direct
@@ -201,7 +202,7 @@ HAL9000 (!{self.meshtastic_handler.node_id:x})
                 snr_str = f"{snr} dB" if snr is not None else "N/A"
                 
                 if i == 0:
-                    path_lines.append(f"HAL9000 (!{node_id})")
+                    path_lines.append(f"{self.bot_name} (!{node_id})")
                 elif i == len(hops) - 1:
                     path_lines.append(f"↳ !{node_id} (Target) ✅")
                 else:
@@ -307,7 +308,7 @@ HAL9000 (!{self.meshtastic_handler.node_id:x})
                 target = args.strip().lstrip('!')
                 if not target:
                     return {
-                        'response': "HAL9000: Invalid target format. Please use !1234abcd, 1234abcd, or a node name",
+                        'response': f"{self.bot_name}: Invalid target format. Please use !1234abcd, 1234abcd, or a node name",
                         'channel_id': channel_id,
                         'is_channel_message': channel_id is not None
                     }
@@ -318,14 +319,14 @@ HAL9000 (!{self.meshtastic_handler.node_id:x})
                     target_id = self._find_node_by_name(target)
                     if not target_id:
                         return {
-                            'response': f"HAL9000: Could not find a node matching '{target}'",
+                            'response': f"{self.bot_name}: Could not find a node matching '{target}'",
                             'channel_id': channel_id,
                             'is_channel_message': channel_id is not None
                         }
             
             if target_id in self.active_traceroutes:
                 return {
-                    'response': "HAL9000: Traceroute already in progress for this node",
+                    'response': f"{self.bot_name}: Traceroute already in progress for this node",
                     'channel_id': channel_id,
                     'is_channel_message': channel_id is not None
                 }
@@ -334,7 +335,7 @@ HAL9000 (!{self.meshtastic_handler.node_id:x})
             target_info = self.get_node_info(target_id)
             if not target_info:
                 return {
-                    'response': f"HAL9000: Target node !{target_id} not found",
+                    'response': f"{self.bot_name}: Target node !{target_id} not found",
                     'channel_id': channel_id,
                     'is_channel_message': channel_id is not None
                 }
@@ -357,9 +358,9 @@ HAL9000 (!{self.meshtastic_handler.node_id:x})
             
             # Customize response based on whether we're using default target
             if not args:
-                response = f"HAL9000: Starting traceroute to your node (!{target_id})..."
+                response = f"{self.bot_name}: Starting traceroute to your node (!{target_id})..."
             else:
-                response = f"HAL9000: Starting traceroute to !{target_id}..."
+                response = f"{self.bot_name}: Starting traceroute to !{target_id}..."
             
             return {
                 'response': response,
@@ -453,11 +454,11 @@ HAL9000 (!{self.meshtastic_handler.node_id:x})
             else:
                 break
         
-        # Add HAL9000 as the first hop if not already present
+        # Add bot node as the first hop if not already present
         if not path_info['hops'] or path_info['hops'][0]['node_id'] != f"{self.meshtastic_handler.node_id:x}":
             path_info['hops'].insert(0, {
                 'node_id': f"{self.meshtastic_handler.node_id:x}",
-                'node_name': 'HAL9000',
+                'node_name': self.bot_name,
                 'rssi': 'N/A',
                 'snr': 'N/A'
             })
@@ -492,7 +493,7 @@ HAL9000 (!{self.meshtastic_handler.node_id:x})
         """Process !admin commands. Only authorized nodes may use these."""
         if self.admin_node_ids and sender_id not in self.admin_node_ids:
             return {
-                'response': "HAL9000: Access denied. You are not authorised for admin commands.",
+                'response': f"{self.bot_name}: Access denied. You are not authorised for admin commands.",
                 'channel_id': channel_id,
                 'is_channel_message': False,
             }
@@ -500,7 +501,7 @@ HAL9000 (!{self.meshtastic_handler.node_id:x})
         match = self.admin_pattern.match(text)
         if not match:
             return {
-                'response': "HAL9000: Usage: !admin <status|persona|switch_ai|nodes|channels|reboot>",
+                'response': f"{self.bot_name}: Usage: !admin <status|persona|switch_ai|nodes|channels|reboot>",
                 'channel_id': channel_id,
                 'is_channel_message': False,
             }
@@ -520,28 +521,36 @@ HAL9000 (!{self.meshtastic_handler.node_id:x})
             return self._admin_switch_ai(args, channel_id)
         else:
             return {
-                'response': f"HAL9000: Unknown admin command '{cmd}'. "
+                'response': f"{self.bot_name}: Unknown admin command '{cmd}'. "
                             f"Available: status, persona <text>, switch_ai <openai|gemini>, nodes, channels",
                 'channel_id': channel_id,
                 'is_channel_message': False,
             }
 
     def _admin_status(self, channel_id):
-        connected = self.meshtastic_handler.is_connected if self.meshtastic_handler else False
-        node_id = f"!{self.meshtastic_handler.node_id:x}" if self.meshtastic_handler and self.meshtastic_handler.node_id else "N/A"
+        handler = self.meshtastic_handler
+        connected = handler.is_connected if handler else False
+        node_id = f"!{handler.node_id:x}" if handler and handler.node_id else "N/A"
         node_count = 0
-        if self.meshtastic_handler and self.meshtastic_handler.interface and hasattr(self.meshtastic_handler.interface, 'nodes'):
-            node_count = len(self.meshtastic_handler.interface.nodes or {})
+        if handler and handler.interface and hasattr(handler.interface, 'nodes'):
+            node_count = len(handler.interface.nodes or {})
 
         ai_service = getattr(self.app_config, 'DEFAULT_AI_SERVICE', 'N/A') if self.app_config else 'N/A'
 
+        # Get state machine status
+        conn_status = handler.get_connection_status() if handler and hasattr(handler, 'get_connection_status') else {}
+        state_name = conn_status.get('state', 'N/A')
+        retries = conn_status.get('retry_count', 0)
+
         lines = [
-            f"HAL9000 System Status:",
+            f"{self.bot_name} System Status:",
             f"Node: {node_id}",
+            f"State: {state_name}",
             f"Connected: {'Yes' if connected else 'No'}",
+            f"Retries: {retries}",
             f"Nodes seen: {node_count}",
             f"AI service: {ai_service}",
-            f"Uptime: {datetime.now().isoformat()}",
+            f"Time: {datetime.now().strftime('%H:%M:%S')}",
         ]
         return {
             'response': "\n".join(lines),
@@ -551,13 +560,13 @@ HAL9000 (!{self.meshtastic_handler.node_id:x})
 
     def _admin_nodes(self, channel_id):
         if not self.meshtastic_handler or not self.meshtastic_handler.interface:
-            return {'response': "HAL9000: No interface available.", 'channel_id': channel_id, 'is_channel_message': False}
+            return {'response': f"{self.bot_name}: No interface available.", 'channel_id': channel_id, 'is_channel_message': False}
 
         interface = self.meshtastic_handler.interface
         if not hasattr(interface, 'nodes') or not interface.nodes:
-            return {'response': "HAL9000: No nodes found.", 'channel_id': channel_id, 'is_channel_message': False}
+            return {'response': f"{self.bot_name}: No nodes found.", 'channel_id': channel_id, 'is_channel_message': False}
 
-        lines = [f"HAL9000: {len(interface.nodes)} node(s):"]
+        lines = [f"{self.bot_name}: {len(interface.nodes)} node(s):"]
         for node_num, info in list(interface.nodes.items())[:15]:  # cap at 15 to fit message
             nid = f"{node_num:x}" if isinstance(node_num, int) else str(node_num)
             user = info.get('user', {})
@@ -569,9 +578,9 @@ HAL9000 (!{self.meshtastic_handler.node_id:x})
     def _admin_channels(self, channel_id):
         channels = self.meshtastic_handler.list_channels() if self.meshtastic_handler else []
         if not channels:
-            return {'response': "HAL9000: No channel info available.", 'channel_id': channel_id, 'is_channel_message': False}
+            return {'response': f"{self.bot_name}: No channel info available.", 'channel_id': channel_id, 'is_channel_message': False}
 
-        lines = ["HAL9000: Channels:"]
+        lines = [f"{self.bot_name}: Channels:"]
         for ch in channels:
             lines.append(f"  {ch['index']}: {ch['name']} ({ch['role']})")
 
@@ -582,7 +591,7 @@ HAL9000 (!{self.meshtastic_handler.node_id:x})
         if self.app_config:
             self.app_config.DEFAULT_PERSONA = persona_text
         return {
-            'response': f"HAL9000: Persona updated ({len(persona_text)} chars).",
+            'response': f"{self.bot_name}: Persona updated ({len(persona_text)} chars).",
             'channel_id': channel_id,
             'is_channel_message': False,
         }
@@ -591,14 +600,14 @@ HAL9000 (!{self.meshtastic_handler.node_id:x})
         service = service.lower().strip()
         if service not in ("openai", "gemini"):
             return {
-                'response': f"HAL9000: Unknown AI service '{service}'. Use openai or gemini.",
+                'response': f"{self.bot_name}: Unknown AI service '{service}'. Use openai or gemini.",
                 'channel_id': channel_id,
                 'is_channel_message': False,
             }
         if self.app_config:
             self.app_config.DEFAULT_AI_SERVICE = service
         return {
-            'response': f"HAL9000: AI service switched to {service}.",
+            'response': f"{self.bot_name}: AI service switched to {service}.",
             'channel_id': channel_id,
             'is_channel_message': False,
         }

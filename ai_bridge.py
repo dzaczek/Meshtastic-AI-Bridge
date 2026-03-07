@@ -516,7 +516,10 @@ class AIBridge:
         if len(main_persona_summary) > 250: 
             main_persona_summary = self.current_persona[:247] + "..."
             
-        triage_system_prompt_filled = self.triage_system_prompt_template.format(main_ai_persona=main_persona_summary)
+        bot_name = getattr(self.config, 'BOT_NAME', 'Eva')
+        triage_system_prompt_filled = self.triage_system_prompt_template.format(
+            main_ai_persona=main_persona_summary, bot_name=bot_name
+        )
         
         history_str = "\n".join(recent_channel_history[-self.triage_context_message_count:])
         

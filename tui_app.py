@@ -126,89 +126,86 @@ class AIProcessingWorker:
             traceback.print_exc()
 
 class NodeListItem(ListItem):
-    """Custom list item for nodes"""
+    """Custom list item for nodes with connection type icons"""
+    # Connection type icons
+    ICONS = {
+        'radio':    ("📡", "R"),   # LoRa radio
+        'mqtt':     ("☁️",  "M"),   # MQTT / internet
+        'favorite': ("★",  "*"),   # Favorite
+    }
+
     def __init__(self, node_id: str, node_info: dict, is_favorite: bool = False, unread_count: int = 0):
         super().__init__()
         self.node_id = node_id
         self.node_info = node_info
         self.is_favorite = is_favorite
         self.unread_count = unread_count
-        
-        # Define fallback icons for terminals with limited Unicode support
-        self.favorite_icon = "★"  # Unicode star
-        self.favorite_icon_fallback = "*"  # ASCII fallback
-        self.node_icon = "●"  # Unicode circle
-        self.node_icon_fallback = "o"  # ASCII fallback
-        self.mqtt_icon = "🌐"  # Unicode globe
-        self.mqtt_icon_fallback = "[M]"  # ASCII fallback
-        
-    def _get_icon(self, unicode_icon: str, fallback_icon: str) -> str:
-        """Try to use Unicode icon, fall back to ASCII if terminal doesn't support it"""
+
+    @staticmethod
+    def _icon(key: str) -> str:
+        uni, fallback = NodeListItem.ICONS.get(key, ("?", "?"))
         try:
-            # Test if terminal can display the Unicode character
-            unicode_icon.encode('utf-8').decode('utf-8')
-            return unicode_icon
+            uni.encode('utf-8').decode('utf-8')
+            return uni
         except UnicodeError:
-            return fallback_icon
-        
+            return fallback
+
     def _sanitize_name(self, name: str) -> str:
-        """Sanitize node name while preserving UTF-8 characters"""
         if not name:
             return "Unknown"
-            
-        # Remove any markup that could interfere with display
-        name = re.sub(r'\[.*?\]', '', name)  # Remove any remaining brackets and their contents
-        
-        # Remove control characters but preserve printable Unicode
-        name = ''.join(char for char in name if char.isprintable() or char.isspace())
-        
-        # Clean up any double spaces created by the replacements
-        name = re.sub(r'\s+', ' ', name).strip()
-        
-        return name
-        
+        name = re.sub(r'\[.*?\]', '', name)
+        name = ''.join(c for c in name if c.isprintable() or c.isspace())
+        return re.sub(r'\s+', ' ', name).strip()
+
     def compose(self) -> ComposeResult:
-        """Compose the node item"""
-        # Get appropriate icons with fallbacks
-        icon = self._get_icon(self.favorite_icon, self.favorite_icon_fallback) if self.is_favorite else self._get_icon(self.node_icon, self.node_icon_fallback)
-        
-        # Get name and sanitize it while preserving UTF-8
         name = self._sanitize_name(self.node_info.get('long_name', 'Unknown'))
         node_id = self.node_id
-        
-        # Check if this is a default Meshtastic name
-        # Default names are like "Meshtastic XXXX" where XXXX matches the last 4 chars of node ID
+        is_mqtt = self.node_info.get('connection_type') == 'tcp'
+
+        # Connection icon
+        if self.is_favorite:
+            conn_icon = self._icon('favorite')
+        elif is_mqtt:
+            conn_icon = self._icon('mqtt')
+        else:
+            conn_icon = self._icon('radio')
+
+        # Default Meshtastic name check
         is_default_name = False
         if name.startswith("Meshtastic ") and len(name) > 11:
-            # Extract the suffix from the name
             name_suffix = name[11:].strip()
-            # Check if it matches the end of the node ID
             if node_id.endswith(name_suffix.lower()):
                 is_default_name = True
-                # For default names, just show "Node" + suffix to avoid redundancy
                 name = f"Node {name_suffix}"
-        
-        # Add hop count to the name
+
+        # Hop count
         hops_away = self.node_info.get('hops_away')
         if hops_away is not None:
-            if hops_away == 0:
-                hop_indicator = " (D)"  # Direct connection
-            else:
-                hop_indicator = f" ({hops_away})"  # Number of hops
+            hop_indicator = " (D)" if hops_away == 0 else f" ({hops_away}h)"
         else:
-            hop_indicator = ""  # No hop count data available
+            hop_indicator = ""
 
-        # Add MQTT indicator if node is connected via TCP/MQTT
-        mqtt_icon = self._get_icon(self.mqtt_icon, self.mqtt_icon_fallback) if self.node_info.get('connection_type') == 'tcp' else ""
-        mqtt_indicator = f" {mqtt_icon}" if mqtt_icon else ""
-        
-        # For default names, we can skip showing the full node ID since it's redundant
-        if is_default_name:
-            display_text = f"{icon} {name}{hop_indicator}{mqtt_indicator}"
+        # Last heard age
+        last_heard = self.node_info.get('last_heard', 0)
+        if last_heard:
+            age_s = int(time.time() - last_heard)
+            if age_s < 60:
+                age_str = f"{age_s}s"
+            elif age_s < 3600:
+                age_str = f"{age_s // 60}m"
+            elif age_s < 86400:
+                age_str = f"{age_s // 3600}h"
+            else:
+                age_str = f"{age_s // 86400}d"
+            age_indicator = f" {age_str}"
         else:
-            display_text = f"{icon} {name}{hop_indicator}{mqtt_indicator} !{node_id}"
-        
-        # Use plain text style to avoid markup issues
+            age_indicator = ""
+
+        if is_default_name:
+            display_text = f"{conn_icon} {name}{hop_indicator}{age_indicator}"
+        else:
+            display_text = f"{conn_icon} {name}{hop_indicator}{age_indicator} !{node_id}"
+
         style = "reverse" if self.unread_count > 0 else ""
         yield Label(display_text, classes=style, markup=False)
 
@@ -795,12 +792,20 @@ class MeshtasticInteractive(App):
         return detailed_info
 
     def update_node_list(self) -> None:
-        """Update the node list widget with unread counts"""
+        """Update the node list widget with unread counts.
+        Sort order: MQTT/internet nodes first, then by last_heard (newest first), then by hops (closest first).
+        """
         node_list = self.query_one("#node-list", ListView)
         node_list.clear()
-        
-        # Sort nodes by last heard
-        sorted_nodes = sorted(self.nodes.items(), key=lambda x: x[1]['last_heard'], reverse=True)
+
+        def sort_key(item):
+            _nid, info = item
+            is_mqtt = 0 if info.get('connection_type') == 'tcp' else 1  # MQTT first
+            last_heard = -(info.get('last_heard', 0))  # newest first (negative for desc)
+            hops = info.get('hops_away') if info.get('hops_away') is not None else 999  # closest first
+            return (is_mqtt, last_heard, hops)
+
+        sorted_nodes = sorted(self.nodes.items(), key=sort_key)
         
         for node_id, node_info in sorted_nodes:
             # Get DM conversation ID
@@ -1093,7 +1098,7 @@ class MeshtasticInteractive(App):
                         self.tx_count += 1
                         self.conversation_manager.add_message(
                             conv_id, "assistant", result.reply_text,
-                            user_name="HAL9000",
+                            user_name=getattr(self.app_config, 'BOT_NAME', 'Eva'),
                             node_id=f"{self.meshtastic_handler.node_id:x}"
                         )
                         if conv_id == current_conv_id:
