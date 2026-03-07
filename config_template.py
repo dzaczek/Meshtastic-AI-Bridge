@@ -63,7 +63,7 @@ MATRIX_HOMESERVER = os.environ.get("MATRIX_HOMESERVER", "https://matrix.org")
 MATRIX_USERNAME = os.environ.get("MATRIX_USERNAME", "")
 MATRIX_PASSWORD = os.environ.get("MATRIX_PASSWORD", "")
 MATRIX_ROOM_PREFIX = "mesh"  # rooms will be #mesh-ch0, #mesh-ch1, #mesh-dm
-MATRIX_INVITE_USERS = []  # e.g. ["@dzaczek:matrix.org"] - auto-invited to all bridge rooms
+MATRIX_INVITE_USERS = [u.strip() for u in os.environ.get("MATRIX_INVITE_USERS", "").split(",") if u.strip()]
 
 # --- Bot Identity ---
 BOT_NAME = "Eva"
