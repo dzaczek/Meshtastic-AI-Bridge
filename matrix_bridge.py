@@ -46,6 +46,7 @@ class MatrixBridge:
         password: str,
         room_prefix: str = "mesh",
         bot_name: str = "Eva",
+        invite_users: Optional[list] = None,
         on_matrix_message: Optional[Callable] = None,
         meshtastic_handler=None,
     ):
@@ -57,6 +58,7 @@ class MatrixBridge:
         self.password = password
         self.room_prefix = room_prefix
         self.bot_name = bot_name
+        self.invite_users = invite_users or []
         self.on_matrix_message = on_matrix_message
         self.meshtastic_handler = meshtastic_handler
 
@@ -175,8 +177,8 @@ class MatrixBridge:
             self.channel_rooms[channel_index] = room_id
             self.room_channels[room_id] = channel_index
             log_info(f"Channel {channel_index} ({channel_name}) -> existing room {room_id}")
-            # Join if not already joined
             await self.client.join(room_id)
+            await self._invite_users(room_id)
             return
 
         # Create new room
@@ -185,7 +187,7 @@ class MatrixBridge:
             name=display_name,
             alias=alias_local,
             topic=f"Meshtastic channel {channel_index} ({channel_name}) - messages bridged from mesh network",
-            invite=[],
+            invite=self.invite_users,
         )
         if isinstance(resp, RoomCreateResponse):
             self.channel_rooms[channel_index] = resp.room_id
@@ -203,6 +205,7 @@ class MatrixBridge:
         if room_id:
             self.dm_room_id = room_id
             await self.client.join(room_id)
+            await self._invite_users(room_id)
             log_info(f"DM room -> existing {room_id}")
             return
 
@@ -210,7 +213,7 @@ class MatrixBridge:
             name="Mesh: Direct Messages",
             alias=alias_local,
             topic="Meshtastic direct messages bridged from mesh network",
-            invite=[],
+            invite=self.invite_users,
         )
         if isinstance(resp, RoomCreateResponse):
             self.dm_room_id = resp.room_id
@@ -227,6 +230,15 @@ class MatrixBridge:
         except Exception:
             pass
         return None
+
+    async def _invite_users(self, room_id: str):
+        """Invite configured users to a room (ignores errors if already joined)."""
+        for user_id in self.invite_users:
+            try:
+                await self.client.room_invite(room_id, user_id)
+                log_info(f"Invited {user_id} to {room_id}")
+            except Exception:
+                pass  # already joined or other non-critical error
 
     def _get_domain(self) -> str:
         """Extract domain from homeserver URL."""

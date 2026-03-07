@@ -770,6 +770,7 @@ class MeshtasticInteractive(App):
                     password=getattr(self.app_config, 'MATRIX_PASSWORD', ''),
                     room_prefix=getattr(self.app_config, 'MATRIX_ROOM_PREFIX', 'mesh'),
                     bot_name=getattr(self.app_config, 'BOT_NAME', 'Eva'),
+                    invite_users=getattr(self.app_config, 'MATRIX_INVITE_USERS', []),
                     meshtastic_handler=self.meshtastic_handler,
                 )
                 self.matrix_bridge.start()
