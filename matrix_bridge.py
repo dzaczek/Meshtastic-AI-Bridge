@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 matrix_bridge.py - Bridge between Meshtastic mesh and Matrix protocol.
 
