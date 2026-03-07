@@ -185,26 +185,26 @@ class NodeListItem(ListItem):
         else:
             hop_indicator = ""
 
-        # Last heard age
+        # Last heard age (rounded to full minutes/hours)
         last_heard = self.node_info.get('last_heard', 0)
         if last_heard:
             age_s = int(time.time() - last_heard)
-            if age_s < 60:
-                age_str = f"{age_s}s"
+            if age_s < 120:
+                age_str = "1m"
             elif age_s < 3600:
-                age_str = f"{age_s // 60}m"
+                age_str = f"{round(age_s / 60)}m"
             elif age_s < 86400:
-                age_str = f"{age_s // 3600}h"
+                age_str = f"{round(age_s / 3600)}h"
             else:
-                age_str = f"{age_s // 86400}d"
-            age_indicator = f" {age_str}"
+                age_str = f"{round(age_s / 86400)}d"
+            age_tag = f" {age_str}"
         else:
-            age_indicator = ""
+            age_tag = ""
 
         if is_default_name:
-            display_text = f"{conn_icon} {name}{hop_indicator}{age_indicator}"
+            display_text = f"{conn_icon}{age_tag} {name}{hop_indicator}"
         else:
-            display_text = f"{conn_icon} {name}{hop_indicator}{age_indicator} !{node_id}"
+            display_text = f"{conn_icon}{age_tag} {name}{hop_indicator}"
 
         style = "reverse" if self.unread_count > 0 else ""
         yield Label(display_text, classes=style, markup=False)
