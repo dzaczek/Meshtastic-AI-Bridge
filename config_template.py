@@ -58,7 +58,7 @@ WEB_UTILS_TIMEOUT = 20
 ADMIN_NODE_IDS = []
 
 # --- Matrix Bridge Settings ---
-MATRIX_ENABLED = False
+MATRIX_ENABLED = os.environ.get("MATRIX_ENABLED", "false").lower() in ("true", "1", "yes")
 MATRIX_HOMESERVER = os.environ.get("MATRIX_HOMESERVER", "https://matrix.org")
 MATRIX_USERNAME = os.environ.get("MATRIX_USERNAME", "")
 MATRIX_PASSWORD = os.environ.get("MATRIX_PASSWORD", "")
