@@ -10,7 +10,7 @@ class HalBot:
         self.meshtastic_handler = meshtastic_handler
         self.app_config = app_config
         self.bot_name = getattr(app_config, 'BOT_NAME', 'Eva') if app_config else 'Eva'
-        self.command_pattern = re.compile(r'^(?:HAL\s+)?(\w+)(?:\s+(.+))?$', re.IGNORECASE)
+        self.command_pattern = re.compile(r'^(?:bot\s+)?(\w+)(?:\s+(.+))?$', re.IGNORECASE)
         self.admin_pattern = re.compile(r'^!admin\s+(\w+)(?:\s+(.+))?$', re.IGNORECASE)
         self.traceroute_timeout = 30  # seconds
         self.pending_traceroutes = {}  # Store pending traceroute requests
@@ -20,7 +20,7 @@ class HalBot:
         self.admin_node_ids = getattr(app_config, 'ADMIN_NODE_IDS', []) if app_config else []
 
     def should_handle_message(self, text: str) -> bool:
-        """Check if the message should be handled by HAL bot"""
+        """Check if the message should be handled by the bot"""
         text_lower = text.lower().strip()
 
         # Admin commands
@@ -32,7 +32,7 @@ class HalBot:
         if text_lower in direct_commands:
             return True
 
-        # Check for HAL prefixed commands
+        # Check for bot prefixed commands
         return bool(self.command_pattern.match(text))
 
     def get_node_info(self, node_id: str) -> Dict:
@@ -238,7 +238,7 @@ class HalBot:
         return None
 
     def handle_command(self, text: str, sender_id: str, sender_name: str, channel_id: int = None, is_dm: bool = False) -> Optional[dict]:
-        """Handle HAL bot commands"""
+        """Handle bot commands"""
         # Clean up the text and check for direct commands
         text = text.strip()
         text_lower = text.lower()
@@ -250,12 +250,12 @@ class HalBot:
         if text_lower.startswith("!admin"):
             return self._handle_admin(text, sender_id, sender_name, channel_id)
 
-        # Handle direct commands without HAL prefix
+        # Handle direct commands without bot prefix
         if text_lower in ['ping', 'traceroute', 'info', 'test', 'qsl']:
             command = text_lower
             args = ""
         else:
-            # Handle HAL prefixed commands
+            # Handle bot prefixed commands
             match = self.command_pattern.match(text)
             if not match:
                 return None
