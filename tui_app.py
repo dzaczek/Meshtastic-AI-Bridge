@@ -28,6 +28,13 @@ from rich.text import Text
 from rich.panel import Panel
 from rich.table import Table
 from rich.console import RenderableType
+from rich.markup import escape as rich_escape
+
+try:
+    from mesh_map import render_map_text
+    HAS_MESH_MAP = True
+except ImportError:
+    HAS_MESH_MAP = False
 import json
 import os
 import sys
@@ -416,116 +423,34 @@ class MeshMapPanel(Static):
         return filtered
 
     def render(self) -> RenderableType:
-        nodes = self._filter_nodes()
-        if not nodes:
+        if not HAS_MESH_MAP:
             return Panel(
-                f"[dim]No nodes with GPS data\nFilter: {self.map_filter}[/dim]\n\n"
-                "[dim]F9=filter  Nodes need GPS position to appear on map[/dim]",
+                "[dim]mesh_map module not available.\nInstall Pillow: pip install Pillow[/dim]",
                 title="[bold #58a6ff]Mesh Map[/]", border_style="#30363d"
             )
 
-        # Collect coordinates
-        lats = [n['position']['latitude'] for n in nodes.values()]
-        lons = [n['position']['longitude'] for n in nodes.values()]
+        # Get terminal size for map rendering
+        try:
+            term_w = self.size.width - 2  # account for panel border
+            term_h = self.size.height - 2
+        except Exception:
+            term_w, term_h = 80, 35
 
-        min_lat, max_lat = min(lats), max(lats)
-        min_lon, max_lon = min(lons), max(lons)
+        term_w = max(40, term_w)
+        term_h = max(10, term_h)
 
-        # Add padding
-        lat_pad = max((max_lat - min_lat) * 0.1, 0.001)
-        lon_pad = max((max_lon - min_lon) * 0.1, 0.001)
-        min_lat -= lat_pad
-        max_lat += lat_pad
-        min_lon -= lon_pad
-        max_lon += lon_pad
+        try:
+            map_text = render_map_text(
+                self.nodes_data,
+                selected_node_id=self.selected_node_id,
+                map_filter=self.map_filter,
+                term_width=term_w,
+                term_height=term_h,
+            )
+        except Exception as e:
+            map_text = f"[dim]Map error: {e}[/dim]"
 
-        # Map dimensions (fit in panel)
-        map_w = 60
-        map_h = 30
-
-        # Build grid
-        grid = [[' ' for _ in range(map_w)] for _ in range(map_h)]
-        node_positions = {}
-
-        lat_range = max_lat - min_lat if max_lat != min_lat else 0.01
-        lon_range = max_lon - min_lon if max_lon != min_lon else 0.01
-
-        for nid, info in nodes.items():
-            lat = info['position']['latitude']
-            lon = info['position']['longitude']
-            # Map to grid (lat is inverted - higher lat = top)
-            x = int((lon - min_lon) / lon_range * (map_w - 1))
-            y = int((max_lat - lat) / lat_range * (map_h - 1))
-            x = max(0, min(map_w - 1, x))
-            y = max(0, min(map_h - 1, y))
-            node_positions[nid] = (x, y)
-
-            is_mqtt = info.get('connection_type') == 'tcp'
-            hops = info.get('hops_away')
-            if nid == self.selected_node_id:
-                ch = '@'
-            elif hops == 0:
-                ch = 'O'
-            elif is_mqtt:
-                ch = 'M'
-            else:
-                ch = '*'
-            grid[y][x] = ch
-
-        # Build output with Rich Text
-        lines = []
-        # Header
-        filter_str = self.map_filter.upper()
-        lines.append(f"[bold #58a6ff]Filter:[/] [#e6edf3]{filter_str}[/]  "
-                      f"[bold #58a6ff]Nodes:[/] [#e6edf3]{len(nodes)}[/]  "
-                      f"[dim]F9=cycle filter[/]")
-        lines.append("")
-
-        # Render grid
-        for row in grid:
-            line_chars = []
-            for ch in row:
-                if ch == '@':
-                    line_chars.append(f'[bold #f0883e]{ch}[/]')
-                elif ch == 'O':
-                    line_chars.append(f'[bold #3fb950]{ch}[/]')
-                elif ch == 'M':
-                    line_chars.append(f'[#f0883e]{ch}[/]')
-                elif ch == '*':
-                    line_chars.append(f'[#58a6ff]{ch}[/]')
-                else:
-                    line_chars.append(f'[#21262d].[/]')
-            lines.append(''.join(line_chars))
-
-        lines.append("")
-        # Legend
-        lines.append("[bold #3fb950]O[/]=direct  [#58a6ff]*[/]=radio  "
-                      "[#f0883e]M[/]=mqtt  [bold #f0883e]@[/]=selected")
-
-        # Node labels (closest to their position)
-        lines.append("")
-        for nid, info in nodes.items():
-            name = info.get('short_name', nid[:4])
-            hops = info.get('hops_away')
-            hop_s = f" [{hops}hop]" if hops is not None else ""
-            last = info.get('last_heard', 0)
-            age = ""
-            if last:
-                age_s = int(time.time() - last)
-                if age_s < 120:
-                    age = " 1m"
-                elif age_s < 3600:
-                    age = f" {round(age_s/60)}m"
-                elif age_s < 86400:
-                    age = f" {round(age_s/3600)}h"
-                else:
-                    age = f" {round(age_s/86400)}d"
-
-            is_sel = nid == self.selected_node_id
-            style = "bold #f0883e" if is_sel else "#8b949e"
-            lines.append(f"[{style}]{name}{hop_s}{age}[/]")
-
-        return Panel('\n'.join(lines), title="[bold #58a6ff]Mesh Map[/]", border_style="#30363d")
+        return map_text
 
 
 class MeshtasticInteractive(App):
