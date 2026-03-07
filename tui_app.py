@@ -124,9 +124,10 @@ class AIProcessingWorker:
                 # Forward AI reply to Matrix
                 if self.app.matrix_bridge:
                     bot_name = getattr(self.app.app_config, 'BOT_NAME', 'Eva')
+                    # For DMs, sender_id must be the remote node (for room routing)
                     self.app.matrix_bridge.send_to_matrix(
                         ai_response, bot_name,
-                        f"{self.app.meshtastic_handler.node_id:x}",
+                        self.sender_id if self.is_dm else f"{self.app.meshtastic_handler.node_id:x}",
                         channel_index=self.channel_id,
                         is_dm=self.is_dm,
                     )
@@ -1433,7 +1434,7 @@ class MeshtasticInteractive(App):
                         if self.matrix_bridge:
                             self.matrix_bridge.send_to_matrix(
                                 result.reply_text, bot_name,
-                                f"{self.meshtastic_handler.node_id:x}",
+                                sender_id if result.reply_as_dm else f"{self.meshtastic_handler.node_id:x}",
                                 channel_index=result.reply_channel,
                                 is_dm=result.reply_as_dm,
                             )
