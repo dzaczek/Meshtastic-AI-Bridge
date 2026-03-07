@@ -35,11 +35,9 @@ if not _matrix_logger.handlers:
 
 def log_info(msg):
     _matrix_logger.info(msg)
-    print(f"INFO [matrix]: {msg}")
 
 def log_error(msg):
     _matrix_logger.error(msg)
-    print(f"ERROR [matrix]: {msg}")
 
 
 class MatrixBridge:
