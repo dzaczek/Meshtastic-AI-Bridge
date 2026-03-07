@@ -24,10 +24,21 @@ except ImportError:
     HAS_NIO = False
 
 
+import logging
+
+_matrix_logger = logging.getLogger("matrix_bridge")
+if not _matrix_logger.handlers:
+    _fh = logging.FileHandler("matrix_bridge.log", mode="a")
+    _fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s: %(message)s"))
+    _matrix_logger.addHandler(_fh)
+    _matrix_logger.setLevel(logging.DEBUG)
+
 def log_info(msg):
+    _matrix_logger.info(msg)
     print(f"INFO [matrix]: {msg}")
 
 def log_error(msg):
+    _matrix_logger.error(msg)
     print(f"ERROR [matrix]: {msg}")
 
 
@@ -154,7 +165,7 @@ class MatrixBridge:
         for attempt in range(15):
             await self._setup_rooms()
             if self.channel_rooms:
-                log_info(f"Rooms ready: {len(self.channel_rooms)} channel(s), DM: {self.dm_room_id is not None}")
+                log_info(f"Rooms ready: {len(self.channel_rooms)} channel(s), DM rooms: {len(self.dm_rooms)}")
                 return
             log_info(f"No channels yet (attempt {attempt + 1}/15), waiting for meshtastic...")
             await asyncio.sleep(3)
@@ -408,5 +419,5 @@ class MatrixBridge:
             "homeserver": self.homeserver,
             "username": self.username,
             "channel_rooms": len(self.channel_rooms),
-            "dm_room": self.dm_room_id is not None,
+            "dm_rooms": len(self.dm_rooms),
         }
