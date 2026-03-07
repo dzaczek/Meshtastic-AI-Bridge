@@ -55,7 +55,7 @@ class HalBot:
                 node_id_str = str(node_num).lower().lstrip('!')
             
             # Debug print
-            print(f"Comparing node IDs: input='{node_id}', current='{node_id_str}'")
+            # Compare normalized node IDs
             
             if node_id_str == node_id:
                 # Get user info with fallbacks
@@ -99,18 +99,11 @@ class HalBot:
                     'uptime': uptime,
                     'gateway': gateway
                 }
-                print(f"Found node info: {node_info}")  # Debug print
+                pass  # node found
                 break
         
         if not node_info:
-            print(f"No node info found for ID: {node_id}")  # Debug print
-            # Print all available node IDs for debugging
-            print("Available nodes:")
-            for node_num in interface.nodes:
-                if isinstance(node_num, int):
-                    print(f"  !{node_num:x}")
-                else:
-                    print(f"  !{node_num}")
+            pass  # node not found
         
         return node_info
 
@@ -280,7 +273,7 @@ class HalBot:
                     'uptime': 'N/A',
                     'gateway': 'N/A'
                 }
-                print(f"Using fallback node info for {sender_id}: {node_info}")  # Debug print
+                pass  # using fallback info
             
             # Check if node is connected via MQTT
             is_mqtt = node_info.get('connection_type') == 'mqtt'

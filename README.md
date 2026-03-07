@@ -40,6 +40,13 @@ Manage the bot remotely over the mesh network (authorized nodes only):
 - **Channel Management**: Switch between channels effortlessly
 - **Statistics**: See who's most active and what's happening
 
+### Matrix Bridge
+- **Mesh-to-Matrix Forwarding**: All mesh channel messages appear in dedicated Matrix rooms
+- **Per-Node DM Rooms**: Each mesh node gets its own Matrix DM room
+- **Bidirectional**: Reply from Matrix and your message goes back to the mesh
+- **Auto-Room Creation**: Rooms created automatically for each channel and DM node
+- **Auto-Invite**: Configurable user auto-invite to all bridge rooms
+
 ### Chat Analysis & Insights
 - **Message Statistics**: Track activity patterns
 - **User Participation**: See who's contributing most
@@ -53,6 +60,7 @@ Manage the bot remotely over the mesh network (authorized nodes only):
 - **A Meshtastic Device**: Any compatible device (T-Beam, Heltec, etc.)
 - **API Keys**: Either OpenAI or Google Gemini
 - **Internet Connection**: For AI services and web features
+- **Matrix Account** *(optional)*: For bridging to Matrix (e.g. Element, FluffyChat)
 
 ## Quick Start
 
@@ -84,6 +92,13 @@ GEMINI_API_KEY=your-gemini-key-here
 MESHTASTIC_CONNECTION_TYPE=serial    # or "tcp"
 MESHTASTIC_DEVICE_SPECIFIER=         # e.g. /dev/ttyUSB0 or 192.168.1.100
 DEFAULT_AI_SERVICE=openai            # or "gemini"
+
+# Matrix Bridge (optional)
+MATRIX_ENABLED=false
+MATRIX_HOMESERVER=https://matrix.org
+MATRIX_USERNAME=@your-bot:matrix.org
+MATRIX_PASSWORD=your-bot-password
+MATRIX_INVITE_USERS=@your-account:matrix.org
 ```
 
 ### Step 4: Configure the Bot
@@ -167,6 +182,10 @@ python main_app.py -d          # Debug mode
 - `f`: Force AI to respond
 - `Tab`: Navigate around
 - `Enter`: Send messages
+- `F9`: Toggle mesh map
+- `F10`: Cycle map node filter
+- `+`/`-`: Map zoom in/out
+- `0`: Reset map zoom
 
 ### Console Mode
 ```bash
@@ -184,13 +203,15 @@ Meshtastic-AI-Bridge/
 ├── main_app.py              # Main entry point
 ├── tui_app.py               # TUI interface (Textual)
 ├── message_router.py        # Central message routing engine
-├── hal_bot.py               # HAL bot commands + admin commands
+├── hal_bot.py               # Bot commands + admin commands
 ├── meshtastic_handler.py    # Meshtastic device communication
 ├── ai_bridge.py             # AI service integration (OpenAI, Gemini)
 ├── web_agent.py             # Unified web agent (search, weather, scraping)
 ├── conversation_manager.py  # Chat history management (JSON)
 ├── connection_manager.py    # Connection state machine
 ├── config.py                # Bot configuration (git-ignored)
+├── matrix_bridge.py         # Matrix protocol bridge (mesh <-> Matrix rooms)
+├── mesh_map.py              # OSM tile map rendering for TUI
 ├── config_template.py       # Configuration template
 ├── .env                     # API keys & secrets (git-ignored)
 ├── .env.template            # Secrets template
@@ -205,17 +226,19 @@ Meshtastic Device <──> meshtastic_handler.py
                       message_router.py  (priority routing)
                        ┌──────┼──────┐
                        │      │      │
-                    SOS/Help  HAL   AI Response
-                  (broadcast) (bot)  (OpenAI/Gemini)
+                    SOS/Help  Bot   AI Response
+                  (broadcast) (cmd)  (OpenAI/Gemini)
                        │      │      │
                        └──────┼──────┘
                               │
                     tui_app.py / main_app.py  (UI layer)
+                              │
+                    matrix_bridge.py  (optional Matrix rooms)
 ```
 
 **Routing priorities:**
 1. **SOS/Emergency** - Keyword detection, broadcasts on all channels
-2. **HAL Bot** - `!hal` commands + `!admin` commands
+2. **Bot Commands** - `!bot` commands + `!admin` commands
 3. **AI Response** - Context-aware AI with web capabilities
 
 ## Documentation
@@ -271,7 +294,13 @@ This project is open source under the MIT License.
 
 ## What's New?
 
-### Version 5.9 (Latest)
+### Version 6.0 (Latest)
+- **Matrix Bridge** - Bidirectional bridge to Matrix protocol with per-channel and per-node DM rooms
+- **Mesh Map** - OSM tile map in TUI with zoom, node filtering, and half-block Unicode rendering
+- **Bot Rename** - Command prefix changed from `!hal` to `!bot`
+- **AI Model Update** - Default model updated to `gpt-4o` for better response quality
+
+### Version 5.9
 - **Message Router** - Central routing engine replacing duplicated logic in CLI/TUI
 - **SOS/Emergency Broadcast** - Multilingual help keyword detection with multi-channel broadcast
 - **Admin Commands** - Remote bot management via mesh (`!admin status/nodes/persona/switch_ai`)

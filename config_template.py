@@ -36,7 +36,7 @@ MAX_HISTORY_MESSAGES_FOR_CONTEXT = 10
 SUMMARIZE_THRESHOLD_TOKENS = 1000
 
 # --- Model Settings ---
-OPENAI_MODEL_NAME = "gpt-4"
+OPENAI_MODEL_NAME = "gpt-4o"
 OPENAI_VISION_MODEL_NAME = "gpt-4-vision-preview"
 
 GEMINI_MODEL_NAME = "gemini-1.5-pro"
@@ -56,6 +56,14 @@ WEB_UTILS_TIMEOUT = 20
 
 # --- Admin node IDs (hex, lowercase, no '!' prefix) ---
 ADMIN_NODE_IDS = []
+
+# --- Matrix Bridge Settings ---
+MATRIX_ENABLED = os.environ.get("MATRIX_ENABLED", "false").lower() in ("true", "1", "yes")
+MATRIX_HOMESERVER = os.environ.get("MATRIX_HOMESERVER", "https://matrix.org")
+MATRIX_USERNAME = os.environ.get("MATRIX_USERNAME", "")
+MATRIX_PASSWORD = os.environ.get("MATRIX_PASSWORD", "")
+MATRIX_ROOM_PREFIX = "mesh"  # rooms will be #mesh-ch0, #mesh-ch1, #mesh-dm
+MATRIX_INVITE_USERS = [u.strip() for u in os.environ.get("MATRIX_INVITE_USERS", "").split(",") if u.strip()]
 
 # --- Bot Identity ---
 BOT_NAME = "Eva"

@@ -172,6 +172,43 @@ TRIAGE_AI_SERVICE = 'openai'
 TRIAGE_AI_MODEL_NAME = 'gpt-3.5-turbo'
 ```
 
+### 5. Matrix Bridge Settings
+
+The Matrix bridge forwards all mesh messages to Matrix rooms and allows replying from Matrix back to the mesh.
+
+#### Enable the Bridge
+Set these in your `.env` file:
+```env
+MATRIX_ENABLED=true
+MATRIX_HOMESERVER=https://matrix.org
+MATRIX_USERNAME=@your-bot:matrix.org
+MATRIX_PASSWORD=your-bot-password
+MATRIX_INVITE_USERS=@your-account:matrix.org
+```
+
+Or in `config.py`:
+```python
+MATRIX_ENABLED = True
+MATRIX_HOMESERVER = "https://matrix.org"
+MATRIX_USERNAME = "@your-bot:matrix.org"
+MATRIX_PASSWORD = "your-bot-password"
+MATRIX_ROOM_PREFIX = "mesh"  # rooms: #mesh-ch0, #mesh-ch1, #mesh-dm-<nodeID>
+MATRIX_INVITE_USERS = ["@your-account:matrix.org"]
+```
+
+#### How It Works
+- Each Meshtastic channel gets a Matrix room: `#mesh-ch0`, `#mesh-ch1`, etc.
+- Each mesh node that sends a DM gets a dedicated room: `#mesh-dm-<nodeID>`
+- Messages from mesh appear in Matrix with sender name and node ID
+- Messages sent from Matrix are forwarded back to the corresponding mesh channel or node
+- Rooms are auto-created on first message if they don't exist
+- Users in `MATRIX_INVITE_USERS` are auto-invited to all bridge rooms
+
+#### Requirements
+```bash
+pip install matrix-nio
+```
+
 ## Environment-Specific Configuration
 
 ### Development Environment
