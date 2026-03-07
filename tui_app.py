@@ -502,30 +502,33 @@ class MeshtasticInteractive(App):
         height: 3;
         dock: bottom;
         layout: horizontal;
-        background: #1a2233;
-        border-top: solid #58a6ff;
+        background: #161b22;
         padding: 0;
     }
 
     #message-input {
         width: 1fr;
+        height: 3;
         background: #0d1117;
         color: #e6edf3;
-        border: tall #58a6ff;
+        border: none;
+        border-top: solid #58a6ff;
+        padding: 0 1;
     }
 
     #message-input:focus {
-        border: tall #79c0ff;
+        border-top: solid #79c0ff;
         background: #161b22;
     }
 
     #force-ai-button {
-        width: 8;
+        width: 6;
+        height: 3;
         background: #238636;
         color: #ffffff;
         text-style: bold;
         border: none;
-        margin: 0 0 0 1;
+        margin: 0;
     }
 
     #force-ai-button:hover {
