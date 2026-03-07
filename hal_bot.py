@@ -6,25 +6,31 @@ from typing import Dict, Optional, Tuple
 import random
 
 class HalBot:
-    def __init__(self, meshtastic_handler):
+    def __init__(self, meshtastic_handler, app_config=None):
         self.meshtastic_handler = meshtastic_handler
+        self.app_config = app_config
         self.command_pattern = re.compile(r'^(?:HAL\s+)?(\w+)(?:\s+(.+))?$', re.IGNORECASE)
+        self.admin_pattern = re.compile(r'^!admin\s+(\w+)(?:\s+(.+))?$', re.IGNORECASE)
         self.traceroute_timeout = 30  # seconds
         self.pending_traceroutes = {}  # Store pending traceroute requests
         self.active_traceroutes = {}  # Store active traceroute requests
         self.mqtt_broker = "mqtt.meshtastic.org"  # Default MQTT broker
         self.gateway_info = {}  # Store gateway information for MQTT nodes
+        self.admin_node_ids = getattr(app_config, 'ADMIN_NODE_IDS', []) if app_config else []
 
     def should_handle_message(self, text: str) -> bool:
         """Check if the message should be handled by HAL bot"""
+        text_lower = text.lower().strip()
+
+        # Admin commands
+        if text_lower.startswith("!admin"):
+            return True
+
         # Check for direct commands first
         direct_commands = ['ping', 'traceroute', 'info', 'test', 'qsl']
-        text_lower = text.lower().strip()
-        
-        # Handle direct commands without HAL prefix
         if text_lower in direct_commands:
             return True
-            
+
         # Check for HAL prefixed commands
         return bool(self.command_pattern.match(text))
 
@@ -235,10 +241,14 @@ HAL9000 (!{self.meshtastic_handler.node_id:x})
         # Clean up the text and check for direct commands
         text = text.strip()
         text_lower = text.lower()
-        
+
         # Normalize sender_id
         sender_id = sender_id.lower().lstrip('!')
-        
+
+        # --- Admin commands ---
+        if text_lower.startswith("!admin"):
+            return self._handle_admin(text, sender_id, sender_name, channel_id)
+
         # Handle direct commands without HAL prefix
         if text_lower in ['ping', 'traceroute', 'info', 'test', 'qsl']:
             command = text_lower
@@ -250,7 +260,7 @@ HAL9000 (!{self.meshtastic_handler.node_id:x})
                 return None
             command = match.group(1).lower()
             args = match.group(2) if match.group(2) else ""
-        
+
         if command in ['info', 'test', 'ping', 'qsl']:
             # Get node info
             node_info = self.get_node_info(sender_id)
@@ -472,4 +482,123 @@ HAL9000 (!{self.meshtastic_handler.node_id:x})
         elif time_since < 3600:
             return f"{time_since // 60} minutes ago"
         else:
-            return f"{time_since // 3600} hours ago" 
+            return f"{time_since // 3600} hours ago"
+
+    # ------------------------------------------------------------------
+    # Admin / self-management commands  (!admin <cmd> [args])
+    # ------------------------------------------------------------------
+
+    def _handle_admin(self, text: str, sender_id: str, sender_name: str, channel_id: int) -> Optional[dict]:
+        """Process !admin commands. Only authorized nodes may use these."""
+        if self.admin_node_ids and sender_id not in self.admin_node_ids:
+            return {
+                'response': "HAL9000: Access denied. You are not authorised for admin commands.",
+                'channel_id': channel_id,
+                'is_channel_message': False,
+            }
+
+        match = self.admin_pattern.match(text)
+        if not match:
+            return {
+                'response': "HAL9000: Usage: !admin <status|persona|switch_ai|nodes|channels|reboot>",
+                'channel_id': channel_id,
+                'is_channel_message': False,
+            }
+
+        cmd = match.group(1).lower()
+        args = match.group(2).strip() if match.group(2) else ""
+
+        if cmd == "status":
+            return self._admin_status(channel_id)
+        elif cmd == "nodes":
+            return self._admin_nodes(channel_id)
+        elif cmd == "channels":
+            return self._admin_channels(channel_id)
+        elif cmd == "persona" and args:
+            return self._admin_set_persona(args, channel_id)
+        elif cmd == "switch_ai" and args:
+            return self._admin_switch_ai(args, channel_id)
+        else:
+            return {
+                'response': f"HAL9000: Unknown admin command '{cmd}'. "
+                            f"Available: status, persona <text>, switch_ai <openai|gemini>, nodes, channels",
+                'channel_id': channel_id,
+                'is_channel_message': False,
+            }
+
+    def _admin_status(self, channel_id):
+        connected = self.meshtastic_handler.is_connected if self.meshtastic_handler else False
+        node_id = f"!{self.meshtastic_handler.node_id:x}" if self.meshtastic_handler and self.meshtastic_handler.node_id else "N/A"
+        node_count = 0
+        if self.meshtastic_handler and self.meshtastic_handler.interface and hasattr(self.meshtastic_handler.interface, 'nodes'):
+            node_count = len(self.meshtastic_handler.interface.nodes or {})
+
+        ai_service = getattr(self.app_config, 'DEFAULT_AI_SERVICE', 'N/A') if self.app_config else 'N/A'
+
+        lines = [
+            f"HAL9000 System Status:",
+            f"Node: {node_id}",
+            f"Connected: {'Yes' if connected else 'No'}",
+            f"Nodes seen: {node_count}",
+            f"AI service: {ai_service}",
+            f"Uptime: {datetime.now().isoformat()}",
+        ]
+        return {
+            'response': "\n".join(lines),
+            'channel_id': channel_id,
+            'is_channel_message': False,
+        }
+
+    def _admin_nodes(self, channel_id):
+        if not self.meshtastic_handler or not self.meshtastic_handler.interface:
+            return {'response': "HAL9000: No interface available.", 'channel_id': channel_id, 'is_channel_message': False}
+
+        interface = self.meshtastic_handler.interface
+        if not hasattr(interface, 'nodes') or not interface.nodes:
+            return {'response': "HAL9000: No nodes found.", 'channel_id': channel_id, 'is_channel_message': False}
+
+        lines = [f"HAL9000: {len(interface.nodes)} node(s):"]
+        for node_num, info in list(interface.nodes.items())[:15]:  # cap at 15 to fit message
+            nid = f"{node_num:x}" if isinstance(node_num, int) else str(node_num)
+            user = info.get('user', {})
+            name = user.get('shortName') or user.get('longName') or 'UNK'
+            lines.append(f"  !{nid} {name}")
+
+        return {'response': "\n".join(lines), 'channel_id': channel_id, 'is_channel_message': False}
+
+    def _admin_channels(self, channel_id):
+        channels = self.meshtastic_handler.list_channels() if self.meshtastic_handler else []
+        if not channels:
+            return {'response': "HAL9000: No channel info available.", 'channel_id': channel_id, 'is_channel_message': False}
+
+        lines = ["HAL9000: Channels:"]
+        for ch in channels:
+            lines.append(f"  {ch['index']}: {ch['name']} ({ch['role']})")
+
+        return {'response': "\n".join(lines), 'channel_id': channel_id, 'is_channel_message': False}
+
+    def _admin_set_persona(self, persona_text, channel_id):
+        # Store on config so AI bridge picks it up
+        if self.app_config:
+            self.app_config.DEFAULT_PERSONA = persona_text
+        return {
+            'response': f"HAL9000: Persona updated ({len(persona_text)} chars).",
+            'channel_id': channel_id,
+            'is_channel_message': False,
+        }
+
+    def _admin_switch_ai(self, service, channel_id):
+        service = service.lower().strip()
+        if service not in ("openai", "gemini"):
+            return {
+                'response': f"HAL9000: Unknown AI service '{service}'. Use openai or gemini.",
+                'channel_id': channel_id,
+                'is_channel_message': False,
+            }
+        if self.app_config:
+            self.app_config.DEFAULT_AI_SERVICE = service
+        return {
+            'response': f"HAL9000: AI service switched to {service}.",
+            'channel_id': channel_id,
+            'is_channel_message': False,
+        }

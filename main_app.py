@@ -12,10 +12,6 @@ import random
 from collections import deque
 import logging
 from tui_app import main as tui_main
-from textual.app import App, ComposeResult
-from textual.containers import Horizontal, VerticalScroll, Container
-from textual.widgets import Header, Footer, ListView, RichLog, Input, Button
-from textual.reactive import reactive
 from hal_bot import HalBot
 
 # --- Initial Setup & Debug Function ---
@@ -102,8 +98,9 @@ except Exception as e_config:
 dprint("main_app.py - Config import block successfully passed.")
 
 from meshtastic_handler import MeshtasticHandler
-from ai_bridge import AIBridge 
+from ai_bridge import AIBridge
 from conversation_manager import ConversationManager
+from message_router import MessageRouter, RouteResult
 
 # #############################################################################
 # CONSOLE UI APPLICATION (CLI MODE) - MeshtasticAIAppConsole
@@ -111,33 +108,16 @@ from conversation_manager import ConversationManager
 class MeshtasticAIAppConsole:
     def __init__(self, attempt_number=1):
         dprint(f"MeshtasticAIAppConsole.__init__ - Initializing (Attempt {attempt_number})...")
-        self.app_config = config 
+        self.app_config = config
         self.ai_bridge = AIBridge(self.app_config)
         self.conversation_manager = ConversationManager(self.app_config, self.ai_bridge)
-        
+
         self.meshtastic_handler = None
         self.ai_node_id_hex = None
         self.active_channel_for_ai_posts = self.app_config.ACTIVE_MESHTASTIC_CHANNEL_INDEX
         self._stop_event = threading.Event()
-        self.reconnection_monitor_thread = None 
-        self.is_actively_reconnecting = False 
-
-        self.url_pattern = re.compile(r'https?://[^\s/$.?#].[^\s]*', re.IGNORECASE)
-        dprint("MeshtasticAIAppConsole.__init__ - URL pattern compiled.")
-
-        # Add patterns for specific information requests
-        self.weather_pattern = re.compile(r'(?:weather|temperature|temp|pogoda|temperatura)\s+(?:in|for|w|dla)?\s+([a-zA-Z\s]+)', re.IGNORECASE)
-        self.search_pattern = re.compile(r'(?:search|find|szukaj|znajdź|szukam|chcę|chce|potrzebuję|potrzebuje)\s+(?:for|dla|mi)?\s*(.+)', re.IGNORECASE)
-        self.extract_pattern = re.compile(r'(?:extract|get|pobierz|weź|wez)\s+(temperature|price|title|description|news|weather|pogoda|cenę|cene|tytuł|tytul|opis)\s+(?:from|z|ze)?\s+(https?://[^\s]+)', re.IGNORECASE)
-        
-        self.last_response_times = {} 
-        self.ai_response_probability = getattr(self.app_config, 'AI_RESPONSE_PROBABILITY', 0.85)
-        self.ai_min_delay = getattr(self.app_config, 'AI_MIN_RESPONSE_DELAY_S', 2)
-        self.ai_max_delay = getattr(self.app_config, 'AI_MAX_RESPONSE_DELAY_S', 8)
-        self.ai_cooldown = getattr(self.app_config, 'AI_RESPONSE_COOLDOWN_S', 60)
-        self.enable_ai_triage = getattr(self.app_config, 'ENABLE_AI_TRIAGE_ON_CHANNELS', False)
-        self.triage_context_count = getattr(self.app_config, 'TRIAGE_CONTEXT_MESSAGE_COUNT', 3)
-        dprint(f"MeshtasticAIAppConsole.__init__ - Human-like settings: Prob={self.ai_response_probability*100:.0f}%, Delay=({self.ai_min_delay}-{self.ai_max_delay}s), Cooldown={self.ai_cooldown}s, Triage={self.enable_ai_triage}")
+        self.reconnection_monitor_thread = None
+        self.is_actively_reconnecting = False
 
         try:
             dprint("MeshtasticAIAppConsole.__init__ - Initializing Meshtastic Handler...")
@@ -146,9 +126,9 @@ class MeshtasticAIAppConsole:
                 device_specifier=self.app_config.MESHTASTIC_DEVICE_SPECIFIER,
                 on_message_received_callback=self.handle_meshtastic_message
             )
-            
+
             # Wait for connection with timeout
-            connect_wait_retries = 5  # Reduced from 7 to 5
+            connect_wait_retries = 5
             initial_connection_confirmed = False
             while connect_wait_retries > 0:
                 try:
@@ -165,7 +145,7 @@ class MeshtasticAIAppConsole:
             if not initial_connection_confirmed:
                 if self.meshtastic_handler:
                     self.meshtastic_handler.close()
-                raise ConnectionError("CLI: Meshtastic handler initialized, but connection not confirmed (is_connected is False).")
+                raise ConnectionError("CLI: Meshtastic handler initialized, but connection not confirmed.")
 
             if self.meshtastic_handler.node_id is not None:
                 self.ai_node_id_hex = f"{self.meshtastic_handler.node_id:x}"
@@ -174,10 +154,16 @@ class MeshtasticAIAppConsole:
                 if self.meshtastic_handler:
                     self.meshtastic_handler.close()
                 raise ConnectionError("CLI: Handler reported connected but node_id is None.")
-            
+
+            # Initialize HAL bot and central message router
+            self.hal_bot = HalBot(self.meshtastic_handler, self.app_config)
+            self.router = MessageRouter(
+                self.app_config, self.ai_bridge,
+                self.conversation_manager, self.hal_bot,
+                self.meshtastic_handler
+            )
             dprint("MeshtasticAIAppConsole.__init__ - Initialization complete.")
-            self.hal_bot = HalBot(self.meshtastic_handler)
-            
+
         except KeyboardInterrupt:
             if self.meshtastic_handler:
                 self.meshtastic_handler.close()
@@ -188,201 +174,66 @@ class MeshtasticAIAppConsole:
             raise
 
     def handle_meshtastic_message(self, text, sender_id, sender_name, destination_id, channel_id):
-        print(f"\n[RX CONSOLE] From: {sender_name} ({sender_id}) | To: {destination_id} | Ch: {channel_id} | Msg: \"{text[:100]}{'...' if len(text)>100 else ''}\"")
-        print(f"DEBUG: Entered handle_meshtastic_message with sender_id={sender_id}, destination_id={destination_id}, ai_node_id_hex={self.ai_node_id_hex}")
-        
-        effective_channel_id = channel_id
-        is_broadcast_msg = destination_id.lower() == f"{meshtastic.BROADCAST_NUM:x}".lower() or destination_id.lower() == "broadcast"
-        if effective_channel_id is None and is_broadcast_msg: effective_channel_id = 0 
-        elif effective_channel_id is None and not is_broadcast_msg: effective_channel_id = 0
-        if self.ai_node_id_hex and sender_id.lower() == self.ai_node_id_hex.lower():
-            print("DEBUG: Message is from AI itself. Ignoring.")
-            return
-        is_dm_to_ai = (self.ai_node_id_hex and destination_id.lower() == self.ai_node_id_hex.lower())
-        print(f"DEBUG: is_dm_to_ai={is_dm_to_ai}")
-        
-        # Check if this is a HAL bot command
-        if self.hal_bot.should_handle_message(text):
-            print("DEBUG: Message is a HAL bot command. Processing...")
-            hal_result = self.hal_bot.handle_command(text, sender_id, sender_name, effective_channel_id, is_dm_to_ai)
-            if hal_result and isinstance(hal_result, dict):
-                response_text = hal_result['response']  # Extract just the response text
-                is_channel_message = hal_result.get('is_channel_message', False)
-                
-                print(f"[HAL BOT] Sending response to {sender_name}")
-                if self.meshtastic_handler and self.meshtastic_handler.is_connected:
-                    if is_channel_message:
-                        # Send to channel
-                        success, reason = self.meshtastic_handler.send_message(
-                            response_text,  # Use the extracted response text
-                            channel_index=effective_channel_id
-                        )
-                    else:
-                        # Send as DM
-                        success, reason = self.meshtastic_handler.send_message(
-                            response_text,  # Use the extracted response text
-                            destination_id_hex=sender_id,
-                            channel_index=0  # DMs always use channel 0
-                        )
-                    if not success:
-                        print(f"ERROR: Failed to send HAL bot response: {reason}")
-                return
+        """Incoming message handler - delegates to MessageRouter."""
+        print(f"\n[RX CONSOLE] From: {sender_name} ({sender_id}) | To: {destination_id} | Ch: {channel_id} | Msg: \"{text[:100]}\"")
 
-        is_on_ai_active_channel_broadcast = (effective_channel_id == self.active_channel_for_ai_posts and is_broadcast_msg)
-        conv_id_params = {"sender_id_hex": sender_id, "channel_id": effective_channel_id if not is_dm_to_ai else None, "ai_node_id_hex": self.ai_node_id_hex, "destination_id_hex": destination_id}
-        conversation_id = self.conversation_manager._get_conversation_id(**conv_id_params)
-        print(f"DEBUG: conversation_id={conversation_id}")
-        self.conversation_manager.add_message(conversation_id, "user", text, user_name=sender_name, node_id=sender_id)
-        should_consider_reply = False
-        if is_dm_to_ai:
-            print(f"CLI: Message is DM to AI. Will consider responding.")
-            should_consider_reply = True
-        elif is_on_ai_active_channel_broadcast:
-            if self.enable_ai_triage:
-                print(f"CLI: Message on active AI channel. Performing AI Triage for conv_id '{conversation_id}'...")
-                history_for_triage_raw = self.conversation_manager.load_conversation(conversation_id)
-                triage_context_messages = []
-                for msg_entry in history_for_triage_raw[-(self.triage_context_count + 1) : -1]: 
-                    if msg_entry.get("role") == "user":
-                        name = msg_entry.get("user_name", f"Node-{msg_entry.get('node_id','????')}")
-                        triage_context_messages.append(f"{name}: {msg_entry.get('content','')}")
-                if self.ai_bridge.should_main_ai_respond(triage_context_messages, text, sender_name):
-                    print("CLI: AI Triage decided YES. AI will consider responding.")
-                    should_consider_reply = True
-                else: print("CLI: AI Triage decided NO. AI will not respond.")
-            else: 
-                print("CLI: Message on active AI channel (Triage disabled). AI will consider responding.")
-                should_consider_reply = True
-        if not should_consider_reply:
-            print("DEBUG: should_consider_reply is False. Exiting.")
+        result = self.router.on_message(
+            text, sender_id, sender_name, destination_id,
+            channel_id, self.ai_node_id_hex
+        )
+
+        if not self.meshtastic_handler or not self.meshtastic_handler.is_connected:
+            print("ERROR: Meshtastic disconnected. Cannot act on route result.")
             return
-        now = time.time()
-        if self.ai_cooldown > 0:
-            last_response_time = self.last_response_times.get(conversation_id, 0)
-            if (now - last_response_time) < self.ai_cooldown:
-                print(f"CLI: AI Cooldown active for conv_id '{conversation_id}'. Skipping. Last response {now - last_response_time:.0f}s ago.")
-                return 
-        if random.random() > self.ai_response_probability:
-            print(f"CLI: AI decided not to respond based on probability ({self.ai_response_probability*100:.0f}% chance).")
-            return
-        context_history = self.conversation_manager.get_contextual_history(conversation_id, for_user_name=sender_name)
-        web_analysis_summary = None
-        
-        # Check for specific information requests first
-        specific_info = None
-        
-        # Check for weather requests
-        weather_match = self.weather_pattern.search(text)
-        if weather_match:
-            city = weather_match.group(1).strip()
-            print(f"INFO: Weather request detected for city: {city}")
-            specific_info = self.ai_bridge.get_weather_data(city)
-            print(f"INFO: Weather data: {specific_info}")
-            
-        # Check for search requests
-        elif self.search_pattern.search(text):
-            search_match = self.search_pattern.search(text)
-            query = search_match.group(1).strip()
-            print(f"INFO: Search request detected for query: {query}")
-            specific_info = self.ai_bridge.search_web(query)
-            print(f"INFO: Search results: {specific_info[:100]}...")
-            
-        # Check for specific data extraction
-        elif self.extract_pattern.search(text):
-            extract_match = self.extract_pattern.search(text)
-            info_type = extract_match.group(1).strip()
-            url = extract_match.group(2).strip()
-            print(f"INFO: Data extraction request: {info_type} from {url}")
-            specific_info = self.ai_bridge.extract_specific_info(url, info_type)
-            print(f"INFO: Extracted data: {specific_info}")
-            
-        # Use AI Web Agent for all other queries (AI decides if web search is needed)
-        else:
-            print(f"INFO: Using AI Web Agent for intelligent response")
-            ai_response_text = self.ai_bridge.get_response_with_web_search(
-                context_history, text, sender_name, sender_id
-            )
-            print(f"INFO: AI Web Agent response: {ai_response_text[:100]}...")
-            
-            # If AI Web Agent returned a response, use it directly
-            if ai_response_text and ai_response_text.strip():
-                if self.ai_min_delay >= 0 and self.ai_max_delay > self.ai_min_delay :
-                    delay = random.uniform(self.ai_min_delay, self.ai_max_delay)
-                    print(f"AI response generated. Applying random delay of {delay:.1f}s before sending.")
-                    time.sleep(delay)
-                print(f"[AI CONSOLE Replying -> {sender_name}] {ai_response_text[:100]}{'...' if len(ai_response_text)>100 else ''}")
-                log_info(f"AI sent reply to {sender_name}")
-                self.conversation_manager.add_message(conversation_id, "assistant", ai_response_text) 
-                self.last_response_times[conversation_id] = time.time()
-                reply_channel_index = effective_channel_id
-                if self.meshtastic_handler and self.meshtastic_handler.is_connected:
-                    if is_dm_to_ai:
-                        success, reason = self.meshtastic_handler.send_message(ai_response_text, destination_id_hex=sender_id, channel_index=0)
-                        print(f"DEBUG: DM send_message result: success={success}, reason={reason}")
-                        if not success:
-                            print(f"ERROR: Failed to send DM reply: {reason}")
-                    else:
-                        success, reason = self.meshtastic_handler.send_message(ai_response_text, channel_index=reply_channel_index)
-                        print(f"DEBUG: Channel send_message result: success={success}, reason={reason}")
-                        if not success:
-                            print(f"ERROR: Failed to send channel reply: {reason}")
-                else: print("ERROR: Cannot send AI reply, Meshtastic disconnected.")
-                return  # Exit early since we already handled the response
-                
-        # Handle cases where we have specific_info (weather, search, extract) - use normal AI response
-        web_analysis_summary = None
-        
-        # Check for URL analysis (existing functionality)
-        urls_found = self.url_pattern.findall(text)
-        if urls_found:
-            detected_url = urls_found[0] 
-            print(f"INFO: URL detected: {detected_url}. Analyzing content...")
-            try:
-                web_analysis_summary = self.ai_bridge.analyze_url_content(detected_url)
-                if web_analysis_summary: 
-                    print(f"INFO: Web analysis summary: {web_analysis_summary[:100]}...")
-                    # Save URL analysis to conversation history so AI remembers it
-                    self.conversation_manager.add_url_analysis(conversation_id, detected_url, web_analysis_summary)
-                else: 
-                    print(f"INFO: Web analysis for {detected_url} yielded no summary.")
-            except Exception as e_web: 
-                print(f"ERROR: URL analysis failed: {e_web}"); 
-                traceback.print_exc(); 
-                web_analysis_summary = f"[Error analyzing URL]"
-                
-        # Add specific info to web analysis if available
-        if specific_info:
-            if web_analysis_summary:
-                web_analysis_summary = f"{web_analysis_summary}\n\nSpecific Information: {specific_info}"
+
+        # --- Broadcast SOS alert on all channels ---
+        if result.broadcast_alert:
+            for ch in result.broadcast_channels:
+                success, reason = self.meshtastic_handler.send_message(
+                    result.broadcast_alert, channel_index=ch
+                )
+                if not success:
+                    print(f"ERROR: Failed to broadcast alert on ch {ch}: {reason}")
+            log_info(f"SOS alert broadcast on {len(result.broadcast_channels)} channel(s)")
+
+        # --- Send direct reply (HAL bot, help confirmation, etc.) ---
+        if result.reply_text and result.handled:
+            if result.reply_as_dm:
+                success, reason = self.meshtastic_handler.send_message(
+                    result.reply_text, destination_id_hex=result.reply_destination, channel_index=0
+                )
             else:
-                web_analysis_summary = f"Specific Information: {specific_info}"
-                
-        print(f"DEBUG: Getting AI response for {sender_name} ({sender_id})...")
-        ai_response_text = self.ai_bridge.get_response(context_history, text, sender_name, sender_id, web_analysis_summary=web_analysis_summary, skip_triage=is_dm_to_ai)
-        print(f"DEBUG: ai_response_text={ai_response_text}")
-        if ai_response_text and ai_response_text.strip():
-            if self.ai_min_delay >= 0 and self.ai_max_delay > self.ai_min_delay :
-                delay = random.uniform(self.ai_min_delay, self.ai_max_delay)
-                print(f"AI response generated. Applying random delay of {delay:.1f}s before sending.")
-                time.sleep(delay)
-            print(f"[AI CONSOLE Replying -> {sender_name}] {ai_response_text[:100]}{'...' if len(ai_response_text)>100 else ''}")
-            log_info(f"AI sent reply to {sender_name}")
-            self.conversation_manager.add_message(conversation_id, "assistant", ai_response_text) 
-            self.last_response_times[conversation_id] = time.time()
-            reply_channel_index = effective_channel_id
-            if self.meshtastic_handler and self.meshtastic_handler.is_connected:
-                if is_dm_to_ai:
-                    success, reason = self.meshtastic_handler.send_message(ai_response_text, destination_id_hex=sender_id, channel_index=0)
-                    print(f"DEBUG: DM send_message result: success={success}, reason={reason}")
-                    if not success:
-                        print(f"ERROR: Failed to send DM reply: {reason}")
+                success, reason = self.meshtastic_handler.send_message(
+                    result.reply_text, channel_index=result.reply_channel
+                )
+            if not success:
+                print(f"ERROR: Failed to send reply: {reason}")
+            return
+
+        # --- AI response needed ---
+        if result.needs_ai_response:
+            dprint(f"Generating AI response for {sender_name} in {result.conversation_id}...")
+            ai_response = self.router.generate_ai_response(
+                result.conversation_id, text, sender_name, sender_id,
+                is_dm=result.reply_as_dm, skip_triage=result.skip_triage
+            )
+            if ai_response and ai_response.strip():
+                self.router.apply_human_delay()
+                self.router.record_response(result.conversation_id, ai_response)
+                log_info(f"AI sent reply to {sender_name}")
+                print(f"[AI CONSOLE -> {sender_name}] {ai_response[:100]}")
+                if result.reply_as_dm:
+                    success, reason = self.meshtastic_handler.send_message(
+                        ai_response, destination_id_hex=result.reply_destination, channel_index=0
+                    )
                 else:
-                    success, reason = self.meshtastic_handler.send_message(ai_response_text, channel_index=reply_channel_index)
-                    print(f"DEBUG: Channel send_message result: success={success}, reason={reason}")
-                    if not success:
-                        print(f"ERROR: Failed to send channel reply: {reason}")
-            else: print("ERROR: Cannot send AI reply, Meshtastic disconnected.")
-        else: print(f"INFO: No valid AI response. No message sent to {sender_name}.")
+                    success, reason = self.meshtastic_handler.send_message(
+                        ai_response, channel_index=result.reply_channel
+                    )
+                if not success:
+                    print(f"ERROR: Failed to send AI reply: {reason}")
+            else:
+                print(f"INFO: No valid AI response for {sender_name}.")
 
     def run_console_ui(self):
         print("\n--- Meshtastic AI Bridge Console (CLI Mode) ---")
@@ -562,127 +413,6 @@ def cli_connection_monitor_loop(app_instance_ref_list, stop_event_ref):
                     dprint("CLI Monitor: Connection restored.")
     dprint("CLI Connection monitor thread finished.")
 
-class MeshtasticInteractive(App[None]):
-    TITLE = "Meshtastic AI Bridge - Interactive Interface"
-    CSS_PATH = "meshtastic_tui.css"
-    BINDINGS = [
-        ("q", "quit_app", "Quit"),
-        ("ctrl+c", "quit_app", "Quit"),
-        ("f", "force_ai", "Force AI Response")  # Add keyboard shortcut
-    ]
-    current_conversation_id = reactive(None, layout=True)
-    sidebar_conversations = reactive([], layout=True)
-
-    def __init__(self):
-        super().__init__()
-        self.hal_bot = HalBot(self.meshtastic_handler)
-
-    def compose(self) -> ComposeResult:
-        yield Header()
-        with Horizontal(id="app-grid"):
-            with VerticalScroll(id="sidebar", classes="sidebar-area"):
-                yield Label("Conversations", classes="sidebar-title")
-                yield ListView(id="conversation_list")
-            with Container(id="chat-view-container"):
-                yield RichLog(id="chat_log", wrap=True, markup=True, classes="chat-log-area")
-                with Horizontal(id="input-container"):
-                    yield Input(placeholder="Type message...", id="message_input")
-                    yield Button("🤖 Force AI", id="force_ai_button", classes="force-ai-button")
-        yield Footer()
-
-    async def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle button press events"""
-        if event.button.id == "force_ai_button":
-            await self.force_ai_response()
-
-    async def action_force_ai(self) -> None:
-        """Action handler for force AI keyboard shortcut"""
-        await self.force_ai_response()
-
-    async def force_ai_response(self) -> None:
-        """Force AI to respond to recent messages"""
-        if not self.current_conversation_id:
-            return
-        
-        # Get the last few messages from the current conversation
-        history = self.conversation_manager.load_conversation(self.current_conversation_id)
-        if not history:
-            return
-        
-        # Get the last 3-4 messages
-        recent_messages = history[-4:] if len(history) >= 4 else history
-        
-        # Create a context from recent messages
-        context = "\n".join([
-            f"{msg.get('user_name', 'Unknown')}: {msg.get('content', '')}"
-            for msg in recent_messages
-        ])
-        
-        # Create a prompt for the AI
-        prompt = f"Recent conversation context:\n{context}\n\nPlease provide a natural response to this conversation."
-        
-        # Run AI worker without triage
-        self.run_worker(
-            AIProcessingWorker(
-                self,
-                prompt,
-                "local_tui_user",
-                "You (TUI)",
-                self.active_channel_for_ai_posts,
-                False,  # not a DM
-                self.current_conversation_id,
-                self.url_pattern,
-                skip_triage=True  # Skip triage for forced responses
-            ),
-            exclusive=True,
-            group="ai_proc",
-            thread=True
-        )
-
-    async def process_incoming_mesh_message(self, text, sender_id, sender_name, destination_id, channel_id):
-        str_ai_id = str(self.ai_node_id_hex or "").lower()
-        str_dest_id = str(destination_id or "").lower()
-        is_dm_to_ai = (str_ai_id and str_dest_id == str_ai_id)
-        eff_ch_id = channel_id if channel_id is not None else 0
-
-        # Determine conversation ID (mirroring CLI logic)
-        conv_params = {"sender_id_hex": str(sender_id), "channel_id": eff_ch_id if not is_dm_to_ai else None, "ai_node_id_hex": str_ai_id, "destination_id_hex": str_dest_id}
-        conv_id = self.conversation_manager._get_conversation_id(**conv_params)
-        self.conversation_manager.add_message(conv_id, "user", text, user_name=sender_name, node_id=str(sender_id))
-
-        if is_dm_to_ai:
-            dprint(f"TUI: AI to respond to DM. Starting worker for conv_id={conv_id}.")
-            self.run_worker(
-                AIProcessingWorker(self, text, str(sender_id), sender_name, eff_ch_id, True, conv_id, self.url_pattern),
-                exclusive=True, group="ai_proc", thread=True
-            )
-
-        # Check if this is a HAL bot command
-        if self.hal_bot.should_handle_message(text):
-            log_widget.write(f"[bright_green]Message is a HAL bot command. Processing...[/bright_green]")
-            hal_result = self.hal_bot.handle_command(text, sender_id, sender_name, eff_ch_id, is_dm_to_ai)
-            if hal_result and isinstance(hal_result, dict):
-                response_text = hal_result['response']  # Extract just the response text
-                is_channel_message = hal_result.get('is_channel_message', False)
-                
-                log_widget.write(f"[bright_green]Sending HAL bot response to {sender_name}[/bright_green]")
-                if self.meshtastic_handler and self.meshtastic_handler.is_connected:
-                    if is_channel_message:
-                        # Send to channel
-                        success, reason = self.meshtastic_handler.send_message(
-                            response_text,  # Use the extracted response text
-                            channel_index=eff_ch_id
-                        )
-                    else:
-                        # Send as DM
-                        success, reason = self.meshtastic_handler.send_message(
-                            response_text,  # Use the extracted response text
-                            destination_id_hex=sender_id,
-                            channel_index=0  # DMs always use channel 0
-                        )
-                    if not success:
-                        log_widget.write(f"[red]Failed to send HAL bot response: {reason}[/red]")
-                return
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Meshtastic AI Bridge Application")
