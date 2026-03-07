@@ -1,0 +1,374 @@
+"""
+matrix_bridge.py - Bridge between Meshtastic mesh and Matrix protocol.
+
+Maps each Meshtastic channel to a Matrix room. Forwards messages both ways.
+Requires: pip install matrix-nio[e2e]
+"""
+
+import asyncio
+import time
+import threading
+import traceback
+from typing import Dict, Optional, Callable
+
+try:
+    from nio import (
+        AsyncClient, MatrixRoom, RoomMessageText,
+        LoginResponse, RoomCreateResponse, JoinResponse,
+        RoomResolveAliasResponse,
+    )
+    HAS_NIO = True
+except ImportError:
+    HAS_NIO = False
+
+
+def log_info(msg):
+    print(f"INFO [matrix]: {msg}")
+
+def log_error(msg):
+    print(f"ERROR [matrix]: {msg}")
+
+
+class MatrixBridge:
+    """
+    Bridges Meshtastic mesh channels to Matrix rooms.
+
+    - Each mesh channel gets a Matrix room (auto-created if needed)
+    - DMs get a separate room
+    - Mesh -> Matrix: messages forwarded with sender name
+    - Matrix -> Mesh: messages sent to the corresponding channel
+    """
+
+    def __init__(
+        self,
+        homeserver: str,
+        username: str,
+        password: str,
+        room_prefix: str = "mesh",
+        bot_name: str = "Eva",
+        on_matrix_message: Optional[Callable] = None,
+        meshtastic_handler=None,
+    ):
+        if not HAS_NIO:
+            raise ImportError("matrix-nio is required: pip install matrix-nio[e2e]")
+
+        self.homeserver = homeserver
+        self.username = username
+        self.password = password
+        self.room_prefix = room_prefix
+        self.bot_name = bot_name
+        self.on_matrix_message = on_matrix_message
+        self.meshtastic_handler = meshtastic_handler
+
+        self.client: Optional[AsyncClient] = None
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._thread: Optional[threading.Thread] = None
+        self._running = False
+
+        # channel_index -> room_id mapping
+        self.channel_rooms: Dict[int, str] = {}
+        # room_id -> channel_index reverse mapping
+        self.room_channels: Dict[str, int] = {}
+        # DM room
+        self.dm_room_id: Optional[str] = None
+
+        # Track own messages to avoid echo
+        self._own_messages: set = set()
+        # Ignore messages older than start time
+        self._start_time_ms = int(time.time() * 1000)
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def start(self):
+        """Start the Matrix bridge in a background thread."""
+        if self._running:
+            return
+        self._running = True
+        self._thread = threading.Thread(target=self._run_loop, daemon=True)
+        self._thread.start()
+        log_info("Bridge thread started")
+
+    def stop(self):
+        """Stop the Matrix bridge."""
+        self._running = False
+        if self._loop and self.client:
+            asyncio.run_coroutine_threadsafe(self.client.close(), self._loop)
+        log_info("Bridge stopped")
+
+    def _run_loop(self):
+        """Background thread event loop."""
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+        try:
+            self._loop.run_until_complete(self._async_main())
+        except Exception as e:
+            log_error(f"Bridge loop crashed: {e}")
+            traceback.print_exc()
+
+    async def _async_main(self):
+        """Main async routine: login, setup rooms, sync forever."""
+        self.client = AsyncClient(self.homeserver, self.username)
+
+        # Login
+        resp = await self.client.login(self.password)
+        if not isinstance(resp, LoginResponse):
+            log_error(f"Login failed: {resp}")
+            return
+        log_info(f"Logged in as {self.username} on {self.homeserver}")
+
+        # Setup rooms for known channels
+        await self._setup_rooms()
+
+        # Register message callback
+        self.client.add_event_callback(self._on_matrix_event, RoomMessageText)
+
+        # Sync forever
+        log_info("Starting sync loop...")
+        while self._running:
+            try:
+                await self.client.sync(timeout=30000, full_state=False)
+            except Exception as e:
+                log_error(f"Sync error: {e}")
+                await asyncio.sleep(5)
+
+        await self.client.close()
+
+    # ------------------------------------------------------------------
+    # Room management
+    # ------------------------------------------------------------------
+
+    async def _setup_rooms(self):
+        """Create or join Matrix rooms for each Meshtastic channel."""
+        if not self.meshtastic_handler:
+            log_info("No meshtastic handler - creating default room for ch0")
+            await self._ensure_channel_room(0, "PRIMARY")
+            return
+
+        channels = self.meshtastic_handler.list_channels()
+        if not channels:
+            log_info("No channels from device, creating default ch0 room")
+            await self._ensure_channel_room(0, "PRIMARY")
+            return
+
+        for ch in channels:
+            idx = ch["index"]
+            name = ch["name"]
+            role = ch.get("role", "")
+            # Skip disabled channels
+            if "DISABLED" in str(role).upper():
+                continue
+            await self._ensure_channel_room(idx, name)
+
+        # DM room
+        await self._ensure_dm_room()
+
+    async def _ensure_channel_room(self, channel_index: int, channel_name: str):
+        """Ensure a Matrix room exists for a mesh channel."""
+        alias_local = f"{self.room_prefix}-ch{channel_index}"
+        alias_full = f"#{alias_local}:{self._get_domain()}"
+
+        # Try to resolve existing room
+        room_id = await self._resolve_alias(alias_full)
+        if room_id:
+            self.channel_rooms[channel_index] = room_id
+            self.room_channels[room_id] = channel_index
+            log_info(f"Channel {channel_index} ({channel_name}) -> existing room {room_id}")
+            # Join if not already joined
+            await self.client.join(room_id)
+            return
+
+        # Create new room
+        display_name = f"Mesh: {channel_name}" if channel_name != f"Ch-{channel_index}" else f"Mesh: Channel {channel_index}"
+        resp = await self.client.room_create(
+            name=display_name,
+            alias=alias_local,
+            topic=f"Meshtastic channel {channel_index} ({channel_name}) - messages bridged from mesh network",
+            invite=[],
+        )
+        if isinstance(resp, RoomCreateResponse):
+            self.channel_rooms[channel_index] = resp.room_id
+            self.room_channels[resp.room_id] = channel_index
+            log_info(f"Channel {channel_index} ({channel_name}) -> created room {resp.room_id}")
+        else:
+            log_error(f"Failed to create room for channel {channel_index}: {resp}")
+
+    async def _ensure_dm_room(self):
+        """Ensure a DM room exists for mesh direct messages."""
+        alias_local = f"{self.room_prefix}-dm"
+        alias_full = f"#{alias_local}:{self._get_domain()}"
+
+        room_id = await self._resolve_alias(alias_full)
+        if room_id:
+            self.dm_room_id = room_id
+            await self.client.join(room_id)
+            log_info(f"DM room -> existing {room_id}")
+            return
+
+        resp = await self.client.room_create(
+            name="Mesh: Direct Messages",
+            alias=alias_local,
+            topic="Meshtastic direct messages bridged from mesh network",
+            invite=[],
+        )
+        if isinstance(resp, RoomCreateResponse):
+            self.dm_room_id = resp.room_id
+            log_info(f"DM room -> created {resp.room_id}")
+        else:
+            log_error(f"Failed to create DM room: {resp}")
+
+    async def _resolve_alias(self, alias: str) -> Optional[str]:
+        """Try to resolve a room alias to a room ID."""
+        try:
+            resp = await self.client.room_resolve_alias(alias)
+            if isinstance(resp, RoomResolveAliasResponse):
+                return resp.room_id
+        except Exception:
+            pass
+        return None
+
+    def _get_domain(self) -> str:
+        """Extract domain from homeserver URL."""
+        domain = self.homeserver.replace("https://", "").replace("http://", "")
+        domain = domain.rstrip("/")
+        # If it has a port, keep it for the URL but use just domain for alias
+        if ":" in domain:
+            domain = domain.split(":")[0]
+        return domain
+
+    # ------------------------------------------------------------------
+    # Mesh -> Matrix (called from outside)
+    # ------------------------------------------------------------------
+
+    def send_to_matrix(self, text: str, sender_name: str, sender_id: str,
+                       channel_index: int = 0, is_dm: bool = False):
+        """
+        Forward a mesh message to Matrix. Call from the mesh message handler.
+        Thread-safe: schedules the send on the bridge's event loop.
+        """
+        if not self._loop or not self.client:
+            return
+
+        formatted = f"**[{sender_name}]** ({sender_id}): {text}"
+
+        asyncio.run_coroutine_threadsafe(
+            self._async_send_to_matrix(formatted, channel_index, is_dm),
+            self._loop
+        )
+
+    async def _async_send_to_matrix(self, text: str, channel_index: int, is_dm: bool):
+        """Actually send to Matrix room."""
+        if is_dm:
+            room_id = self.dm_room_id
+        else:
+            room_id = self.channel_rooms.get(channel_index)
+
+        if not room_id:
+            # Try to create room on the fly
+            if is_dm:
+                await self._ensure_dm_room()
+                room_id = self.dm_room_id
+            else:
+                await self._ensure_channel_room(channel_index, f"Ch-{channel_index}")
+                room_id = self.channel_rooms.get(channel_index)
+
+        if not room_id:
+            log_error(f"No Matrix room for channel {channel_index}")
+            return
+
+        try:
+            # Track to avoid echo
+            msg_key = f"{text}:{time.time()}"
+            self._own_messages.add(msg_key)
+            # Clean old entries
+            if len(self._own_messages) > 100:
+                self._own_messages = set(list(self._own_messages)[-50:])
+
+            await self.client.room_send(
+                room_id,
+                message_type="m.room.message",
+                content={
+                    "msgtype": "m.text",
+                    "body": text,
+                    "format": "org.matrix.custom.html",
+                    "formatted_body": text.replace("**", "<b>", 1).replace("**", "</b>", 1),
+                },
+            )
+        except Exception as e:
+            log_error(f"Failed to send to Matrix room {room_id}: {e}")
+
+    # ------------------------------------------------------------------
+    # Matrix -> Mesh (callback from nio)
+    # ------------------------------------------------------------------
+
+    async def _on_matrix_event(self, room: MatrixRoom, event: RoomMessageText):
+        """Handle incoming Matrix messages -> forward to mesh."""
+        # Ignore own messages
+        if event.sender == self.client.user_id:
+            return
+
+        # Ignore old messages from before bridge started
+        if event.server_timestamp < self._start_time_ms:
+            return
+
+        body = event.body
+        sender = event.sender
+
+        # Extract display name
+        display_name = room.user_name(event.sender) or sender.split(":")[0].lstrip("@")
+
+        # Find which channel this room maps to
+        channel_index = self.room_channels.get(room.room_id)
+        is_dm = (room.room_id == self.dm_room_id)
+
+        if channel_index is None and not is_dm:
+            # Unknown room, ignore
+            return
+
+        log_info(f"Matrix -> Mesh: [{display_name}] on ch{channel_index}: {body[:80]}")
+
+        # Forward to mesh
+        if self.meshtastic_handler and self.meshtastic_handler.is_connected:
+            # Prefix with Matrix username so mesh users know who sent it
+            mesh_text = f"[{display_name}] {body}"
+            # Trim to 194 chars for mesh
+            if len(mesh_text) > 194:
+                mesh_text = mesh_text[:191] + "..."
+
+            if is_dm:
+                # DMs from Matrix - not clear who to send to, log only
+                log_info(f"DM from Matrix ignored (no target node): {mesh_text}")
+            else:
+                self.meshtastic_handler.send_message(
+                    mesh_text, channel_index=channel_index
+                )
+
+        # Optional callback for TUI/CLI to process
+        if self.on_matrix_message:
+            try:
+                self.on_matrix_message(
+                    text=body,
+                    sender_name=display_name,
+                    sender_id=sender,
+                    channel_index=channel_index,
+                    is_dm=is_dm,
+                )
+            except Exception as e:
+                log_error(f"on_matrix_message callback error: {e}")
+
+    # ------------------------------------------------------------------
+    # Status
+    # ------------------------------------------------------------------
+
+    def is_connected(self) -> bool:
+        return bool(self.client and self._running and self._loop)
+
+    def get_status(self) -> dict:
+        return {
+            "connected": self.is_connected(),
+            "homeserver": self.homeserver,
+            "username": self.username,
+            "channel_rooms": len(self.channel_rooms),
+            "dm_room": self.dm_room_id is not None,
+        }

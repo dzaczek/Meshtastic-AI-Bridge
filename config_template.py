@@ -57,6 +57,13 @@ WEB_UTILS_TIMEOUT = 20
 # --- Admin node IDs (hex, lowercase, no '!' prefix) ---
 ADMIN_NODE_IDS = []
 
+# --- Matrix Bridge Settings ---
+MATRIX_ENABLED = False
+MATRIX_HOMESERVER = os.environ.get("MATRIX_HOMESERVER", "https://matrix.org")
+MATRIX_USERNAME = os.environ.get("MATRIX_USERNAME", "")
+MATRIX_PASSWORD = os.environ.get("MATRIX_PASSWORD", "")
+MATRIX_ROOM_PREFIX = "mesh"  # rooms will be #mesh-ch0, #mesh-ch1, #mesh-dm
+
 # --- Bot Identity ---
 BOT_NAME = "Eva"
 

@@ -22,6 +22,11 @@ from ai_bridge import AIBridge
 from conversation_manager import ConversationManager
 from hal_bot import HalBot
 from message_router import MessageRouter, RouteResult
+try:
+    from matrix_bridge import MatrixBridge
+    HAS_MATRIX = True
+except ImportError:
+    HAS_MATRIX = False
 import config
 import random
 from rich.text import Text
@@ -116,6 +121,15 @@ class AIProcessingWorker:
                         channel_index=self.channel_id
                     )
                 log_info(f"[AIWorker] send_message result: success={success}, reason={reason}")
+                # Forward AI reply to Matrix
+                if self.app.matrix_bridge:
+                    bot_name = getattr(self.app.app_config, 'BOT_NAME', 'Eva')
+                    self.app.matrix_bridge.send_to_matrix(
+                        ai_response, bot_name,
+                        f"{self.app.meshtastic_handler.node_id:x}",
+                        channel_index=self.channel_id,
+                        is_dm=self.is_dm,
+                    )
                 # Update UI
                 asyncio.run_coroutine_threadsafe(
                     self.app.update_after_ai_response(
@@ -746,6 +760,24 @@ class MeshtasticInteractive(App):
             self.meshtastic_handler
         )
         
+        # Initialize Matrix bridge (if configured)
+        self.matrix_bridge = None
+        if HAS_MATRIX and getattr(self.app_config, 'MATRIX_ENABLED', False):
+            try:
+                self.matrix_bridge = MatrixBridge(
+                    homeserver=getattr(self.app_config, 'MATRIX_HOMESERVER', ''),
+                    username=getattr(self.app_config, 'MATRIX_USERNAME', ''),
+                    password=getattr(self.app_config, 'MATRIX_PASSWORD', ''),
+                    room_prefix=getattr(self.app_config, 'MATRIX_ROOM_PREFIX', 'mesh'),
+                    bot_name=getattr(self.app_config, 'BOT_NAME', 'Eva'),
+                    meshtastic_handler=self.meshtastic_handler,
+                )
+                self.matrix_bridge.start()
+                self.log_info("Matrix bridge started")
+            except Exception as e:
+                self.log_info(f"Matrix bridge failed to start: {e}")
+                self.matrix_bridge = None
+
         # Other initializations
         self.url_pattern = re.compile(r'https?://[^\s/$.?#].[^\s]*', re.IGNORECASE)
         self.last_response_times = {}
@@ -1361,6 +1393,15 @@ class MeshtasticInteractive(App):
             log_widget.write(f"[yellow]MSG from {sender_name}: {text[:50].strip()}[/yellow]")
             self.rx_count += 1
 
+            # --- Forward to Matrix bridge ---
+            if self.matrix_bridge:
+                eff_ch = channel_id if channel_id is not None else 0
+                is_dm = bool(self.ai_node_id and destination_id == self.ai_node_id)
+                self.matrix_bridge.send_to_matrix(
+                    text, sender_name, sender_id,
+                    channel_index=eff_ch, is_dm=is_dm,
+                )
+
             # --- Broadcast SOS alert ---
             if result.broadcast_alert and self.meshtastic_handler and self.meshtastic_handler.is_connected:
                 for ch in result.broadcast_channels:
@@ -1381,11 +1422,20 @@ class MeshtasticInteractive(App):
                     if success:
                         log_widget.write(f"[green]Bot response sent to {sender_name}[/green]")
                         self.tx_count += 1
+                        bot_name = getattr(self.app_config, 'BOT_NAME', 'Eva')
                         self.conversation_manager.add_message(
                             conv_id, "assistant", result.reply_text,
-                            user_name=getattr(self.app_config, 'BOT_NAME', 'Eva'),
+                            user_name=bot_name,
                             node_id=f"{self.meshtastic_handler.node_id:x}"
                         )
+                        # Forward bot reply to Matrix
+                        if self.matrix_bridge:
+                            self.matrix_bridge.send_to_matrix(
+                                result.reply_text, bot_name,
+                                f"{self.meshtastic_handler.node_id:x}",
+                                channel_index=result.reply_channel,
+                                is_dm=result.reply_as_dm,
+                            )
                         if conv_id == current_conv_id:
                             self.load_conversation()
                     else:
