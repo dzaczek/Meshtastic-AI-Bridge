@@ -181,7 +181,7 @@ class NodeListItem(ListItem):
         # Hop count
         hops_away = self.node_info.get('hops_away')
         if hops_away is not None:
-            hop_indicator = " (D)" if hops_away == 0 else f" ({hops_away}h)"
+            hop_indicator = " [D]" if hops_away == 0 else f" [{hops_away}hop]"
         else:
             hop_indicator = ""
 
