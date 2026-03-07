@@ -527,21 +527,29 @@ HAL9000 (!{self.meshtastic_handler.node_id:x})
             }
 
     def _admin_status(self, channel_id):
-        connected = self.meshtastic_handler.is_connected if self.meshtastic_handler else False
-        node_id = f"!{self.meshtastic_handler.node_id:x}" if self.meshtastic_handler and self.meshtastic_handler.node_id else "N/A"
+        handler = self.meshtastic_handler
+        connected = handler.is_connected if handler else False
+        node_id = f"!{handler.node_id:x}" if handler and handler.node_id else "N/A"
         node_count = 0
-        if self.meshtastic_handler and self.meshtastic_handler.interface and hasattr(self.meshtastic_handler.interface, 'nodes'):
-            node_count = len(self.meshtastic_handler.interface.nodes or {})
+        if handler and handler.interface and hasattr(handler.interface, 'nodes'):
+            node_count = len(handler.interface.nodes or {})
 
         ai_service = getattr(self.app_config, 'DEFAULT_AI_SERVICE', 'N/A') if self.app_config else 'N/A'
+
+        # Get state machine status
+        conn_status = handler.get_connection_status() if handler and hasattr(handler, 'get_connection_status') else {}
+        state_name = conn_status.get('state', 'N/A')
+        retries = conn_status.get('retry_count', 0)
 
         lines = [
             f"HAL9000 System Status:",
             f"Node: {node_id}",
+            f"State: {state_name}",
             f"Connected: {'Yes' if connected else 'No'}",
+            f"Retries: {retries}",
             f"Nodes seen: {node_count}",
             f"AI service: {ai_service}",
-            f"Uptime: {datetime.now().isoformat()}",
+            f"Time: {datetime.now().strftime('%H:%M:%S')}",
         ]
         return {
             'response': "\n".join(lines),
