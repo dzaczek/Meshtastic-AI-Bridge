@@ -222,8 +222,6 @@ class ChannelListItem(ListItem):
         style = "unread" if self.unread_count > 0 else ""
         yield Label(f"# {self.channel_name}{badge}", classes=style, markup=False)
 
-        return Panel(table, title="Stats", border_style="blue")
-
 class InfoPanel(Static):
     """Compact status bar for the sidebar bottom."""
 
@@ -397,10 +395,12 @@ class MeshtasticInteractive(App):
         Binding("m", "focus_messages", "Chat", show=True),
         Binding("i", "focus_input", "Input", show=True),
         Binding("l", "toggle_logs", "Logs", show=True),
+        Binding("t", "cycle_node_filter", "Filter", show=True),
     ]
     current_conversation_id = reactive(None, layout=True)
     sidebar_conversations = reactive([], layout=True)
     show_logs = reactive(False)
+    node_filter = reactive("all")  # "all", "radio", "mqtt"
 
     CSS = """
     Screen {
@@ -428,7 +428,8 @@ class MeshtasticInteractive(App):
 
     /* ---- Sidebar ---- */
     #sidebar {
-        width: 26;
+        width: 34;
+        min-width: 28;
         background: #0d1117;
         border-right: vkey #30363d;
         layout: vertical;
@@ -516,6 +517,7 @@ class MeshtasticInteractive(App):
 
     #input-area {
         height: 3;
+        dock: bottom;
         layout: horizontal;
         background: #161b22;
         border-top: solid #30363d;
@@ -683,7 +685,7 @@ class MeshtasticInteractive(App):
                     ChannelListItem(0, "Primary"),
                     id="channel-list"
                 )
-                yield Label(" NODES", classes="sidebar-label")
+                yield Label(" NODES [t:filter]", classes="sidebar-label", id="node-filter-label")
                 yield ListView(id="node-list")
                 yield InfoPanel(id="status-bar")
 
@@ -705,6 +707,17 @@ class MeshtasticInteractive(App):
 
         yield Footer()
     
+    def action_cycle_node_filter(self) -> None:
+        """Cycle node filter: all -> radio -> mqtt -> all"""
+        cycle = {"all": "radio", "radio": "mqtt", "mqtt": "all"}
+        self.node_filter = cycle.get(self.node_filter, "all")
+        filter_labels = {"all": " NODES [t:filter]", "radio": " NODES 📡 radio", "mqtt": " NODES ☁️ mqtt"}
+        try:
+            self.query_one("#node-filter-label", Label).update(filter_labels[self.node_filter])
+        except Exception:
+            pass
+        self.update_node_list()
+
     def action_toggle_logs(self) -> None:
         """Toggle log panel visibility"""
         self.show_logs = not self.show_logs
@@ -767,6 +780,11 @@ class MeshtasticInteractive(App):
         user = node_info.get('user', {})
         
         # Basic info
+        # Detect connection type: viaMqtt flag or hopsAway=-1 means MQTT
+        is_mqtt = node_info.get('viaMqtt', False)
+        if not is_mqtt and node_info.get('hopsAway') == -1:
+            is_mqtt = True
+
         detailed_info = {
             'long_name': user.get('longName', 'Unknown'),
             'short_name': user.get('shortName', 'UNK'),
@@ -774,7 +792,7 @@ class MeshtasticInteractive(App):
             'first_heard': node_info.get('firstHeard', time.time()),
             'is_favorite': node_info.get('isFavorite', False),
             'hops_away': node_info.get('hopsAway', None),
-            'connection_type': self.app_config.MESHTASTIC_CONNECTION_TYPE,
+            'connection_type': 'tcp' if is_mqtt else 'radio',
             'node_id': node_id_str,
             'user_role': user.get('role', 'Unknown'),
             'model': node_info.get('model', 'Unknown'),
@@ -824,6 +842,7 @@ class MeshtasticInteractive(App):
     def update_node_list(self) -> None:
         """Update the node list widget with unread counts.
         Sort order: MQTT/internet nodes first, then by last_heard (newest first), then by hops (closest first).
+        Respects self.node_filter: 'all', 'radio', or 'mqtt'.
         """
         node_list = self.query_one("#node-list", ListView)
         node_list.clear()
@@ -836,7 +855,13 @@ class MeshtasticInteractive(App):
             return (is_mqtt, last_heard, hops)
 
         sorted_nodes = sorted(self.nodes.items(), key=sort_key)
-        
+
+        # Apply node filter
+        if self.node_filter == "radio":
+            sorted_nodes = [(nid, info) for nid, info in sorted_nodes if info.get('connection_type') != 'tcp']
+        elif self.node_filter == "mqtt":
+            sorted_nodes = [(nid, info) for nid, info in sorted_nodes if info.get('connection_type') == 'tcp']
+
         for node_id, node_info in sorted_nodes:
             # Get DM conversation ID
             conv_id = self._dm_conv(node_id)
@@ -1386,7 +1411,7 @@ class MeshtasticInteractive(App):
                 'first_heard': current_time,
                 'is_favorite': False,
                 'hops_away': None,
-                'connection_type': self.app_config.MESHTASTIC_CONNECTION_TYPE,
+                'connection_type': 'unknown',
                 'node_id': sender_id,
                 'user_role': 'Unknown',
                 'model': 'Unknown',
@@ -1426,6 +1451,12 @@ class MeshtasticInteractive(App):
             'hops_away': node_info.get('hopsAway'),
         })
         
+        # Detect connection type from viaMqtt flag
+        is_mqtt = node_info.get('viaMqtt', False)
+        if not is_mqtt and node_info.get('hopsAway') == -1:
+            is_mqtt = True
+        self.nodes[node_id]['connection_type'] = 'tcp' if is_mqtt else 'radio'
+
         # Update signal info
         rssi = node_info.get('rssi')
         snr = node_info.get('snr')
