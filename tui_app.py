@@ -265,105 +265,87 @@ class NodeStatsPanel(Static):
     def render(self) -> RenderableType:
         """Render the detailed node statistics"""
         if not self.selected_node_id or not self.node_data:
-            return Panel("Select a node to view detailed statistics", title="Node Statistics", border_style="blue")
-        
+            return Panel("[dim]Select a node\nto view stats[/dim]", title="Node Info", border_style="dim")
+
         # Create main table
-        table = Table(show_header=False, box=None, expand=True)
-        table.add_column("Property", style="bold cyan")
-        table.add_column("Value", style="white")
-        
-        # Basic node info
+        table = Table(show_header=False, box=None, expand=True, padding=(0, 1))
+        table.add_column("K", style="bold #58a6ff", width=10, no_wrap=True)
+        table.add_column("V", style="#e6edf3")
+
         node_id = self.node_data.get('node_id', 'Unknown')
         long_name = self.node_data.get('long_name', 'Unknown')
         short_name = self.node_data.get('short_name', 'UNK')
-        
-        table.add_row("Node ID", f"!{node_id}")
-        table.add_row("Long Name", long_name)
-        table.add_row("Short Name", short_name)
-        
-        # User role (if available)
+
+        table.add_row("Name", f"[bold #e6edf3]{long_name}[/]")
+        table.add_row("ID", f"[#8b949e]!{node_id}[/]")
+        table.add_row("Short", short_name)
+
         user_role = self.node_data.get('user_role', 'Unknown')
-        table.add_row("User Role", user_role)
-        
-        # First heard
-        first_heard = self.node_data.get('first_heard')
-        if first_heard:
-            first_heard_str = datetime.fromtimestamp(first_heard).strftime("%Y-%m-%d %H:%M:%S")
-            table.add_row("First Heard", first_heard_str)
-        
-        # Last heard
-        last_heard = self.node_data.get('last_heard')
-        if last_heard:
-            last_heard_str = datetime.fromtimestamp(last_heard).strftime("%Y-%m-%d %H:%M:%S")
-            time_ago = self._format_time_ago(last_heard)
-            table.add_row("Last Heard", f"{last_heard_str} ({time_ago})")
-        
+        if user_role != 'Unknown':
+            table.add_row("Role", user_role)
+
         # Connection info
         connection_type = self.node_data.get('connection_type', 'radio')
         hops_away = self.node_data.get('hops_away')
-        if hops_away is not None:
-            hops_str = f"{hops_away} hop{'s' if hops_away != 1 else ''}"
-        else:
-            hops_str = "Unknown"
-        
-        table.add_row("Connection", f"{connection_type.upper()} ({hops_str})")
-        
-        # Signal statistics for last 4 packets
-        signal_history = self.node_data.get('signal_history', [])
-        if signal_history:
-            table.add_row("", "")  # Empty row for spacing
-            table.add_row("Signal History", "")
-            
-            for i, packet in enumerate(signal_history[-4:], 1):  # Last 4 packets
-                timestamp = packet.get('timestamp', 0)
-                rssi = packet.get('rssi')
-                snr = packet.get('snr')
-                time_ago = self._format_time_ago(timestamp)
-                
-                rssi_str = f"{rssi} dBm" if rssi is not None else "N/A"
-                snr_str = f"{snr} dB" if snr is not None else "N/A"
-                
-                table.add_row(f"  Packet {i}", f"{time_ago} - RSSI: {rssi_str}, SNR: {snr_str}")
-        
-        # Current signal info
+        conn_icon = "[#f0883e]MQTT[/]" if connection_type == 'tcp' else "[#3fb950]RADIO[/]"
+        hops_str = f" {hops_away}h" if hops_away is not None else ""
+        table.add_row("Link", f"{conn_icon}{hops_str}")
+
+        # Last heard
+        last_heard = self.node_data.get('last_heard')
+        if last_heard:
+            table.add_row("Heard", f"[#e6edf3]{self._format_time_ago(last_heard)}[/]")
+
+        # Signal
         current_rssi = self.node_data.get('rssi')
         current_snr = self.node_data.get('snr')
-        if current_rssi is not None or current_snr is not None:
-            table.add_row("", "")  # Empty row for spacing
-            table.add_row("Current Signal", "")
-            rssi_str = f"{current_rssi} dBm" if current_rssi is not None else "N/A"
-            snr_str = f"{current_snr} dB" if current_snr is not None else "N/A"
-            table.add_row("  RSSI", rssi_str)
-            table.add_row("  SNR", snr_str)
-        
-        # GPS Position (if available)
+        if current_rssi is not None:
+            color = "#3fb950" if current_rssi > -100 else "#f0883e" if current_rssi > -115 else "#f85149"
+            table.add_row("RSSI", f"[{color}]{current_rssi} dBm[/]")
+        if current_snr is not None:
+            color = "#3fb950" if current_snr > 5 else "#f0883e" if current_snr > 0 else "#f85149"
+            table.add_row("SNR", f"[{color}]{current_snr} dB[/]")
+
+        # Signal history (compact)
+        signal_history = self.node_data.get('signal_history', [])
+        if signal_history:
+            table.add_row("", "")
+            table.add_row("[bold #58a6ff]History[/]", "")
+            for packet in signal_history[-3:]:
+                rssi = packet.get('rssi')
+                snr = packet.get('snr')
+                t = self._format_time_ago(packet.get('timestamp', 0))
+                r = f"{rssi}" if rssi is not None else "-"
+                s = f"{snr}" if snr is not None else "-"
+                table.add_row(f"  {t}", f"[#8b949e]{r}/{s}[/]")
+
+        # GPS
         position = self.node_data.get('position')
         if position:
-            table.add_row("", "")  # Empty row for spacing
-            table.add_row("GPS Position", "")
             lat = position.get('latitude')
             lon = position.get('longitude')
             alt = position.get('altitude')
             if lat is not None and lon is not None:
-                table.add_row("  Coordinates", f"{lat:.6f}, {lon:.6f}")
-            if alt is not None:
-                table.add_row("  Altitude", f"{alt}m")
-        
-        # Model info
+                table.add_row("", "")
+                table.add_row("GPS", f"[#e6edf3]{lat:.4f},{lon:.4f}[/]")
+                if alt is not None:
+                    table.add_row("Alt", f"{alt}m")
+
+        # Model / Battery
         model = self.node_data.get('model', 'Unknown')
-        table.add_row("Model", model)
-        
-        # Battery info
+        if model != 'Unknown':
+            table.add_row("Model", f"[#8b949e]{model}[/]")
+
         battery = self.node_data.get('battery_level')
         if battery is not None:
-            table.add_row("Battery", f"{battery}%")
-        
-        # Uptime
+            color = "#3fb950" if battery > 50 else "#f0883e" if battery > 20 else "#f85149"
+            table.add_row("Batt", f"[{color}]{battery}%[/]")
+
         uptime = self.node_data.get('uptime')
         if uptime:
-            table.add_row("Uptime", uptime)
-        
-        return Panel(table, title=f"Node Statistics - {short_name}", border_style="green")
+            table.add_row("Up", f"[#8b949e]{uptime}[/]")
+
+        return Panel(table, title=f"[bold #58a6ff]{short_name}[/]", border_style="#30363d")
     
     def _format_time_ago(self, timestamp: float) -> str:
         """Format time ago from timestamp"""
@@ -520,20 +502,21 @@ class MeshtasticInteractive(App):
         height: 3;
         dock: bottom;
         layout: horizontal;
-        background: #161b22;
-        border-top: solid #30363d;
+        background: #1a2233;
+        border-top: solid #58a6ff;
         padding: 0;
     }
 
     #message-input {
         width: 1fr;
         background: #0d1117;
-        color: #c9d1d9;
-        border: tall #30363d;
+        color: #e6edf3;
+        border: tall #58a6ff;
     }
 
     #message-input:focus {
-        border: tall #58a6ff;
+        border: tall #79c0ff;
+        background: #161b22;
     }
 
     #force-ai-button {
@@ -551,7 +534,7 @@ class MeshtasticInteractive(App):
 
     /* ---- Right panel (node details) ---- */
     #right-panel {
-        width: 30;
+        width: 36;
         background: #0d1117;
         border-left: vkey #30363d;
         layout: vertical;
