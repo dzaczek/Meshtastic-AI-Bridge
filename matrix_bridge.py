@@ -122,11 +122,19 @@ class MatrixBridge:
             return
         log_info(f"Logged in as {self.username} on {self.homeserver}")
 
-        # Setup rooms for known channels
-        await self._setup_rooms()
+        # Setup rooms — retry until meshtastic is connected
+        await self._setup_rooms_with_retry()
 
         # Register message callback
         self.client.add_event_callback(self._on_matrix_event, RoomMessageText)
+
+        # Do initial sync to skip old messages
+        log_info("Performing initial sync...")
+        try:
+            await self.client.sync(timeout=10000, full_state=True)
+        except Exception as e:
+            log_error(f"Initial sync error: {e}")
+        self._start_time_ms = int(time.time() * 1000)
 
         # Sync forever
         log_info("Starting sync loop...")
@@ -138,6 +146,21 @@ class MatrixBridge:
                 await asyncio.sleep(5)
 
         await self.client.close()
+
+    async def _setup_rooms_with_retry(self):
+        """Try to setup rooms, retrying until meshtastic channels are available."""
+        for attempt in range(15):
+            await self._setup_rooms()
+            if self.channel_rooms:
+                log_info(f"Rooms ready: {len(self.channel_rooms)} channel(s), DM: {self.dm_room_id is not None}")
+                return
+            log_info(f"No channels yet (attempt {attempt + 1}/15), waiting for meshtastic...")
+            await asyncio.sleep(3)
+        # Fallback — create at least ch0
+        if not self.channel_rooms:
+            log_info("Fallback: creating default ch0 room")
+            await self._ensure_channel_room(0, "PRIMARY")
+            await self._ensure_dm_room()
 
     # ------------------------------------------------------------------
     # Room management
@@ -262,9 +285,12 @@ class MatrixBridge:
         Thread-safe: schedules the send on the bridge's event loop.
         """
         if not self._loop or not self.client:
+            log_error(f"Cannot send to Matrix: loop={bool(self._loop)} client={bool(self.client)}")
             return
 
-        formatted = f"**[{sender_name}]** ({sender_id}): {text}"
+        formatted = f"**[{sender_name}]** (!{sender_id}): {text}"
+        target = "DM" if is_dm else f"ch{channel_index}"
+        log_info(f"Mesh -> Matrix [{target}]: {text[:60]}")
 
         asyncio.run_coroutine_threadsafe(
             self._async_send_to_matrix(formatted, channel_index, is_dm),
@@ -288,18 +314,11 @@ class MatrixBridge:
                 room_id = self.channel_rooms.get(channel_index)
 
         if not room_id:
-            log_error(f"No Matrix room for channel {channel_index}")
+            log_error(f"No Matrix room for {'DM' if is_dm else f'channel {channel_index}'} (known rooms: {list(self.channel_rooms.keys())})")
             return
 
         try:
-            # Track to avoid echo
-            msg_key = f"{text}:{time.time()}"
-            self._own_messages.add(msg_key)
-            # Clean old entries
-            if len(self._own_messages) > 100:
-                self._own_messages = set(list(self._own_messages)[-50:])
-
-            await self.client.room_send(
+            resp = await self.client.room_send(
                 room_id,
                 message_type="m.room.message",
                 content={
@@ -309,8 +328,10 @@ class MatrixBridge:
                     "formatted_body": text.replace("**", "<b>", 1).replace("**", "</b>", 1),
                 },
             )
+            log_info(f"Sent to Matrix room {room_id}: {type(resp).__name__}")
         except Exception as e:
             log_error(f"Failed to send to Matrix room {room_id}: {e}")
+            traceback.print_exc()
 
     # ------------------------------------------------------------------
     # Matrix -> Mesh (callback from nio)
