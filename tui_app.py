@@ -379,12 +379,19 @@ class MeshMapPanel(Static):
         super().__init__(**kwargs)
         self.nodes_data = {}
         self.selected_node_id = None
-        self.map_filter = "all"  # "all", "0hop", "1hop", "2hop", "3hop+", "1h", "6h", "24h"
+        self.map_filter = "all"
+        self.center_lat = None
+        self.center_lon = None
+        self.zoom_level = 0  # 0 = auto
 
-    def set_nodes(self, nodes: dict, selected: str = None, map_filter: str = "all"):
+    def set_nodes(self, nodes: dict, selected: str = None, map_filter: str = "all",
+                  center_lat: float = None, center_lon: float = None, zoom_level: int = 0):
         self.nodes_data = nodes
         self.selected_node_id = selected
         self.map_filter = map_filter
+        self.center_lat = center_lat
+        self.center_lon = center_lon
+        self.zoom_level = zoom_level
         self.refresh()
 
     def _filter_nodes(self) -> dict:
@@ -440,12 +447,20 @@ class MeshMapPanel(Static):
         term_h = max(10, term_h)
 
         try:
+            zoom_kw = {}
+            if self.zoom_level and self.zoom_level > 0 and self.center_lat is not None:
+                zoom_kw = {
+                    "center_lat": self.center_lat,
+                    "center_lon": self.center_lon,
+                    "zoom_override": self.zoom_level,
+                }
             map_text = render_map_text(
                 self.nodes_data,
                 selected_node_id=self.selected_node_id,
                 map_filter=self.map_filter,
                 term_width=term_w,
                 term_height=term_h,
+                **zoom_kw,
             )
         except Exception as e:
             map_text = f"[dim]Map error: {e}[/dim]"
@@ -470,6 +485,10 @@ class MeshtasticInteractive(App):
         Binding("f8", "cycle_hop_filter", "Hops", show=True),
         Binding("f9", "toggle_map", "Map", show=True),
         Binding("f10", "cycle_map_filter", "MapFlt", show=True),
+        Binding("plus", "map_zoom_in", "Zoom+", show=False),
+        Binding("equals", "map_zoom_in", "Zoom+", show=False),
+        Binding("minus", "map_zoom_out", "Zoom-", show=False),
+        Binding("0", "map_zoom_reset", "ZoomRst", show=False),
         Binding("escape", "focus_input", "Input"),
     ]
     current_conversation_id = reactive(None, layout=True)
@@ -479,6 +498,7 @@ class MeshtasticInteractive(App):
     hop_filter = reactive("all")  # "all", "0", "1", "2", "3+"
     show_map = reactive(False)
     map_filter = reactive("all")  # "all", "0hop", "1hop", "2hop", "3hop+", "1h", "6h", "24h"
+    map_zoom = reactive(0)  # 0 = auto, positive = OSM zoom level (1-18)
 
     CSS = """
     Screen {
@@ -862,13 +882,56 @@ class MeshtasticInteractive(App):
         self.map_filter = cycle.get(self.map_filter, "all")
         self._refresh_map()
 
+    def _get_my_node_position(self):
+        """Get lat/lon of our own mesh node."""
+        if self.ai_node_id and self.ai_node_id in self.nodes:
+            pos = self.nodes[self.ai_node_id].get('position', {})
+            lat = pos.get('latitude')
+            lon = pos.get('longitude')
+            if lat is not None and lon is not None and not (lat == 0 and lon == 0):
+                return lat, lon
+        return None, None
+
     def _refresh_map(self) -> None:
         """Refresh the mesh map with current nodes"""
         try:
             mesh_map = self.query_one("#mesh-map", MeshMapPanel)
-            mesh_map.set_nodes(self.nodes, self.selected_node_id, self.map_filter)
+            center_lat, center_lon = self._get_my_node_position()
+            mesh_map.set_nodes(
+                self.nodes, self.selected_node_id, self.map_filter,
+                center_lat=center_lat, center_lon=center_lon,
+                zoom_level=self.map_zoom,
+            )
         except Exception:
             pass
+
+    def action_map_zoom_in(self) -> None:
+        """Zoom in on map (centered on own node)"""
+        if not self.show_map:
+            return
+        if self.map_zoom == 0:
+            # Start from a reasonable default zoom
+            self.map_zoom = 12
+        elif self.map_zoom < 18:
+            self.map_zoom += 1
+        self._refresh_map()
+
+    def action_map_zoom_out(self) -> None:
+        """Zoom out on map"""
+        if not self.show_map:
+            return
+        if self.map_zoom <= 1:
+            self.map_zoom = 0  # back to auto
+        elif self.map_zoom > 1:
+            self.map_zoom -= 1
+        self._refresh_map()
+
+    def action_map_zoom_reset(self) -> None:
+        """Reset map zoom to auto-fit"""
+        if not self.show_map:
+            return
+        self.map_zoom = 0
+        self._refresh_map()
 
     def action_toggle_logs(self) -> None:
         """Toggle log panel visibility"""

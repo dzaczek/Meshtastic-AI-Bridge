@@ -108,6 +108,9 @@ def generate_map(
     map_filter: str = "all",
     term_width: int = 80,
     term_height: int = 40,
+    center_lat: Optional[float] = None,
+    center_lon: Optional[float] = None,
+    zoom_override: Optional[int] = None,
 ) -> Optional[Image.Image]:
     """
     Generate a map image with OSM background and node markers.
@@ -158,19 +161,37 @@ def generate_map(
     min_lat, max_lat = min(lats), max(lats)
     min_lon, max_lon = min(lons), max(lons)
 
-    # Pad bounding box
-    lat_pad = max((max_lat - min_lat) * 0.15, 0.005)
-    lon_pad = max((max_lon - min_lon) * 0.15, 0.005)
-    min_lat -= lat_pad
-    max_lat += lat_pad
-    min_lon -= lon_pad
-    max_lon += lon_pad
+    if zoom_override is not None and center_lat is not None and center_lon is not None:
+        # Fixed zoom centered on a specific point
+        # Calculate bbox from center + zoom level
+        # At zoom z, one tile covers 360/2^z degrees of longitude
+        n = 2 ** zoom_override
+        # Approximate degrees per pixel
+        lon_per_px = 360.0 / (n * TILE_SIZE)
+        lat_per_px = 170.0 / (n * TILE_SIZE)  # rough approximation
+        half_w = lon_per_px * term_width
+        half_h = lat_per_px * term_height * 2
+        min_lat = center_lat - half_h
+        max_lat = center_lat + half_h
+        min_lon = center_lon - half_w
+        max_lon = center_lon + half_w
+    else:
+        # Pad bounding box
+        lat_pad = max((max_lat - min_lat) * 0.15, 0.005)
+        lon_pad = max((max_lon - min_lon) * 0.15, 0.005)
+        min_lat -= lat_pad
+        max_lat += lat_pad
+        min_lon -= lon_pad
+        max_lon += lon_pad
 
     # Target image size (2 pixels per terminal char width, 4 per height due to half-blocks)
     img_w = term_width * 2
     img_h = term_height * 4
 
-    zoom = _best_zoom(min_lat, max_lat, min_lon, max_lon, term_width, term_height)
+    if zoom_override is not None:
+        zoom = max(1, min(18, zoom_override))
+    else:
+        zoom = _best_zoom(min_lat, max_lat, min_lon, max_lon, term_width, term_height)
 
     # Get tile range
     tx1, ty1 = _lat_lon_to_tile(max_lat, min_lon, zoom)
@@ -322,6 +343,9 @@ def render_map_text(
     map_filter: str = "all",
     term_width: int = 80,
     term_height: int = 35,
+    center_lat: Optional[float] = None,
+    center_lon: Optional[float] = None,
+    zoom_override: Optional[int] = None,
 ) -> str:
     """
     High-level: generate map + convert to Rich markup string.
@@ -329,7 +353,9 @@ def render_map_text(
     """
     img = generate_map(
         nodes, selected_node_id, map_filter,
-        term_width=term_width, term_height=term_height
+        term_width=term_width, term_height=term_height,
+        center_lat=center_lat, center_lon=center_lon,
+        zoom_override=zoom_override,
     )
 
     if img is None:
@@ -348,10 +374,12 @@ def render_map_text(
     gps_count = sum(1 for n in nodes.values()
                     if n.get('position', {}).get('latitude') is not None)
 
+    zoom_str = f"  [bold #58a6ff]Zoom:[/] [#e6edf3]{zoom_override}[/]" if zoom_override else ""
     header = (
         f"[bold #58a6ff]Filter:[/] [#e6edf3]{map_filter.upper()}[/]  "
-        f"[bold #58a6ff]GPS nodes:[/] [#e6edf3]{gps_count}[/]  "
-        f"[dim]F10=filter F9=close[/]"
+        f"[bold #58a6ff]GPS nodes:[/] [#e6edf3]{gps_count}[/]"
+        f"{zoom_str}  "
+        f"[dim]+/-=zoom F10=filter F9=close[/]"
     )
     legend = (
         "[#3fb950]\u2b24[/] direct  "
