@@ -33,6 +33,7 @@ import os
 import sys
 import re
 import traceback
+import math
 
 class AIProcessingWorker:
     """Worker class to handle AI processing in a separate thread"""
@@ -364,6 +365,169 @@ class NodeStatsPanel(Static):
         else:
             return f"{int(diff // 86400)}d ago"
 
+class MeshMapPanel(Static):
+    """ASCII map of mesh nodes based on GPS coordinates"""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.nodes_data = {}
+        self.selected_node_id = None
+        self.map_filter = "all"  # "all", "0hop", "1hop", "2hop", "3hop+", "1h", "6h", "24h"
+
+    def set_nodes(self, nodes: dict, selected: str = None, map_filter: str = "all"):
+        self.nodes_data = nodes
+        self.selected_node_id = selected
+        self.map_filter = map_filter
+        self.refresh()
+
+    def _filter_nodes(self) -> dict:
+        filtered = {}
+        now = time.time()
+        for nid, info in self.nodes_data.items():
+            pos = info.get('position')
+            if not pos or pos.get('latitude') is None or pos.get('longitude') is None:
+                continue
+            # Apply filter
+            f = self.map_filter
+            if f == "all":
+                pass
+            elif f == "0hop":
+                if info.get('hops_away') != 0:
+                    continue
+            elif f == "1hop":
+                if (info.get('hops_away') or 999) > 1:
+                    continue
+            elif f == "2hop":
+                if (info.get('hops_away') or 999) > 2:
+                    continue
+            elif f == "3hop+":
+                if (info.get('hops_away') or 0) < 3:
+                    continue
+            elif f == "1h":
+                if now - info.get('last_heard', 0) > 3600:
+                    continue
+            elif f == "6h":
+                if now - info.get('last_heard', 0) > 21600:
+                    continue
+            elif f == "24h":
+                if now - info.get('last_heard', 0) > 86400:
+                    continue
+            filtered[nid] = info
+        return filtered
+
+    def render(self) -> RenderableType:
+        nodes = self._filter_nodes()
+        if not nodes:
+            return Panel(
+                f"[dim]No nodes with GPS data\nFilter: {self.map_filter}[/dim]\n\n"
+                "[dim]F9=filter  Nodes need GPS position to appear on map[/dim]",
+                title="[bold #58a6ff]Mesh Map[/]", border_style="#30363d"
+            )
+
+        # Collect coordinates
+        lats = [n['position']['latitude'] for n in nodes.values()]
+        lons = [n['position']['longitude'] for n in nodes.values()]
+
+        min_lat, max_lat = min(lats), max(lats)
+        min_lon, max_lon = min(lons), max(lons)
+
+        # Add padding
+        lat_pad = max((max_lat - min_lat) * 0.1, 0.001)
+        lon_pad = max((max_lon - min_lon) * 0.1, 0.001)
+        min_lat -= lat_pad
+        max_lat += lat_pad
+        min_lon -= lon_pad
+        max_lon += lon_pad
+
+        # Map dimensions (fit in panel)
+        map_w = 60
+        map_h = 30
+
+        # Build grid
+        grid = [[' ' for _ in range(map_w)] for _ in range(map_h)]
+        node_positions = {}
+
+        lat_range = max_lat - min_lat if max_lat != min_lat else 0.01
+        lon_range = max_lon - min_lon if max_lon != min_lon else 0.01
+
+        for nid, info in nodes.items():
+            lat = info['position']['latitude']
+            lon = info['position']['longitude']
+            # Map to grid (lat is inverted - higher lat = top)
+            x = int((lon - min_lon) / lon_range * (map_w - 1))
+            y = int((max_lat - lat) / lat_range * (map_h - 1))
+            x = max(0, min(map_w - 1, x))
+            y = max(0, min(map_h - 1, y))
+            node_positions[nid] = (x, y)
+
+            is_mqtt = info.get('connection_type') == 'tcp'
+            hops = info.get('hops_away')
+            if nid == self.selected_node_id:
+                ch = '@'
+            elif hops == 0:
+                ch = 'O'
+            elif is_mqtt:
+                ch = 'M'
+            else:
+                ch = '*'
+            grid[y][x] = ch
+
+        # Build output with Rich Text
+        lines = []
+        # Header
+        filter_str = self.map_filter.upper()
+        lines.append(f"[bold #58a6ff]Filter:[/] [#e6edf3]{filter_str}[/]  "
+                      f"[bold #58a6ff]Nodes:[/] [#e6edf3]{len(nodes)}[/]  "
+                      f"[dim]F9=cycle filter[/]")
+        lines.append("")
+
+        # Render grid
+        for row in grid:
+            line_chars = []
+            for ch in row:
+                if ch == '@':
+                    line_chars.append(f'[bold #f0883e]{ch}[/]')
+                elif ch == 'O':
+                    line_chars.append(f'[bold #3fb950]{ch}[/]')
+                elif ch == 'M':
+                    line_chars.append(f'[#f0883e]{ch}[/]')
+                elif ch == '*':
+                    line_chars.append(f'[#58a6ff]{ch}[/]')
+                else:
+                    line_chars.append(f'[#21262d].[/]')
+            lines.append(''.join(line_chars))
+
+        lines.append("")
+        # Legend
+        lines.append("[bold #3fb950]O[/]=direct  [#58a6ff]*[/]=radio  "
+                      "[#f0883e]M[/]=mqtt  [bold #f0883e]@[/]=selected")
+
+        # Node labels (closest to their position)
+        lines.append("")
+        for nid, info in nodes.items():
+            name = info.get('short_name', nid[:4])
+            hops = info.get('hops_away')
+            hop_s = f" [{hops}hop]" if hops is not None else ""
+            last = info.get('last_heard', 0)
+            age = ""
+            if last:
+                age_s = int(time.time() - last)
+                if age_s < 120:
+                    age = " 1m"
+                elif age_s < 3600:
+                    age = f" {round(age_s/60)}m"
+                elif age_s < 86400:
+                    age = f" {round(age_s/3600)}h"
+                else:
+                    age = f" {round(age_s/86400)}d"
+
+            is_sel = nid == self.selected_node_id
+            style = "bold #f0883e" if is_sel else "#8b949e"
+            lines.append(f"[{style}]{name}{hop_s}{age}[/]")
+
+        return Panel('\n'.join(lines), title="[bold #58a6ff]Mesh Map[/]", border_style="#30363d")
+
+
 class MeshtasticInteractive(App):
     """Main Interactive Application using Textual"""
 
@@ -378,12 +542,18 @@ class MeshtasticInteractive(App):
         Binding("f4", "focus_input", "Input", show=True),
         Binding("f6", "toggle_logs", "Logs", show=True),
         Binding("f7", "cycle_node_filter", "Filter", show=True),
+        Binding("f8", "cycle_hop_filter", "Hops", show=True),
+        Binding("f9", "toggle_map", "Map", show=True),
+        Binding("f10", "cycle_map_filter", "MapFlt", show=True),
         Binding("escape", "focus_input", "Input"),
     ]
     current_conversation_id = reactive(None, layout=True)
     sidebar_conversations = reactive([], layout=True)
     show_logs = reactive(False)
     node_filter = reactive("all")  # "all", "radio", "mqtt"
+    hop_filter = reactive("all")  # "all", "0", "1", "2", "3+"
+    show_map = reactive(False)
+    map_filter = reactive("all")  # "all", "0hop", "1hop", "2hop", "3hop+", "1h", "6h", "24h"
 
     CSS = """
     Screen {
@@ -548,6 +718,23 @@ class MeshtasticInteractive(App):
         height: 1fr;
     }
 
+    #map-panel {
+        width: 1fr;
+        height: 1fr;
+        background: #0d1117;
+        display: none;
+        padding: 0;
+    }
+
+    #map-panel.visible {
+        display: block;
+    }
+
+    #mesh-map {
+        height: 1fr;
+        width: 1fr;
+    }
+
     #info-panel {
         height: auto;
         margin-bottom: 1;
@@ -630,6 +817,7 @@ class MeshtasticInteractive(App):
         self.nodes: Dict[str, dict] = {}
         self.current_chat_type = "channel"
         self.current_chat_id = "0"
+        self.selected_node_id = None
         self.last_viewed_messages: Dict[str, int] = {}
         
         # Unread message tracking
@@ -688,6 +876,10 @@ class MeshtasticInteractive(App):
             with Vertical(id="right-panel"):
                 yield NodeStatsPanel(id="node-stats")
 
+        # -- Map overlay (hidden by default, replaces app-grid) --
+        with Vertical(id="map-panel"):
+            yield MeshMapPanel(id="mesh-map")
+
         # -- Collapsible log bar --
         with Container(id="log-panel"):
             yield RichLog(id="app-log", highlight=True, markup=True)
@@ -698,12 +890,60 @@ class MeshtasticInteractive(App):
         """Cycle node filter: all -> radio -> mqtt -> all"""
         cycle = {"all": "radio", "radio": "mqtt", "mqtt": "all"}
         self.node_filter = cycle.get(self.node_filter, "all")
-        filter_labels = {"all": " NODES [t:filter]", "radio": " NODES 📡 radio", "mqtt": " NODES ☁️ mqtt"}
+        filter_labels = {"all": " NODES (F7=type F8=hops)", "radio": " NODES radio only", "mqtt": " NODES mqtt only"}
         try:
             self.query_one("#node-filter-label", Label).update(filter_labels[self.node_filter])
         except Exception:
             pass
         self.update_node_list()
+
+    def action_cycle_hop_filter(self) -> None:
+        """Cycle hop filter: all -> 0 -> 1 -> 2 -> 3+ -> all"""
+        cycle = {"all": "0", "0": "1", "1": "2", "2": "3+", "3+": "all"}
+        self.hop_filter = cycle.get(self.hop_filter, "all")
+        hop_labels = {
+            "all": " NODES (F7=type F8=hops)",
+            "0": " NODES [direct only]",
+            "1": " NODES [<=1 hop]",
+            "2": " NODES [<=2 hops]",
+            "3+": " NODES [3+ hops]",
+        }
+        try:
+            self.query_one("#node-filter-label", Label).update(hop_labels[self.hop_filter])
+        except Exception:
+            pass
+        self.update_node_list()
+
+    def action_toggle_map(self) -> None:
+        """Toggle mesh map view (replaces main grid)"""
+        self.show_map = not self.show_map
+        try:
+            app_grid = self.query_one("#app-grid")
+            map_panel = self.query_one("#map-panel")
+            if self.show_map:
+                app_grid.styles.display = "none"
+                map_panel.add_class("visible")
+                self._refresh_map()
+            else:
+                app_grid.styles.display = "block"
+                map_panel.remove_class("visible")
+        except Exception:
+            pass
+
+    def action_cycle_map_filter(self) -> None:
+        """Cycle map filter"""
+        cycle = {"all": "0hop", "0hop": "1hop", "1hop": "2hop", "2hop": "3hop+",
+                 "3hop+": "1h", "1h": "6h", "6h": "24h", "24h": "all"}
+        self.map_filter = cycle.get(self.map_filter, "all")
+        self._refresh_map()
+
+    def _refresh_map(self) -> None:
+        """Refresh the mesh map with current nodes"""
+        try:
+            mesh_map = self.query_one("#mesh-map", MeshMapPanel)
+            mesh_map.set_nodes(self.nodes, self.selected_node_id, self.map_filter)
+        except Exception:
+            pass
 
     def action_toggle_logs(self) -> None:
         """Toggle log panel visibility"""
@@ -843,11 +1083,21 @@ class MeshtasticInteractive(App):
 
         sorted_nodes = sorted(self.nodes.items(), key=sort_key)
 
-        # Apply node filter
+        # Apply connection type filter
         if self.node_filter == "radio":
             sorted_nodes = [(nid, info) for nid, info in sorted_nodes if info.get('connection_type') != 'tcp']
         elif self.node_filter == "mqtt":
             sorted_nodes = [(nid, info) for nid, info in sorted_nodes if info.get('connection_type') == 'tcp']
+
+        # Apply hop filter
+        if self.hop_filter == "0":
+            sorted_nodes = [(nid, info) for nid, info in sorted_nodes if info.get('hops_away') == 0]
+        elif self.hop_filter == "1":
+            sorted_nodes = [(nid, info) for nid, info in sorted_nodes if (info.get('hops_away') or 999) <= 1]
+        elif self.hop_filter == "2":
+            sorted_nodes = [(nid, info) for nid, info in sorted_nodes if (info.get('hops_away') or 999) <= 2]
+        elif self.hop_filter == "3+":
+            sorted_nodes = [(nid, info) for nid, info in sorted_nodes if (info.get('hops_away') or 0) >= 3]
 
         for node_id, node_info in sorted_nodes:
             # Get DM conversation ID
@@ -988,6 +1238,11 @@ class MeshtasticInteractive(App):
             node_stats_panel = self.query_one("#node-stats", NodeStatsPanel)
             node_info = self.nodes.get(event.item.node_id, {})
             node_stats_panel.set_node(event.item.node_id, node_info)
+            self.selected_node_id = event.item.node_id
+
+            # Update map if visible
+            if self.show_map:
+                self._refresh_map()
             
             log = self.query_one("#app-log", RichLog)
             log.write(f"[magenta]Selected DM with {event.item.node_info['long_name']}[/magenta]")
