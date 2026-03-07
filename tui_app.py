@@ -685,7 +685,7 @@ class MeshtasticInteractive(App):
                     ChannelListItem(0, "Primary"),
                     id="channel-list"
                 )
-                yield Label(" NODES [t:filter]", classes="sidebar-label", id="node-filter-label")
+                yield Label(" NODES (t=filter)", classes="sidebar-label", id="node-filter-label", markup=False)
                 yield ListView(id="node-list")
                 yield InfoPanel(id="status-bar")
 
