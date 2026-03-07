@@ -374,12 +374,18 @@ def render_map_text(
     gps_count = sum(1 for n in nodes.values()
                     if n.get('position', {}).get('latitude') is not None)
 
-    zoom_str = f"  [bold #58a6ff]Zoom:[/] [#e6edf3]{zoom_override}[/]" if zoom_override else ""
+    zoom_str = f"z{zoom_override}" if zoom_override else "auto"
     header = (
-        f"[bold #58a6ff]Filter:[/] [#e6edf3]{map_filter.upper()}[/]  "
-        f"[bold #58a6ff]GPS nodes:[/] [#e6edf3]{gps_count}[/]"
-        f"{zoom_str}  "
-        f"[dim]+/-=zoom F10=filter F9=close[/]"
+        f"[bold #58a6ff]Mesh Map[/]  "
+        f"[#8b949e]Nodes:[/] [bold #e6edf3]{gps_count}[/]  "
+        f"[#8b949e]Zoom:[/] [bold #e6edf3]{zoom_str}[/]  "
+        f"[#8b949e]Filter:[/] [bold #e6edf3]{map_filter.upper()}[/]"
+    )
+    controls = (
+        "[#8b949e]F9[/] close  "
+        "[#8b949e]F10[/] filter  "
+        "[#8b949e]+/-[/] zoom  "
+        "[#8b949e]0[/] reset zoom"
     )
     legend = (
         "[#3fb950]\u2b24[/] direct  "
@@ -388,4 +394,4 @@ def render_map_text(
         "[bold #ff8800]\u2b24[/] selected"
     )
 
-    return f"{header}\n{legend}\n{map_text}"
+    return f"{header}\n{controls}\n{legend}\n{map_text}"
