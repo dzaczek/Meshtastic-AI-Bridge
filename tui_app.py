@@ -387,15 +387,16 @@ class MeshtasticInteractive(App):
 
     TITLE = "Eva  Mesh AI"
     BINDINGS = [
-        Binding("q", "quit_app", "Quit"),
         Binding("ctrl+c", "quit_app", "Quit"),
-        Binding("f", "force_ai", "AI Reply", show=True),
-        Binding("c", "focus_channel_list", "Channels", show=True),
-        Binding("n", "focus_node_list", "Nodes", show=True),
-        Binding("m", "focus_messages", "Chat", show=True),
-        Binding("i", "focus_input", "Input", show=True),
-        Binding("l", "toggle_logs", "Logs", show=True),
-        Binding("t", "cycle_node_filter", "Filter", show=True),
+        Binding("ctrl+q", "quit_app", "Quit"),
+        Binding("f5", "force_ai", "AI Reply", show=True),
+        Binding("f1", "focus_channel_list", "Channels", show=True),
+        Binding("f2", "focus_node_list", "Nodes", show=True),
+        Binding("f3", "focus_messages", "Chat", show=True),
+        Binding("f4", "focus_input", "Input", show=True),
+        Binding("f6", "toggle_logs", "Logs", show=True),
+        Binding("f7", "cycle_node_filter", "Filter", show=True),
+        Binding("escape", "focus_input", "Input"),
     ]
     current_conversation_id = reactive(None, layout=True)
     sidebar_conversations = reactive([], layout=True)
