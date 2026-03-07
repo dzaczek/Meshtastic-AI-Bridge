@@ -73,8 +73,10 @@ class MatrixBridge:
         self.channel_rooms: Dict[int, str] = {}
         # room_id -> channel_index reverse mapping
         self.room_channels: Dict[str, int] = {}
-        # DM room
-        self.dm_room_id: Optional[str] = None
+        # node_id -> dm room_id mapping
+        self.dm_rooms: Dict[str, str] = {}
+        # room_id -> node_id reverse mapping (for Matrix->Mesh DMs)
+        self.room_dm_nodes: Dict[str, str] = {}
 
         # Track own messages to avoid echo
         self._own_messages: set = set()
@@ -160,7 +162,6 @@ class MatrixBridge:
         if not self.channel_rooms:
             log_info("Fallback: creating default ch0 room")
             await self._ensure_channel_room(0, "PRIMARY")
-            await self._ensure_dm_room()
 
     # ------------------------------------------------------------------
     # Room management
@@ -187,9 +188,6 @@ class MatrixBridge:
             if "DISABLED" in str(role).upper():
                 continue
             await self._ensure_channel_room(idx, name)
-
-        # DM room
-        await self._ensure_dm_room()
 
     async def _ensure_channel_room(self, channel_index: int, channel_name: str):
         """Ensure a Matrix room exists for a mesh channel."""
@@ -221,30 +219,38 @@ class MatrixBridge:
         else:
             log_error(f"Failed to create room for channel {channel_index}: {resp}")
 
-    async def _ensure_dm_room(self):
-        """Ensure a DM room exists for mesh direct messages."""
-        alias_local = f"{self.room_prefix}-dm"
+    async def _ensure_dm_room(self, node_id: str, node_name: str = ""):
+        """Ensure a Matrix room exists for DMs with a specific mesh node."""
+        if node_id in self.dm_rooms:
+            return self.dm_rooms[node_id]
+
+        alias_local = f"{self.room_prefix}-dm-{node_id}"
         alias_full = f"#{alias_local}:{self._get_domain()}"
 
         room_id = await self._resolve_alias(alias_full)
         if room_id:
-            self.dm_room_id = room_id
+            self.dm_rooms[node_id] = room_id
+            self.room_dm_nodes[room_id] = node_id
             await self.client.join(room_id)
             await self._invite_users(room_id)
-            log_info(f"DM room -> existing {room_id}")
-            return
+            log_info(f"DM room for !{node_id} ({node_name}) -> existing {room_id}")
+            return room_id
 
+        display = f"Mesh DM: {node_name}" if node_name else f"Mesh DM: !{node_id}"
         resp = await self.client.room_create(
-            name="Mesh: Direct Messages",
+            name=display,
             alias=alias_local,
-            topic="Meshtastic direct messages bridged from mesh network",
+            topic=f"Meshtastic DM with !{node_id} ({node_name})",
             invite=self.invite_users,
         )
         if isinstance(resp, RoomCreateResponse):
-            self.dm_room_id = resp.room_id
-            log_info(f"DM room -> created {resp.room_id}")
+            self.dm_rooms[node_id] = resp.room_id
+            self.room_dm_nodes[resp.room_id] = node_id
+            log_info(f"DM room for !{node_id} ({node_name}) -> created {resp.room_id}")
+            return resp.room_id
         else:
-            log_error(f"Failed to create DM room: {resp}")
+            log_error(f"Failed to create DM room for !{node_id}: {resp}")
+            return None
 
     async def _resolve_alias(self, alias: str) -> Optional[str]:
         """Try to resolve a room alias to a room ID."""
@@ -289,26 +295,26 @@ class MatrixBridge:
             return
 
         formatted = f"**[{sender_name}]** (!{sender_id}): {text}"
-        target = "DM" if is_dm else f"ch{channel_index}"
+        target = f"DM !{sender_id}" if is_dm else f"ch{channel_index}"
         log_info(f"Mesh -> Matrix [{target}]: {text[:60]}")
 
         asyncio.run_coroutine_threadsafe(
-            self._async_send_to_matrix(formatted, channel_index, is_dm),
+            self._async_send_to_matrix(formatted, channel_index, is_dm, sender_id, sender_name),
             self._loop
         )
 
-    async def _async_send_to_matrix(self, text: str, channel_index: int, is_dm: bool):
+    async def _async_send_to_matrix(self, text: str, channel_index: int,
+                                     is_dm: bool, sender_id: str = "", sender_name: str = ""):
         """Actually send to Matrix room."""
         if is_dm:
-            room_id = self.dm_room_id
+            room_id = self.dm_rooms.get(sender_id)
         else:
             room_id = self.channel_rooms.get(channel_index)
 
         if not room_id:
             # Try to create room on the fly
             if is_dm:
-                await self._ensure_dm_room()
-                room_id = self.dm_room_id
+                room_id = await self._ensure_dm_room(sender_id, sender_name)
             else:
                 await self._ensure_channel_room(channel_index, f"Ch-{channel_index}")
                 room_id = self.channel_rooms.get(channel_index)
@@ -353,33 +359,30 @@ class MatrixBridge:
         # Extract display name
         display_name = room.user_name(event.sender) or sender.split(":")[0].lstrip("@")
 
-        # Find which channel this room maps to
+        # Find which channel/DM this room maps to
         channel_index = self.room_channels.get(room.room_id)
-        is_dm = (room.room_id == self.dm_room_id)
+        dm_node_id = self.room_dm_nodes.get(room.room_id)
 
-        if channel_index is None and not is_dm:
-            # Unknown room, ignore
+        if channel_index is None and dm_node_id is None:
             return
-
-        log_info(f"Matrix -> Mesh: [{display_name}] on ch{channel_index}: {body[:80]}")
 
         # Forward to mesh
         if self.meshtastic_handler and self.meshtastic_handler.is_connected:
-            # Prefix with Matrix username so mesh users know who sent it
             mesh_text = f"[{display_name}] {body}"
-            # Trim to 194 chars for mesh
             if len(mesh_text) > 194:
                 mesh_text = mesh_text[:191] + "..."
 
-            if is_dm:
-                # DMs from Matrix - not clear who to send to, log only
-                log_info(f"DM from Matrix ignored (no target node): {mesh_text}")
+            if dm_node_id:
+                log_info(f"Matrix -> Mesh DM to !{dm_node_id}: [{display_name}]: {body[:80]}")
+                self.meshtastic_handler.send_message(
+                    mesh_text, destination_id_hex=dm_node_id
+                )
             else:
+                log_info(f"Matrix -> Mesh ch{channel_index}: [{display_name}]: {body[:80]}")
                 self.meshtastic_handler.send_message(
                     mesh_text, channel_index=channel_index
                 )
 
-        # Optional callback for TUI/CLI to process
         if self.on_matrix_message:
             try:
                 self.on_matrix_message(
@@ -387,7 +390,7 @@ class MatrixBridge:
                     sender_name=display_name,
                     sender_id=sender,
                     channel_index=channel_index,
-                    is_dm=is_dm,
+                    is_dm=bool(dm_node_id),
                 )
             except Exception as e:
                 log_error(f"on_matrix_message callback error: {e}")
