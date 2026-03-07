@@ -216,52 +216,16 @@ class ChannelListItem(ListItem):
         self.channel_id = channel_id
         self.channel_name = channel_name
         self.unread_count = unread_count
-        
-    def compose(self) -> ComposeResult:
-        """Compose the channel item"""
-        style = "reverse" if self.unread_count > 0 else ""
-        yield Label(f"Ch {self.channel_id}: {self.channel_name}", classes=style)
 
-class StatsPanel(Static):
-    """Stats panel widget"""
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.is_connected = False
-        self.node_count = 0
-        self.channel_info = "Channel 0"
-    
-    def on_mount(self) -> None:
-        """Set up periodic updates"""
-        self.set_interval(1.0, self.refresh_stats)
-    
-    def refresh_stats(self) -> None:
-        """Refresh the stats display"""
-        self.refresh()
-    
-    def render(self) -> RenderableType:
-        """Render the stats panel"""
-        table = Table(show_header=False, box=None, expand=True)
-        table.add_column("Stat", style="bold")
-        table.add_column("Value")
-        
-        # Connection status
-        status = "Connected" if self.is_connected else "Disconnected"
-        status_style = "green" if self.is_connected else "red"
-        table.add_row("Status", Text(status, style=status_style))
-        
-        # Node count
-        table.add_row("Nodes", str(self.node_count))
-        
-        # Current channel
-        table.add_row("Active", self.channel_info)
-        
-        # Time
-        table.add_row("Time", datetime.now().strftime("%H:%M:%S"))
-        
+    def compose(self) -> ComposeResult:
+        badge = f" ({self.unread_count})" if self.unread_count > 0 else ""
+        style = "unread" if self.unread_count > 0 else ""
+        yield Label(f"# {self.channel_name}{badge}", classes=style, markup=False)
+
         return Panel(table, title="Stats", border_style="blue")
 
 class InfoPanel(Static):
-    """Shows aggregate info such as unread counts and node stats."""
+    """Compact status bar for the sidebar bottom."""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -273,12 +237,19 @@ class InfoPanel(Static):
 
     def render(self) -> RenderableType:  # type: ignore[override]
         if not self.stats:
-            return Panel("No stats", border_style="red", title="Info")
-
-        table = Table(show_header=False, box=None)
+            return Text(" -- ", style="dim")
+        parts = []
         for key, val in self.stats.items():
-            table.add_row(key, str(val))
-        return Panel(table, title="Info", border_style="green")
+            if key == "Status":
+                style = "bold green" if val == "ON" else "bold red"
+                parts.append(Text(f"{val}", style=style))
+            else:
+                parts.append(Text(f"{key}:{val}", style="dim"))
+        line = Text(" ")
+        for p in parts:
+            line.append(p)
+            line.append("  ")
+        return line
 
 class NodeStatsPanel(Static):
     """Detailed node statistics panel"""
@@ -415,161 +386,215 @@ class NodeStatsPanel(Static):
 
 class MeshtasticInteractive(App):
     """Main Interactive Application using Textual"""
-    
-    TITLE = "Meshtastic AI Bridge - Interactive Interface"
-    CSS_PATH = "meshtastic_tui.css"
+
+    TITLE = "Eva  Mesh AI"
     BINDINGS = [
-        ("q", "quit_app", "Quit"),
-        ("ctrl+c", "quit_app", "Quit"),
-        ("f", "force_ai", "Force AI Response"),
-        ("c", "focus_channel_list", "Focus Channels"),
-        ("n", "focus_node_list", "Focus Nodes"),
-        ("m", "focus_messages", "Focus Messages"),
-        ("i", "focus_input", "Focus Input")
+        Binding("q", "quit_app", "Quit"),
+        Binding("ctrl+c", "quit_app", "Quit"),
+        Binding("f", "force_ai", "AI Reply", show=True),
+        Binding("c", "focus_channel_list", "Channels", show=True),
+        Binding("n", "focus_node_list", "Nodes", show=True),
+        Binding("m", "focus_messages", "Chat", show=True),
+        Binding("i", "focus_input", "Input", show=True),
+        Binding("l", "toggle_logs", "Logs", show=True),
     ]
     current_conversation_id = reactive(None, layout=True)
     sidebar_conversations = reactive([], layout=True)
+    show_logs = reactive(False)
 
     CSS = """
     Screen {
-        layout: grid;
-        grid-size: 4 7;
-        grid-columns: 1fr 1fr 1fr 1fr;
-        grid-rows: auto 1fr 1fr 1fr 1fr 1fr 1;
+        background: #0d1117;
+        color: #c9d1d9;
     }
-    
+
     Header {
-        column-span: 4;
+        background: #161b22;
+        color: #58a6ff;
+        dock: top;
+        height: 1;
     }
-    
-    #left-panel {
-        column-span: 1;
-        row-span: 5;
-        border: solid green;
-        height: 100%;
-        padding: 1;
-        layout: vertical;
-    }
-    
-    #center-panel {
-        column-span: 2;
-        row-span: 5;
-        border: solid yellow;
-        height: 100%;
-        overflow: hidden;
-        layout: vertical;
-    }
-    
-    #right-panel {
-        column-span: 1;
-        row-span: 5;
-        border: solid blue;
-        height: 100%;
-        padding: 1;
-        layout: vertical;
-    }
-    
-    #channel-list {
-        height: 30%;
-        border-bottom: solid $accent;
-        margin-bottom: 1;
-    }
-    
-    #info-panel {
-        height: 30%;
-        border-bottom: solid $accent;
-        margin-bottom: 1;
-    }
-    
-    #stats-panel {
-        height: 40%;
-    }
-    
-    #node-list {
-        height: 60%;
-        border-bottom: solid $accent;
-        margin-bottom: 1;
-    }
-    
-    #node-stats {
-        height: 40%;
-    }
-    
-    #bottom-panel {
-        column-span: 4;
-        border: solid cyan;
-        height: 100%;
-        layout: horizontal;
-    }
-    
-    #log-box {
-        width: 100%;
-        padding: 1;
-    }
-    
+
     Footer {
-        column-span: 4;
+        background: #161b22;
+        color: #8b949e;
     }
-    
-    ListView {
-        height: 100%;
-        background: $surface;
-    }
-    
-    #message-display {
-        height: 1fr;
-        background: $surface;
-        overflow-y: scroll;
-        scrollbar-gutter: stable;
-        scrollbar-size: 1 1;
-    }
-    
-    #message-display:focus {
-        border: thick $accent;
-    }
-    
-    #message-container {
-        padding: 0 1;
-        width: 100%;
-    }
-    
-    #input-container {
+
+    /* ---- Main grid ---- */
+    #app-grid {
         layout: horizontal;
+        height: 1fr;
+    }
+
+    /* ---- Sidebar ---- */
+    #sidebar {
+        width: 26;
+        background: #0d1117;
+        border-right: vkey #30363d;
+        layout: vertical;
+    }
+
+    .sidebar-label {
+        color: #8b949e;
+        text-style: bold;
+        padding: 0 1;
+        margin-top: 1;
+        height: 1;
+    }
+
+    #channel-list {
+        height: auto;
+        max-height: 12;
+        background: #0d1117;
+        margin: 0;
+        padding: 0;
+    }
+
+    #node-list {
+        height: 1fr;
+        background: #0d1117;
+        margin: 0;
+        padding: 0;
+    }
+
+    #status-bar {
         height: 3;
         dock: bottom;
-        width: 100%;
+        background: #161b22;
+        padding: 0 1;
+        border-top: solid #30363d;
     }
-    
+
+    ListView {
+        background: #0d1117;
+        scrollbar-size: 1 1;
+    }
+
+    ListView > ListItem {
+        padding: 0 1;
+        height: 1;
+        background: #0d1117;
+    }
+
+    ListView > ListItem:hover {
+        background: #161b22;
+    }
+
+    ListView > ListItem.-selected,
+    ListView:focus > ListItem.--highlight {
+        background: #1f6feb33;
+        color: #58a6ff;
+    }
+
+    /* ---- Center: chat ---- */
+    #center {
+        width: 1fr;
+        layout: vertical;
+        background: #0d1117;
+    }
+
+    #chat-header {
+        height: 1;
+        background: #161b22;
+        color: #58a6ff;
+        text-style: bold;
+        padding: 0 1;
+        border-bottom: solid #30363d;
+    }
+
+    #message-display {
+        height: 1fr;
+        background: #0d1117;
+        padding: 0 1;
+        scrollbar-size: 1 1;
+        scrollbar-gutter: stable;
+    }
+
+    #message-display:focus {
+        border: none;
+    }
+
+    #input-area {
+        height: 3;
+        layout: horizontal;
+        background: #161b22;
+        border-top: solid #30363d;
+        padding: 0;
+    }
+
     #message-input {
         width: 1fr;
-        height: 3;
+        background: #0d1117;
+        color: #c9d1d9;
+        border: tall #30363d;
     }
-    
+
+    #message-input:focus {
+        border: tall #58a6ff;
+    }
+
     #force-ai-button {
-        width: 10;
-        height: 3;
-        margin-left: 1;
-        background: #2c3e50;
-        color: white;
+        width: 8;
+        background: #238636;
+        color: #ffffff;
+        text-style: bold;
+        border: none;
+        margin: 0 0 0 1;
     }
-    
+
     #force-ai-button:hover {
-        background: #34495e;
+        background: #2ea043;
     }
-    
-    #force-ai-button:focus {
-        background: #1a252f;
+
+    /* ---- Right panel (node details) ---- */
+    #right-panel {
+        width: 30;
+        background: #0d1117;
+        border-left: vkey #30363d;
+        layout: vertical;
+        padding: 1;
     }
-    
-    Log {
-        height: 100%;
-        background: $surface;
+
+    #node-stats {
+        height: 1fr;
     }
-    
-    /* Add styles for unread highlighting */
+
+    #info-panel {
+        height: auto;
+        margin-bottom: 1;
+    }
+
+    /* ---- Bottom log bar ---- */
+    #log-panel {
+        height: 8;
+        dock: bottom;
+        background: #161b22;
+        border-top: solid #30363d;
+        display: none;
+    }
+
+    #log-panel.visible {
+        display: block;
+    }
+
+    #app-log {
+        height: 1fr;
+        background: #161b22;
+        scrollbar-size: 1 1;
+        padding: 0 1;
+    }
+
+    /* ---- Unread badge ---- */
+    .unread {
+        background: #1f6feb33;
+        color: #58a6ff;
+        text-style: bold;
+    }
+
     .reverse {
-        background: $accent;
-        color: $surface;
+        background: #1f6feb33;
+        color: #58a6ff;
+        text-style: bold;
     }
     """
     
@@ -649,65 +674,70 @@ class MeshtasticInteractive(App):
     def compose(self) -> ComposeResult:
         """Create child widgets"""
         yield Header()
-        
-        # Left panel - Channels, Info, and Stats
-        with Container(id="left-panel"):
-            yield Label("Channels", classes="title")
-            yield ListView(
-                ChannelListItem(0, "Primary"),
-                ChannelListItem(1, "Channel 1"),
-                ChannelListItem(2, "Channel 2"),
-                ChannelListItem(3, "Channel 3"),
-                ChannelListItem(4, "Channel 4"),
-                ChannelListItem(5, "Channel 5"),
-                ChannelListItem(6, "Channel 6"),
-                ChannelListItem(7, "Channel 7"),
-                id="channel-list"
-            )
-            yield InfoPanel(id="info-panel")
-            yield StatsPanel(id="stats-panel")
-        
-        # Center panel - Messages
-        with Container(id="center-panel"):
-            yield RichLog(id="message-display", wrap=True, markup=True, highlight=True, auto_scroll=True)
-            with Horizontal(id="input-container"):
-                yield Input(placeholder="Type a message...", id="message-input")
-                yield Button("🤖 Force AI", id="force-ai-button")
-        
-        # Right panel - Node list and stats
-        with Container(id="right-panel"):
-            yield Label("Nodes", classes="title")
-            yield ListView(id="node-list")
-            yield NodeStatsPanel(id="node-stats")
-        
-        # Bottom panel - Logs only
-        with Container(id="bottom-panel"):
-            with Container(id="log-box"):
-                yield RichLog(id="app-log", highlight=True, markup=True)
-        
+
+        with Horizontal(id="app-grid"):
+            # -- Sidebar: channels + nodes --
+            with Vertical(id="sidebar"):
+                yield Label(" CHANNELS", classes="sidebar-label")
+                yield ListView(
+                    ChannelListItem(0, "Primary"),
+                    id="channel-list"
+                )
+                yield Label(" NODES", classes="sidebar-label")
+                yield ListView(id="node-list")
+                yield InfoPanel(id="status-bar")
+
+            # -- Center: chat --
+            with Vertical(id="center"):
+                yield Label(" Channel 0 - Primary", id="chat-header")
+                yield RichLog(id="message-display", wrap=True, markup=True, highlight=True, auto_scroll=True)
+                with Horizontal(id="input-area"):
+                    yield Input(placeholder="Type a message...", id="message-input")
+                    yield Button("AI", id="force-ai-button")
+
+            # -- Right: node details --
+            with Vertical(id="right-panel"):
+                yield NodeStatsPanel(id="node-stats")
+
+        # -- Collapsible log bar --
+        with Container(id="log-panel"):
+            yield RichLog(id="app-log", highlight=True, markup=True)
+
         yield Footer()
     
+    def action_toggle_logs(self) -> None:
+        """Toggle log panel visibility"""
+        self.show_logs = not self.show_logs
+        log_panel = self.query_one("#log-panel")
+        if self.show_logs:
+            log_panel.add_class("visible")
+        else:
+            log_panel.remove_class("visible")
+
     async def on_mount(self) -> None:
         """Called when the app is mounted"""
         self.app_loop = asyncio.get_running_loop()
         # Start message queue processor
         self.run_worker(self.process_message_queue, group="message_processor")
-        
+
+        # Populate channel list from device
+        self.update_channel_list()
+
         # Load initial nodes
         self.load_initial_nodes()
-        
+
         # Set default channel
         self.load_conversation()
-        
+
         # Update stats
         self.update_stats()
-        
+
         # Log startup
-        self.query_one("#app-log", RichLog).write("[green]TUI started successfully[/green]")
-        
+        self.query_one("#app-log", RichLog).write("[green]Eva Mesh AI started[/green]")
+
         # Initial info panel update
         self.refresh_info_panel()
-        
+
         # Focus the message input by default
         self.query_one("#message-input").focus()
     
@@ -851,81 +881,81 @@ class MeshtasticInteractive(App):
     
     def load_conversation(self) -> None:
         """Load messages for current conversation"""
-        log_widget = self.query_one("#app-log", RichLog)
         if self.current_chat_type == "channel":
             conv_id = f"ch_{self.current_chat_id}_broadcast"
         else:
             conv_id = self._dm_conv(self.current_chat_id)
-        
-        log_widget.write(f"[dodger_blue1]Loading conversation for conv_id: {conv_id}[/dodger_blue1]")
 
         messages = self.conversation_manager.load_conversation(conv_id)
-        
-        # Debug: Show the actual message count and some info about first/last messages
-        if messages:
-            first_msg = messages[0]
-            last_msg = messages[-1]
-            log_widget.write(f"[green]Loaded {len(messages)} total messages from file[/green]")
-            log_widget.write(f"[green]First: {first_msg.get('user_name', 'Unknown')} at {datetime.fromtimestamp(first_msg.get('timestamp', 0)).strftime('%Y-%m-%d %H:%M')}[/green]")
-            log_widget.write(f"[green]Last: {last_msg.get('user_name', 'Unknown')} at {datetime.fromtimestamp(last_msg.get('timestamp', 0)).strftime('%Y-%m-%d %H:%M')}[/green]")
-        else:
-            log_widget.write(f"[yellow]No messages found for conv_id: {conv_id}[/yellow]")
-        
+
+        # Update chat header
+        bot_name = getattr(self.app_config, 'BOT_NAME', 'Eva')
+        try:
+            header = self.query_one("#chat-header", Label)
+            if self.current_chat_type == "channel":
+                header.update(f" Ch {self.current_chat_id}  |  {len(messages)} msgs  |  {bot_name}")
+            else:
+                node = self.nodes.get(self.current_chat_id, {})
+                name = node.get('long_name', self.current_chat_id)
+                header.update(f" DM  {name}  |  {len(messages)} msgs")
+        except Exception:
+            pass
+
         message_display = self.query_one("#message-display", RichLog)
-        
-        # Clear the message display
         message_display.clear()
-        
-        # Write all messages to the RichLog
+
         if not messages:
             message_display.write("[dim italic]No messages yet...[/dim italic]")
         else:
+            prev_date = None
             for msg in messages:
-                # Format each message
-                timestamp = datetime.fromtimestamp(msg.get('timestamp', time.time())).strftime("%H:%M:%S")
+                ts = msg.get('timestamp', time.time())
+                msg_date = datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
+                timestamp = datetime.fromtimestamp(ts).strftime("%H:%M")
                 sender = msg.get('user_name', 'Unknown')
                 content = msg.get('content', '')
                 role = msg.get('role', 'user')
-                
-                # Style based on role
+
+                # Date separator
+                if msg_date != prev_date:
+                    message_display.write(f"[dim]{'':>10}--- {msg_date} ---[/dim]")
+                    prev_date = msg_date
+
+                # Style per role
                 if role == 'assistant':
-                    style = "cyan"
-                    sender = "AI"
-                elif sender == "You" or sender == "You (TUI)":
-                    style = "green"
+                    name_style = "bold #58a6ff"
+                    sender = bot_name
+                    msg_style = "#58a6ff"
+                elif sender in ("You", "You (TUI)"):
+                    name_style = "bold #3fb950"
                     sender = "You"
+                    msg_style = "#c9d1d9"
                 else:
-                    style = "yellow"
-                
-                # Write the message with markup
-                message_display.write(f"[dim]{timestamp}[/dim] [{style} bold]{sender}:[/{style} bold] {content}")
-        
-        # Update last viewed count and persist it
+                    name_style = "bold #d2a8ff"
+                    msg_style = "#c9d1d9"
+
+                message_display.write(
+                    f"[dim #484f58]{timestamp}[/dim #484f58] [{name_style}]{sender}[/{name_style}]  [{msg_style}]{content}[/{msg_style}]"
+                )
+
+        # Update last viewed count and persist
         self.last_viewed_messages[conv_id] = len(messages)
         self.save_last_viewed_state()
-        
-        # Update lists to reflect current unread status
+
+        # Update sidebar counts
         self.update_channel_list()
         self.update_node_list()
         self.refresh_info_panel()
-        
-        # Scroll to bottom to show newest messages
+
+        # Scroll to bottom
         message_display.scroll_end(animate=False)
-        
-        # Focus the message input
+
+        # Focus input
         self.query_one("#message-input").focus()
     
     def update_stats(self) -> None:
-        """Update stats panel"""
-        stats = self.query_one("#stats-panel", StatsPanel)
-        stats.is_connected = self.meshtastic_handler.is_connected if self.meshtastic_handler else False
-        stats.node_count = len(self.nodes)
-        
-        if self.current_chat_type == "channel":
-            stats.channel_info = f"Channel {self.current_chat_id}"
-        else:
-            node = self.nodes.get(self.current_chat_id, {})
-            stats.channel_info = f"DM: {node.get('long_name', 'Unknown')[:15]}"
+        """Update info/status bar"""
+        self.refresh_info_panel()
     
     async def on_list_view_selected(self, event: ListView.Selected) -> None:
         """Handle list selection"""
@@ -1216,44 +1246,52 @@ class MeshtasticInteractive(App):
         self.query_one("#message-input").focus()
 
     def refresh_info_panel(self):
-        """Update the compact info panel with current stats."""
+        """Update the compact status bar in sidebar."""
         try:
-            # Calculate total unread from both channels and nodes
             total_channel_unread = sum(self.channel_unread.values())
             total_node_unread = sum(self.node_unread.values())
             total_unread = total_channel_unread + total_node_unread
-            
+            connected = self.meshtastic_handler.is_connected if self.meshtastic_handler else False
+
             info_stats = {
-                "Unread": total_unread,
+                "Status": "ON" if connected else "OFF",
                 "Nodes": len(self.nodes),
-                "RX": self.rx_count,
-                "TX": self.tx_count,
+                "Unread": total_unread,
             }
-            # Future: add SNR / RSSI / Util: placeholders for now
-            self.query_one("#info-panel", InfoPanel).set_stats(info_stats)
-        except Exception as e:
-            # Log the error but don't crash
-            log = self.query_one("#app-log", RichLog)
-            log.write(f"[red]Error updating info panel: {str(e)}[/red]")
+            self.query_one("#status-bar", InfoPanel).set_stats(info_stats)
+        except Exception:
+            pass
 
     def update_channel_list(self) -> None:
-        """Update the channel list widget with unread counts"""
+        """Update the channel list from device info with unread counts"""
         channel_list = self.query_one("#channel-list", ListView)
         channel_list.clear()
-        
-        # Add all channels with unread counts
-        for channel_id in range(8):  # Assuming 8 channels
-            channel_name = "Primary" if channel_id == 0 else f"Channel {channel_id}"
-            conv_id = f"ch_{channel_id}_broadcast"
-            # Get total messages in conversation
-            messages = self.conversation_manager.load_conversation(conv_id)
-            total_messages = len(messages)
-            # Get last viewed count
-            last_viewed = self.last_viewed_messages.get(conv_id, 0)
-            # Calculate unread
-            unread = max(0, total_messages - last_viewed)
-            self.channel_unread[channel_id] = unread
-            channel_list.append(ChannelListItem(channel_id, channel_name, unread))
+
+        # Get actual channels from device
+        device_channels = self.meshtastic_handler.list_channels() if self.meshtastic_handler else []
+
+        if device_channels:
+            for ch in device_channels:
+                ch_id = ch['index']
+                ch_name = ch['name'] if ch['name'] not in ('', f'Ch-{ch_id}', f'Secondary-{ch_id}') else f"Ch {ch_id}"
+                conv_id = f"ch_{ch_id}_broadcast"
+                messages = self.conversation_manager.load_conversation(conv_id)
+                total_messages = len(messages)
+                last_viewed = self.last_viewed_messages.get(conv_id, 0)
+                unread = max(0, total_messages - last_viewed)
+                self.channel_unread[ch_id] = unread
+                channel_list.append(ChannelListItem(ch_id, ch_name, unread))
+        else:
+            # Fallback: show 8 channels
+            for channel_id in range(8):
+                channel_name = "Primary" if channel_id == 0 else f"Ch {channel_id}"
+                conv_id = f"ch_{channel_id}_broadcast"
+                messages = self.conversation_manager.load_conversation(conv_id)
+                total_messages = len(messages)
+                last_viewed = self.last_viewed_messages.get(conv_id, 0)
+                unread = max(0, total_messages - last_viewed)
+                self.channel_unread[channel_id] = unread
+                channel_list.append(ChannelListItem(channel_id, channel_name, unread))
 
     async def on_unmount(self, event: events.Unmount) -> None:
         """Called when app is unmounting"""
