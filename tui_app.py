@@ -1093,7 +1093,7 @@ class MeshtasticInteractive(App):
                         self.tx_count += 1
                         self.conversation_manager.add_message(
                             conv_id, "assistant", result.reply_text,
-                            user_name="HAL9000",
+                            user_name=getattr(self.app_config, 'BOT_NAME', 'Eva'),
                             node_id=f"{self.meshtastic_handler.node_id:x}"
                         )
                         if conv_id == current_conv_id:
