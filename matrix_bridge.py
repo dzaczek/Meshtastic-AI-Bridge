@@ -308,7 +308,7 @@ class MatrixBridge:
             log_error(f"Cannot send to Matrix: loop={bool(self._loop)} client={bool(self.client)}")
             return
 
-        formatted = f"**[{sender_name}]** (!{sender_id}): {text}"
+        formatted = f"**{sender_name}** (!{sender_id}): {text}"
         target = f"DM !{sender_id}" if is_dm else f"ch{channel_index}"
         log_info(f"Mesh -> Matrix [{target}]: {text[:60]}")
 
