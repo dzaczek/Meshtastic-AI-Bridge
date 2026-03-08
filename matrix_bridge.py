@@ -65,6 +65,7 @@ class MatrixBridge:
         invite_users: Optional[list] = None,
         on_matrix_message: Optional[Callable] = None,
         meshtastic_handler=None,
+        display_name: str = "",
     ):
         if not HAS_NIO:
             raise ImportError("matrix-nio is required: pip install matrix-nio[e2e]")
@@ -77,6 +78,7 @@ class MatrixBridge:
         self.invite_users = invite_users or []
         self.on_matrix_message = on_matrix_message
         self.meshtastic_handler = meshtastic_handler
+        self.display_name = display_name
 
         self.client: Optional[AsyncClient] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -152,16 +154,14 @@ class MatrixBridge:
             log_error(f"Initial sync error: {e}")
         self._start_time_ms = int(time.time() * 1000)
 
-        # Sync forever
+        # Sync forever (sync_forever dispatches callbacks automatically)
         log_info("Starting sync loop...")
-        while self._running:
-            try:
-                await self.client.sync(timeout=30000, full_state=False)
-            except Exception as e:
-                log_error(f"Sync error: {e}")
-                await asyncio.sleep(5)
-
-        await self.client.close()
+        try:
+            await self.client.sync_forever(timeout=30000, full_state=False)
+        except Exception as e:
+            log_error(f"Sync loop ended: {e}")
+        finally:
+            await self.client.close()
 
     async def _setup_rooms_with_retry(self):
         """Try to setup rooms, retrying until meshtastic channels are available."""
@@ -359,19 +359,23 @@ class MatrixBridge:
 
     async def _on_matrix_event(self, room: MatrixRoom, event: RoomMessageText):
         """Handle incoming Matrix messages -> forward to mesh."""
+        log_info(f"Matrix event in {room.display_name} from {event.sender}: {event.body[:80]}")
+
         # Ignore own messages
         if event.sender == self.client.user_id:
+            log_info("Ignoring own message")
             return
 
         # Ignore old messages from before bridge started
         if event.server_timestamp < self._start_time_ms:
+            log_info(f"Ignoring old message (ts={event.server_timestamp} < start={self._start_time_ms})")
             return
 
         body = event.body
         sender = event.sender
 
-        # Extract display name
-        display_name = room.user_name(event.sender) or sender.split(":")[0].lstrip("@")
+        # Extract display name (use configured override if set)
+        display_name = self.display_name or room.user_name(event.sender) or sender.split(":")[0].lstrip("@")
 
         # Find which channel/DM this room maps to
         channel_index = self.room_channels.get(room.room_id)

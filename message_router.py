@@ -123,6 +123,8 @@ class MessageRouter:
         self.enable_ai_triage = getattr(app_config, 'ENABLE_AI_TRIAGE_ON_CHANNELS', False)
         self.triage_context_count = getattr(app_config, 'TRIAGE_CONTEXT_MESSAGE_COUNT', 3)
         self.active_channel = getattr(app_config, 'ACTIVE_MESHTASTIC_CHANNEL_INDEX', 0)
+        self.ai_enabled = getattr(app_config, 'AI_ENABLED', True)
+        self.bot_commands_enabled = getattr(app_config, 'BOT_COMMANDS_ENABLED', True)
 
     # ------------------------------------------------------------------
     # Public API
@@ -152,13 +154,17 @@ class MessageRouter:
         if help_result:
             return help_result
 
-        # --- Priority 2: HAL bot commands (ping, traceroute, info ...) ---
-        hal_result = self._check_hal_bot(ctx)
-        if hal_result:
-            return hal_result
+        # --- Priority 2: Bot commands (ping, traceroute, info ...) ---
+        if self.bot_commands_enabled:
+            hal_result = self._check_hal_bot(ctx)
+            if hal_result:
+                return hal_result
 
         # --- Priority 3: Should AI respond? ---
-        return self._check_ai_response(ctx)
+        if self.ai_enabled:
+            return self._check_ai_response(ctx)
+
+        return RouteResult(conversation_id=ctx.conversation_id)
 
     # ------------------------------------------------------------------
     # AI response generation (called by UI layer after routing)
