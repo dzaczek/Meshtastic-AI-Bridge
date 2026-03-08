@@ -135,7 +135,7 @@ AI_RESPONSE_PROBABILITY = 0.85     # 0.0 = silent, 1.0 = always responds
 AI_MIN_RESPONSE_DELAY_S = 2
 AI_MAX_RESPONSE_DELAY_S = 8
 AI_RESPONSE_COOLDOWN_S = 60
-OPENAI_MODEL_NAME = "gpt-4"
+OPENAI_MODEL_NAME = "gpt-4o"
 GEMINI_MODEL_NAME = "gemini-1.5-pro"
 ```
 
@@ -220,20 +220,22 @@ Meshtastic-AI-Bridge/
 
 ### Architecture
 
-```
-Meshtastic Device <──> meshtastic_handler.py
-                              │
-                      message_router.py  (priority routing)
-                       ┌──────┼──────┐
-                       │      │      │
-                    SOS/Help  Bot   AI Response
-                  (broadcast) (cmd)  (OpenAI/Gemini)
-                       │      │      │
-                       └──────┼──────┘
-                              │
-                    tui_app.py / main_app.py  (UI layer)
-                              │
-                    matrix_bridge.py  (optional Matrix rooms)
+```mermaid
+graph TD
+    MESH["Meshtastic Device"] <-->|"serial / TCP"| MH["meshtastic_handler"]
+    MH --> MR["message_router<br/>(priority routing)"]
+
+    MR -->|"Priority 1"| SOS["SOS / Emergency<br/>Broadcast on ALL channels"]
+    MR -->|"Priority 2"| BOT["Bot Commands<br/>ping, info, !admin"]
+    MR -->|"Priority 3"| AI["AI Response<br/>OpenAI / Gemini"]
+
+    MR --> UI["tui_app / main_app"]
+    UI --> MB["matrix_bridge<br/>(optional)"]
+    MB <-->|"matrix-nio"| MAT["Matrix Rooms"]
+
+    style SOS fill:#da3633,color:#fff
+    style BOT fill:#1f6feb,color:#fff
+    style AI fill:#238636,color:#fff
 ```
 
 **Routing priorities:**
@@ -241,8 +243,11 @@ Meshtastic Device <──> meshtastic_handler.py
 2. **Bot Commands** - `!bot` commands + `!admin` commands
 3. **AI Response** - Context-aware AI with web capabilities
 
+> See **[Architecture & Message Flows](docs/ARCHITECTURE.md)** for detailed Mermaid diagrams of every subsystem.
+
 ## Documentation
 
+- **[Architecture & Flows](docs/ARCHITECTURE.md)** - Mermaid diagrams of all message flows and subsystems
 - **[Quick Start](docs/QUICKSTART.md)** - Get running in 5 minutes
 - **[Installation](docs/INSTALLATION.md)** - Detailed setup instructions
 - **[Configuration](docs/CONFIGURATION.md)** - All settings explained
