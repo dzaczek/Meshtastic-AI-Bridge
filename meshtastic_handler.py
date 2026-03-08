@@ -234,8 +234,11 @@ class MeshtasticHandler:
             sender_id_hex = f"{sender_id_num:x}"
             user_name_to_use = f"Node-{sender_id_hex}" 
 
-            if interface and hasattr(interface, 'nodes') and interface.nodes and sender_id_num in interface.nodes:
-                node_info = interface.nodes[sender_id_num]
+            if interface and hasattr(interface, 'nodes') and interface.nodes:
+                # Try int key first, then string "!hex" key
+                node_info = interface.nodes.get(sender_id_num)
+                if node_info is None:
+                    node_info = interface.nodes.get(f"!{sender_id_hex}")
                 if node_info and 'user' in node_info and node_info['user']:
                     user_data = node_info['user']
                     short_name_val = user_data.get('shortName')
@@ -244,10 +247,12 @@ class MeshtasticHandler:
                     s_name = str(short_name_val).strip() if short_name_val is not None else ""
                     l_name = str(long_name_val).strip() if long_name_val is not None else ""
 
-                    if s_name: 
-                        user_name_to_use = s_name
-                    elif l_name: 
+                    if s_name and l_name and s_name != l_name:
+                        user_name_to_use = f"{s_name}/{l_name}"
+                    elif l_name:
                         user_name_to_use = l_name
+                    elif s_name:
+                        user_name_to_use = s_name
             
             decoded_packet = packet.get('decoded')
             if decoded_packet:

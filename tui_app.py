@@ -1197,6 +1197,7 @@ class MeshtasticInteractive(App):
                 msg_date = datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
                 timestamp = datetime.fromtimestamp(ts).strftime("%H:%M")
                 sender = msg.get('user_name', 'Unknown')
+                node_id = msg.get('node_id', '')
                 content = msg.get('content', '')
                 role = msg.get('role', 'user')
 
@@ -1210,16 +1211,19 @@ class MeshtasticInteractive(App):
                     name_style = "bold #58a6ff"
                     sender = bot_name
                     msg_style = "#58a6ff"
+                    node_tag = ""
                 elif sender in ("You", "You (TUI)"):
                     name_style = "bold #3fb950"
                     sender = "You"
                     msg_style = "#c9d1d9"
+                    node_tag = ""
                 else:
                     name_style = "bold #d2a8ff"
                     msg_style = "#c9d1d9"
+                    node_tag = f" [dim #6e7681](!{node_id})[/dim #6e7681]" if node_id else ""
 
                 message_display.write(
-                    f"[dim #484f58]{timestamp}[/dim #484f58] [{name_style}]{sender}[/{name_style}]  [{msg_style}]{content}[/{msg_style}]"
+                    f"[dim #484f58]{timestamp}[/dim #484f58] [{name_style}]{sender}[/{name_style}]{node_tag}  [{msg_style}]{content}[/{msg_style}]"
                 )
 
         # Update last viewed count and persist
