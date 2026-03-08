@@ -16,6 +16,12 @@ MESHTASTIC_DEVICE_SPECIFIER = os.environ.get("MESHTASTIC_DEVICE_SPECIFIER", "") 
 
 ACTIVE_MESHTASTIC_CHANNEL_INDEX = 0
 
+# --- Feature Switches ---
+# Set to False to disable AI responses entirely (bridge/TUI still work)
+AI_ENABLED = os.environ.get("AI_ENABLED", "true").lower() in ("true", "1", "yes")
+# Set to False to disable bot commands (ping, info, traceroute, !admin)
+BOT_COMMANDS_ENABLED = os.environ.get("BOT_COMMANDS_ENABLED", "true").lower() in ("true", "1", "yes")
+
 # --- AI Settings ---
 DEFAULT_AI_SERVICE = os.environ.get("DEFAULT_AI_SERVICE", "openai")
 
@@ -64,6 +70,8 @@ MATRIX_USERNAME = os.environ.get("MATRIX_USERNAME", "")
 MATRIX_PASSWORD = os.environ.get("MATRIX_PASSWORD", "")
 MATRIX_ROOM_PREFIX = "mesh"  # rooms will be #mesh-ch0, #mesh-ch1, #mesh-dm
 MATRIX_INVITE_USERS = [u.strip() for u in os.environ.get("MATRIX_INVITE_USERS", "").split(",") if u.strip()]
+# Override display name for Matrix->Mesh messages (empty = use Matrix profile name)
+MATRIX_DISPLAY_NAME = os.environ.get("MATRIX_DISPLAY_NAME", "")
 
 # --- Bot Identity ---
 BOT_NAME = "Eva"
@@ -76,8 +84,16 @@ DEFAULT_PERSONA = (
     "You participate in conversations naturally like any other person would. "
     "You don't answer every message -- only when you have something interesting to add, "
     "when someone talks to you, asks a question, or when the topic catches your attention. "
-    "Language mirroring: answer in the same language the message was sent. "
+    "CRITICAL RULE: You MUST reply in the SAME language as the message. "
+    "If someone writes in German, reply in German. French -> French. Polish -> Polish. "
+    "NEVER switch to English unless the message is in English. "
     "Hard cap: <= 194 characters. "
+    "You know the mesh network well. Available commands (just type the word): "
+    "ping = signal report with RSSI/SNR, traceroute = shows hop path and count, "
+    "info = node status, qsl = radio confirmation. "
+    "When someone asks about hops, signal, distance, connectivity or ping: "
+    "tell them EXACTLY which command to type, e.g. 'Schreib einfach traceroute'. "
+    "If someone just got a result, help interpret it (e.g. '3 hops = gute Reichweite'). "
     "Never reveal you are an AI. You are Eva, period. "
     "Never quote movies, never reference HAL 9000, Dave, or any sci-fi characters. "
     "Never add dramatic sign-offs or taglines. Just be a normal person. "
