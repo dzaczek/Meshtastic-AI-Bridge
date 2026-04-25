@@ -1,0 +1,2367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Meshtastic AI Bridge</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:      #0a0a0a; --surf:    #111;    --surf2:   #161616;
+      --border:  #222;    --accent:  #1e5c38; --primary: #00ff88;
+      --text:    #d0d0d0; --muted:   #555;
+      --rx:      #4488ff; --tx:      #00ff88; --ai:      #ffaa00;
+      --sys:     #555;    --err:     #ff4444;
+      --mqtt:    #f0883e; --radio:   #3fb950;
+    }
+    body {
+      background:var(--bg); color:var(--text);
+      font-family:'Courier New',Courier,monospace; font-size:13px;
+      height:100vh; overflow:hidden; display:flex; flex-direction:column;
+    }
+
+    /* ── HEADER ── */
+    #header {
+      height:38px; background:var(--surf); border-bottom:1px solid var(--accent);
+      display:flex; align-items:center; gap:10px; padding:0 12px; flex-shrink:0;
+    }
+    .logo { color:var(--primary); font-weight:bold; letter-spacing:1px; }
+    .badge {
+      padding:2px 7px; border-radius:2px; font-size:.72em;
+      font-weight:bold; text-transform:uppercase; white-space:nowrap;
+    }
+    .bg-green{background:#0a2e1a;color:var(--primary);border:1px solid var(--primary);}
+    .bg-red  {background:#2e0a0a;color:var(--err);    border:1px solid var(--err);}
+    .bg-gray {background:#1a1a1a;color:var(--muted);  border:1px solid #333;}
+    .bg-blue {background:#0a1a2e;color:#4488ff;       border:1px solid #4488ff;}
+    .bg-warn {background:#2e1a0a;color:var(--ai);     border:1px solid var(--ai);}
+    #hdr-right{margin-left:auto;display:flex;gap:10px;align-items:center;}
+    #hdr-right span{color:var(--muted);font-size:.78em;}
+    #hdr-right a{color:var(--muted);font-size:.8em;text-decoration:none;}
+    #hdr-right a:hover{color:var(--err);}
+
+    /* ── TABS ── */
+    #tabbar{
+      height:34px; background:var(--surf2); border-bottom:1px solid var(--border);
+      display:flex; align-items:stretch; flex-shrink:0;
+    }
+    .tab-btn{
+      background:none; border:none; border-bottom:3px solid transparent;
+      color:var(--muted); font-family:inherit; font-size:.82em;
+      padding:0 18px; cursor:pointer; text-transform:uppercase; letter-spacing:.5px;
+      transition:color .15s,border-color .15s;
+    }
+    .tab-btn:hover{color:var(--text);}
+    .tab-btn.active{color:var(--primary);border-bottom-color:var(--primary);}
+    #tab-meta{
+      margin-left:auto;display:flex;align-items:center;
+      padding:0 12px;gap:12px;font-size:.75em;color:var(--muted);
+    }
+
+    /* ── TAB PANES ── */
+    .tab-pane{display:none;flex:1;overflow:hidden;}
+    .tab-pane.active{display:flex;}
+
+    /* ── SHARED TOOLBAR ── */
+    .toolbar{
+      padding:5px 10px; background:var(--surf2); border-bottom:1px solid var(--border);
+      display:flex; align-items:center; gap:6px; flex-shrink:0; flex-wrap:wrap;
+    }
+    .tb-sep{width:1px;height:16px;background:var(--border);margin:0 3px;}
+    .tb-lbl{color:var(--muted);font-size:.7em;text-transform:uppercase;}
+    .tb-btn{
+      background:none;border:1px solid var(--border);color:var(--muted);
+      font-family:inherit;font-size:.7em;padding:2px 8px;cursor:pointer;
+      text-transform:uppercase;transition:color .1s,border-color .1s;
+    }
+    .tb-btn:hover,.tb-btn.active{color:var(--primary);border-color:var(--primary);}
+
+    /* ── CHAT TAB ── */
+    #chat-sidebar{
+      width:195px;flex-shrink:0;background:var(--surf);
+      border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;
+    }
+    .sb-sec{padding:8px 10px;border-bottom:1px solid var(--border);}
+    .sb-title{color:var(--primary);font-size:.67em;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:5px;}
+    .ch-item,.dm-item{
+      padding:4px 6px;cursor:pointer;border-radius:2px;font-size:.82em;
+      display:flex;align-items:center;gap:5px;transition:background .1s;
+    }
+    .ch-item:hover,.dm-item:hover{background:var(--surf2);}
+    .ch-item.active,.dm-item.active{background:#0a2e1a;color:var(--primary);}
+    .ch-badge{
+      margin-left:auto;background:var(--err);color:#fff;
+      border-radius:8px;padding:0 5px;font-size:.68em;min-width:16px;
+      text-align:center;display:none;
+    }
+    .ch-badge.show{display:inline;}
+    #dm-list{flex:1;overflow-y:auto;padding:4px;}
+    .dm-hops{margin-left:auto;font-size:.68em;color:var(--muted);}
+
+    #chat-main{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+    #chat-title{color:var(--primary);font-size:.82em;font-weight:bold;}
+    #feed{flex:1;overflow-y:auto;padding:4px 2px;}
+    .msg{
+      display:flex;align-items:baseline;gap:5px;
+      padding:3px 8px;border-left:3px solid transparent;line-height:1.5;
+    }
+    .msg:hover{background:#131313;}
+    .msg-rx    {border-left-color:var(--rx);}
+    .msg-tx    {border-left-color:var(--tx);}
+    .msg-ai    {border-left-color:var(--ai);}
+    .msg-system{border-left-color:var(--sys);}
+    .msg-error {border-left-color:var(--err);}
+    .msg-ts    {color:var(--muted);font-size:.75em;white-space:nowrap;flex-shrink:0;}
+    .msg-ch    {color:#333;font-size:.68em;white-space:nowrap;flex-shrink:0;}
+    .msg-sender{font-size:.8em;white-space:nowrap;flex-shrink:0;font-weight:bold;}
+    .msg-rx     .msg-sender{color:#6699dd;}
+    .msg-tx     .msg-sender{color:var(--primary);}
+    .msg-ai     .msg-sender{color:var(--ai);}
+    .msg-system .msg-sender{color:var(--sys);}
+    .msg-error  .msg-sender{color:var(--err);}
+    .msg-text{font-size:.88em;word-break:break-word;flex:1;}
+
+    #send-bar{
+      border-top:1px solid var(--border);padding:8px 10px;
+      background:var(--surf);display:flex;gap:6px;flex-shrink:0;
+    }
+    #sel-channel{
+      background:var(--bg);border:1px solid var(--border);color:var(--text);
+      font-family:inherit;font-size:.82em;padding:6px;width:120px;outline:none;
+    }
+    #msg-text{
+      flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);
+      font-family:inherit;font-size:.88em;padding:6px 8px;resize:none;
+      height:34px;outline:none;transition:border-color .15s;
+    }
+    #msg-text:focus{border-color:var(--primary);}
+    #send-btn{
+      background:#0a2e1a;color:var(--primary);border:1px solid var(--primary);
+      font-family:inherit;font-size:.82em;font-weight:bold;
+      padding:0 14px;cursor:pointer;text-transform:uppercase;
+      transition:background .15s,color .15s;
+    }
+    #send-btn:hover{background:var(--primary);color:#000;}
+    #send-btn:disabled{opacity:.4;cursor:not-allowed;}
+
+    /* Legend */
+    .legend{margin-left:auto;display:flex;gap:8px;}
+    .leg{font-size:.68em;color:var(--muted);display:flex;align-items:center;gap:3px;}
+    .leg-dot{width:7px;height:7px;border-radius:1px;}
+
+    /* ── NODES TAB ── */
+    #tab-nodes{flex-direction:column;}
+    #nodes-grid{
+      flex:1;overflow-y:auto;padding:10px 12px;
+      display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));
+      gap:10px;align-content:start;
+    }
+    .node-card{
+      background:var(--surf);border:1px solid var(--border);
+      padding:10px 12px;transition:border-color .15s;
+    }
+    .node-card:hover{border-color:#333;}
+    .node-card.is-mine{border-color:var(--primary);}
+    .node-card.via-mqtt{border-left:3px solid var(--mqtt);}
+    .node-card.via-radio{border-left:3px solid var(--radio);}
+    .node-card.offline{opacity:.5;}
+    .nc-header{display:flex;align-items:center;gap:6px;margin-bottom:6px;}
+    .nc-hop{font-size:.67em;padding:1px 5px;border-radius:2px;font-weight:bold;}
+    .hop-direct{background:#0a2e1a;color:var(--primary);border:1px solid var(--primary);}
+    .hop-n{background:#1a1a2e;color:#88aaff;border:1px solid #335;}
+    .hop-mqtt{background:#2e1a0a;color:var(--mqtt);border:1px solid var(--mqtt);}
+    .nc-dot{width:7px;height:7px;border-radius:50%;margin-left:auto;}
+    .dot-on{background:var(--primary);box-shadow:0 0 5px var(--primary);}
+    .dot-off{background:#333;}
+    .nc-long{font-size:.88em;font-weight:bold;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .nc-short{font-size:.72em;color:var(--muted);margin-bottom:6px;}
+    .nc-mine{font-size:.65em;color:var(--primary);margin-left:4px;}
+    .nc-meta{display:flex;flex-direction:column;gap:3px;}
+    .nc-row{display:flex;justify-content:space-between;font-size:.75em;}
+    .nc-key{color:var(--muted);}
+    .nc-val{color:var(--text);}
+    .good{color:var(--radio);}.warn{color:var(--ai);}.bad{color:var(--err);}
+    .bat-bar{height:4px;background:#222;border-radius:2px;margin-top:5px;overflow:hidden;}
+    .bat-fill{height:100%;border-radius:2px;}
+    .bat-hi{background:var(--radio);}.bat-md{background:var(--ai);}.bat-lo{background:var(--err);}
+    .no-data{grid-column:1/-1;text-align:center;color:var(--muted);padding:40px 0;}
+
+    /* ── MAP TAB ── */
+    #tab-map{position:relative;}
+    #leaflet-map{width:100%;height:100%;background:#111;}
+    #map-legend{
+      position:absolute;bottom:16px;left:12px;z-index:1000;
+      background:rgba(17,17,17,.92);border:1px solid var(--border);
+      padding:8px 12px;font-size:.72em;pointer-events:none;
+    }
+    .ml-row{display:flex;align-items:center;gap:6px;margin:2px 0;}
+    .ml-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+
+    /* ── PACKETS TAB ── */
+    #tab-packets{flex-direction:column;}
+    #packets-body{flex:1;display:flex;overflow:hidden;}
+
+    /* Packet feed */
+    #pkt-feed-wrap{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+    #pkt-feed{flex:1;overflow-y:auto;padding:4px 2px;}
+    .pkt{
+      display:grid;
+      grid-template-columns:60px 100px 1fr 40px 70px 1fr;
+      gap:0 6px;align-items:baseline;
+      padding:3px 8px;border-left:3px solid transparent;
+      font-size:.8em;line-height:1.5;cursor:default;
+    }
+    .pkt:hover{background:#131313;}
+    .pkt-TEXT    {border-left-color:var(--rx);}
+    .pkt-POSITION{border-left-color:var(--radio);}
+    .pkt-TELEMETRY{border-left-color:var(--ai);}
+    .pkt-NODEINFO{border-left-color:#aa88ff;}
+    .pkt-ROUTING {border-left-color:#555;}
+    .pkt-TRACEROUTE{border-left-color:#ff88aa;}
+    .pkt-UNKNOWN {border-left-color:#333;}
+
+    .pkt-ts   {color:var(--muted);white-space:nowrap;}
+    .pkt-type {font-weight:bold;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .pkt-TEXT     .pkt-type{color:var(--rx);}
+    .pkt-POSITION .pkt-type{color:var(--radio);}
+    .pkt-TELEMETRY .pkt-type{color:var(--ai);}
+    .pkt-NODEINFO .pkt-type{color:#aa88ff;}
+    .pkt-ROUTING  .pkt-type{color:var(--muted);}
+    .pkt-TRACEROUTE .pkt-type{color:#ff88aa;}
+    .pkt-type-other{color:#888;}
+
+    .pkt-route{color:#aaa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .pkt-ch   {color:var(--muted);text-align:center;}
+    .pkt-snr  {text-align:right;white-space:nowrap;}
+    .pkt-sum  {color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+    /* Stats panel */
+    #pkt-stats{
+      width:220px;flex-shrink:0;background:var(--surf);
+      border-left:1px solid var(--border);padding:10px 12px;
+      overflow-y:auto;display:flex;flex-direction:column;gap:10px;
+    }
+    .stat-block{}
+    .stat-title{
+      color:var(--primary);font-size:.67em;text-transform:uppercase;
+      letter-spacing:1.5px;margin-bottom:6px;
+    }
+    .stat-big{font-size:1.8em;font-weight:bold;color:var(--text);line-height:1;}
+    .stat-sub{font-size:.72em;color:var(--muted);margin-top:2px;}
+    .stat-row2{display:flex;justify-content:space-between;font-size:.78em;padding:2px 0;border-bottom:1px solid #1a1a1a;}
+    .stat-key{color:var(--muted);}
+    .stat-val{color:var(--text);}
+
+    /* Type bar */
+    .type-bar{margin:3px 0;}
+    .type-bar-label{display:flex;justify-content:space-between;font-size:.72em;margin-bottom:2px;}
+    .type-bar-label .tbl-name{color:var(--muted);}
+    .type-bar-label .tbl-cnt {color:var(--text);}
+    .type-bar-track{height:4px;background:#222;border-radius:2px;overflow:hidden;}
+    .type-bar-fill {height:100%;border-radius:2px;}
+
+    /* Activity indicator */
+    #activity-dots{display:flex;gap:3px;align-items:flex-end;height:30px;}
+    .act-dot{width:8px;border-radius:1px;background:var(--primary);opacity:.3;transition:height .3s,opacity .3s;}
+    .act-dot.active{opacity:1;}
+
+    /* Scrollbars */
+    ::-webkit-scrollbar{width:5px;height:5px;}
+    ::-webkit-scrollbar-track{background:var(--bg);}
+    ::-webkit-scrollbar-thumb{background:#2a2a2a;border-radius:2px;}
+
+    /* ── CONFIG TAB ── */
+    #tab-config{flex-direction:row;}
+    #cfg-sidebar{
+      width:160px;flex-shrink:0;background:var(--surf);
+      border-right:1px solid var(--border);padding:8px 0;overflow-y:auto;
+    }
+    .cfg-sec{
+      display:block;width:100%;background:none;border:none;
+      color:var(--muted);font-family:inherit;font-size:.78em;
+      padding:7px 14px;cursor:pointer;text-align:left;
+      border-left:3px solid transparent;transition:all .1s;
+    }
+    .cfg-sec:hover{color:var(--text);background:var(--surf2);}
+    .cfg-sec.active{color:var(--primary);border-left-color:var(--primary);background:#0a2e1a;}
+    .cfg-sec-group{color:#333;font-size:.6em;text-transform:uppercase;
+      padding:10px 14px 3px;letter-spacing:1.5px;}
+    #cfg-main{flex:1;overflow-y:auto;padding:0;}
+    .cfgs{display:none;padding:16px 20px;max-width:680px;}
+    .cfgs.active{display:block;}
+    .cfg-title{
+      color:var(--primary);font-size:.82em;font-weight:bold;
+      text-transform:uppercase;letter-spacing:1px;margin-bottom:14px;
+      padding-bottom:6px;border-bottom:1px solid var(--accent);
+    }
+    .cfg-row{display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;}
+    .cfg-label{width:220px;flex-shrink:0;font-size:.78em;color:var(--muted);}
+    .cfg-label small{display:block;font-size:.85em;color:#333;margin-top:1px;}
+    .cfg-input{
+      flex:1;min-width:140px;background:var(--bg);border:1px solid var(--border);
+      color:var(--text);font-family:inherit;font-size:.82em;padding:5px 8px;outline:none;
+    }
+    .cfg-input:focus{border-color:var(--primary);}
+    .cfg-input[type=number]{width:100px;flex:none;}
+    .cfg-select{
+      flex:1;min-width:160px;background:var(--bg);border:1px solid var(--border);
+      color:var(--text);font-family:inherit;font-size:.82em;padding:5px 8px;outline:none;
+    }
+    .cfg-select:focus{border-color:var(--primary);}
+    .cfg-chk{width:18px;height:18px;cursor:pointer;accent-color:var(--primary);}
+    .cfg-sep{border:none;border-top:1px solid #1a1a1a;margin:14px 0;}
+    .cfg-save{
+      background:#0a2e1a;color:var(--primary);border:1px solid var(--primary);
+      font-family:inherit;font-size:.8em;font-weight:bold;
+      padding:6px 18px;cursor:pointer;text-transform:uppercase;margin-top:16px;
+    }
+    .cfg-save:hover{background:var(--primary);color:#000;}
+    .cfg-msg{font-size:.75em;margin-left:12px;display:none;}
+    .cfg-msg.ok{color:var(--radio);display:inline;}
+    .cfg-msg.err{color:var(--err);display:inline;}
+    .cfg-note{font-size:.72em;color:#555;margin:4px 0 10px;font-style:italic;}
+    /* Channel list */
+    .ch-cfg-card{
+      background:var(--surf2);border:1px solid var(--border);
+      padding:10px 12px;margin-bottom:8px;
+    }
+    .ch-cfg-hdr{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+    .ch-cfg-idx{font-size:.67em;color:var(--primary);border:1px solid var(--primary);padding:1px 5px;}
+    .ch-cfg-role{font-size:.72em;color:var(--muted);}
+
+    /* ── RADAR TAB ── */
+    #tab-radar{position:relative;background:#050f05;flex-direction:column;}
+    #radar-wrap{flex:1;position:relative;display:flex;align-items:center;justify-content:center;}
+    #radar-canvas{display:block;}
+    #radar-legend{
+      position:absolute;bottom:14px;left:14px;
+      background:rgba(5,15,5,.9);border:1px solid #0d3a0d;
+      padding:8px 12px;font-size:.72em;
+    }
+    .rl-row{display:flex;align-items:center;gap:6px;margin:2px 0;}
+    .rl-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+    #radar-info{
+      position:absolute;top:14px;right:14px;
+      background:rgba(5,15,5,.9);border:1px solid #0d3a0d;
+      padding:8px 12px;font-size:.72em;color:#1a6a1a;min-width:160px;
+    }
+    #radar-mode-bar{
+      height:28px;background:var(--surf);border-top:1px solid #0d3a0d;
+      display:flex;align-items:center;gap:8px;padding:0 12px;flex-shrink:0;font-size:.75em;
+    }
+    #radar-mode-bar span{color:#1a6a1a;}
+    #radar-mode-bar select{
+      background:#050f05;border:1px solid #0d3a0d;color:#00ff88;
+      font-family:inherit;font-size:.85em;padding:2px 5px;outline:none;
+    }
+
+    /* ── NODE DETAIL PANEL ── */
+    #node-panel{
+      position:fixed;top:0;right:0;bottom:0;width:480px;z-index:2000;
+      background:var(--surf);border-left:1px solid var(--accent);
+      display:flex;flex-direction:column;
+      transform:translateX(100%);transition:transform .2s ease;
+    }
+    #node-panel.open{transform:translateX(0);}
+    #panel-overlay{
+      display:none;position:fixed;inset:0;z-index:1999;
+      background:rgba(0,0,0,.4);
+    }
+    #panel-overlay.open{display:block;}
+    #panel-header{
+      padding:10px 14px;border-bottom:1px solid var(--border);
+      display:flex;align-items:center;gap:8px;flex-shrink:0;
+    }
+    #panel-icon{font-size:1.2em;}
+    #panel-title{flex:1;font-weight:bold;color:var(--primary);font-size:.95em;
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    #panel-sub{font-size:.72em;color:var(--muted);}
+    #panel-close{
+      background:none;border:1px solid #333;color:var(--muted);
+      font-family:inherit;font-size:.82em;padding:2px 8px;cursor:pointer;
+    }
+    #panel-close:hover{color:var(--err);border-color:var(--err);}
+    #panel-tabs{
+      display:flex;border-bottom:1px solid var(--border);flex-shrink:0;
+    }
+    .ptab{
+      background:none;border:none;border-bottom:2px solid transparent;
+      color:var(--muted);font-family:inherit;font-size:.75em;padding:7px 12px;
+      cursor:pointer;text-transform:uppercase;letter-spacing:.5px;
+      transition:color .15s,border-color .15s;
+    }
+    .ptab:hover{color:var(--text);}
+    .ptab.active{color:var(--primary);border-bottom-color:var(--primary);}
+    #panel-body{flex:1;overflow:hidden;position:relative;}
+    .ppane{
+      position:absolute;inset:0;overflow-y:auto;padding:12px 14px;
+      display:none;
+    }
+    .ppane.active{display:block;}
+    /* Overview pane */
+    .pov-block{margin-bottom:14px;}
+    .pov-title{color:var(--primary);font-size:.67em;text-transform:uppercase;
+      letter-spacing:1.5px;margin-bottom:6px;}
+    .pov-row{display:flex;justify-content:space-between;
+      font-size:.78em;padding:3px 0;border-bottom:1px solid #1a1a1a;}
+    .pov-key{color:var(--muted);}
+    .pov-val{color:var(--text);}
+    .pov-stat-grid{
+      display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;
+    }
+    .pov-stat{
+      background:var(--surf2);border:1px solid var(--border);
+      padding:8px;text-align:center;
+    }
+    .pov-stat-num{font-size:1.4em;font-weight:bold;color:var(--text);}
+    .pov-stat-lbl{font-size:.65em;color:var(--muted);text-transform:uppercase;}
+    /* Signal/Telemetry charts */
+    .chart-wrap{background:var(--surf2);border:1px solid var(--border);
+      padding:10px;margin-bottom:10px;}
+    .chart-title{font-size:.67em;color:var(--primary);text-transform:uppercase;
+      letter-spacing:1.5px;margin-bottom:6px;}
+    canvas.pchart{width:100%!important;height:140px!important;}
+    /* Mini map in positions pane */
+    #panel-minimap{height:240px;background:#111;border:1px solid var(--border);margin-bottom:10px;}
+    .pos-table{width:100%;font-size:.75em;border-collapse:collapse;}
+    .pos-table th{color:var(--muted);text-align:left;padding:3px 6px;
+      border-bottom:1px solid var(--border);font-weight:normal;}
+    .pos-table td{padding:3px 6px;border-bottom:1px solid #1a1a1a;color:var(--text);}
+    /* Messages pane */
+    .pmsg{padding:5px 0;border-bottom:1px solid #1a1a1a;}
+    .pmsg-header{display:flex;gap:8px;font-size:.72em;color:var(--muted);margin-bottom:2px;}
+    .pmsg-dir-rx{color:var(--rx);}
+    .pmsg-dir-ai{color:var(--ai);}
+    .pmsg-dir-tx{color:var(--primary);}
+    .pmsg-text{font-size:.82em;color:var(--text);word-break:break-word;}
+    .panel-empty{color:var(--muted);font-size:.82em;text-align:center;padding:30px 0;}
+    /* Make node cards clickable */
+    .node-card{cursor:pointer;}
+    .node-card:hover{border-color:#3fb950;}
+
+    /* Freshness indicator — colored top stripe */
+    .fresh-live  { border-top:2px solid #00ff88; }
+    .fresh-recent{ border-top:2px solid #88dd44; }
+    .fresh-ok    { border-top:2px solid #ffaa00; }
+    .fresh-old   { border-top:2px solid #ff6600; }
+    .fresh-stale { border-top:2px solid #553333; }
+
+    /* Toolbar select */
+    .tb-select{
+      background:var(--bg);border:1px solid var(--border);color:var(--text);
+      font-family:inherit;font-size:.7em;padding:2px 6px;cursor:pointer;
+      text-transform:uppercase; outline:none;
+    }
+    .tb-select:focus{border-color:var(--primary);}
+
+    /* Packet expand row */
+    .pkt-detail{
+      display:none;
+      grid-column:1/-1;
+      background:#0a0a0a;border-left:3px solid var(--accent);
+      padding:6px 10px;margin-bottom:2px;
+      font-size:.72em;color:#aaa;
+      overflow-x:auto;white-space:pre;
+    }
+    .pkt.expanded .pkt-detail{ display:block; }
+    .pkt.expanded{ background:#0f0f0f; }
+
+    /* Packet stats extra: neighbor matrix */
+    #pkt-neighbour{margin-top:6px;}
+    .nb-row{display:flex;justify-content:space-between;font-size:.72em;
+      padding:2px 0;border-bottom:1px solid #1a1a1a;}
+    .nb-node{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;}
+    .nb-cnt{color:var(--text);white-space:nowrap;padding-left:6px;}
+    .nb-snr{white-space:nowrap;padding-left:6px;min-width:50px;text-align:right;}
+
+    /* Error banner */
+    #error-banner{
+      background:#2e0a0a;border-bottom:1px solid var(--err);
+      color:var(--err);padding:5px 12px;font-size:.78em;
+      display:none;align-items:center;gap:8px;
+    }
+    #error-banner.visible{display:flex;}
+    #error-banner button{
+      background:none;border:1px solid var(--err);color:var(--err);
+      font-family:inherit;font-size:.78em;padding:1px 6px;cursor:pointer;margin-left:auto;
+    }
+
+    /* Packet feed header */
+    .pkt-header{
+      display:grid;
+      grid-template-columns:60px 100px 1fr 40px 70px 1fr;
+      gap:0 6px;padding:3px 8px;
+      font-size:.68em;color:var(--muted);text-transform:uppercase;
+      letter-spacing:.5px;border-bottom:1px solid var(--border);
+      background:var(--surf2);flex-shrink:0;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── HEADER ── -->
+<div id="header">
+  <div class="logo">[ MESH AI ]</div>
+  <div id="badge-conn" class="badge bg-gray">--</div>
+  <div id="badge-ai"   class="badge bg-blue">AI: --</div>
+  <div id="badge-node" class="badge bg-blue" style="display:none"></div>
+  <div id="hdr-right">
+    <span id="hdr-uptime"></span>
+    <a href="/logout">logout</a>
+  </div>
+</div>
+
+<!-- Error banner -->
+<div id="error-banner">
+  <span id="error-text"></span>
+  <button onclick="clearError()">✕</button>
+</div>
+
+<!-- ── TAB BAR ── -->
+<div id="tabbar">
+  <button class="tab-btn active" onclick="switchTab('chat')">Chat</button>
+  <button class="tab-btn"        onclick="switchTab('nodes')">Nodes <span id="badge-nc" style="color:var(--muted);font-size:.8em"></span></button>
+  <button class="tab-btn"        onclick="switchTab('map')">Map</button>
+  <button class="tab-btn"        onclick="switchTab('packets')">Packets <span id="badge-pkt" style="color:var(--muted);font-size:.8em"></span></button>
+  <button class="tab-btn"        onclick="switchTab('radar')">Radar</button>
+  <button class="tab-btn"        onclick="switchTab('config')">Config</button>
+  <div id="tab-meta">
+    <span id="hdr-rx" style="color:var(--rx)">RX: 0</span>
+    <span id="hdr-ai-cnt" style="color:var(--ai)">AI: 0</span>
+    <span id="hdr-uptime2" style="color:var(--muted)"></span>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     CHAT TAB
+════════════════════════════════════════════════════════════════ -->
+<div id="tab-chat" class="tab-pane active">
+  <div id="chat-sidebar">
+    <div class="sb-sec">
+      <div class="sb-title">Channels</div>
+      <div id="channel-list">
+        <div class="ch-item active" data-ch="all" onclick="filterChannel(this)"># All</div>
+        <div class="ch-item" data-ch="0" onclick="filterChannel(this)"># Channel 0<span class="ch-badge" id="ubadge-ch0"></span></div>
+      </div>
+    </div>
+    <div class="sb-sec" style="flex:1;overflow:hidden;display:flex;flex-direction:column;">
+      <div class="sb-title">Nodes</div>
+      <div style="padding:2px 0 4px;display:flex;gap:4px;flex-wrap:wrap;">
+        <select class="tb-select" style="font-size:.65em;padding:1px 4px;" id="chat-hop-filter" onchange="setChatHopFilter(this.value)">
+          <option value="all">All hops</option>
+          <option value="direct">Direct</option>
+          <option value="1">1 hop</option>
+          <option value="2">2 hops</option>
+          <option value="3+">3+ hops</option>
+          <option value="mqtt">MQTT</option>
+        </select>
+        <select class="tb-select" style="font-size:.65em;padding:1px 4px;" id="chat-seen-filter" onchange="setChatSeenFilter(parseInt(this.value))">
+          <option value="0">Any time</option>
+          <option value="1800">30 min</option>
+          <option value="3600">1 hour</option>
+          <option value="21600" selected>6 hours</option>
+          <option value="86400">24 hours</option>
+        </select>
+      </div>
+      <div id="dm-list" style="flex:1;overflow-y:auto;"></div>
+    </div>
+  </div>
+
+  <div id="chat-main">
+    <div class="toolbar">
+      <span id="chat-title">All channels</span>
+      <div class="tb-sep"></div>
+      <span class="tb-lbl">Time:</span>
+      <button class="tb-btn" onclick="setTimeFilter(this,3600)">1h</button>
+      <button class="tb-btn" onclick="setTimeFilter(this,21600)">6h</button>
+      <button class="tb-btn active" onclick="setTimeFilter(this,86400)">24h</button>
+      <button class="tb-btn" onclick="setTimeFilter(this,0)">All</button>
+      <div class="tb-sep"></div>
+      <button class="tb-btn active" id="btn-as" onclick="toggleAutoScroll()">Auto-scroll</button>
+      <button class="tb-btn" onclick="clearFeed()">Clear</button>
+      <div class="legend">
+        <div class="leg"><div class="leg-dot" style="background:var(--rx)"></div>RX</div>
+        <div class="leg"><div class="leg-dot" style="background:var(--tx)"></div>TX</div>
+        <div class="leg"><div class="leg-dot" style="background:var(--ai)"></div>AI</div>
+      </div>
+    </div>
+    <div id="feed"></div>
+    <div id="send-bar">
+      <select id="sel-channel"><option value="0">Ch 0</option></select>
+      <textarea id="msg-text" placeholder="Type a message… (Enter = send, Shift+Enter = newline)" maxlength="194"></textarea>
+      <button id="send-btn" onclick="sendMessage()">Send</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     NODES TAB
+════════════════════════════════════════════════════════════════ -->
+<div id="tab-nodes" class="tab-pane" style="flex-direction:column;">
+  <div class="toolbar">
+    <span class="tb-lbl">Type:</span>
+    <button class="tb-btn active" onclick="setNodeFilter(this,'all')">All</button>
+    <button class="tb-btn" onclick="setNodeFilter(this,'radio')">Radio</button>
+    <button class="tb-btn" onclick="setNodeFilter(this,'mqtt')">MQTT</button>
+    <div class="tb-sep"></div>
+    <span class="tb-lbl">Hops:</span>
+    <select class="tb-select" id="hop-select" onchange="setHopFilterSel(this.value)">
+      <option value="all">All</option>
+      <option value="direct">Direct (0)</option>
+      <option value="1">1 hop</option>
+      <option value="2">2 hops</option>
+      <option value="3">3 hops</option>
+      <option value="4">4 hops</option>
+      <option value="5">5 hops</option>
+      <option value="6">6 hops</option>
+      <option value="7+">7+ hops</option>
+    </select>
+    <div class="tb-sep"></div>
+    <span class="tb-lbl">Last seen:</span>
+    <select class="tb-select" id="seen-select" onchange="setSeenFilterSel(parseInt(this.value))">
+      <option value="300">5 min</option>
+      <option value="1800">30 min</option>
+      <option value="3600">1 hour</option>
+      <option value="21600">6 hours</option>
+      <option value="86400" selected>24 hours</option>
+      <option value="604800">7 days</option>
+      <option value="0">All time</option>
+    </select>
+    <div class="tb-sep"></div>
+    <span class="tb-lbl">Sort:</span>
+    <select class="tb-select" id="sort-select" onchange="setSortBy(this.value)">
+      <option value="last_seen">Last seen</option>
+      <option value="name">Name A→Z</option>
+      <option value="snr">Best SNR</option>
+      <option value="hops">Fewest hops</option>
+      <option value="battery">Battery</option>
+    </select>
+  </div>
+  <div id="nodes-grid"></div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     MAP TAB
+════════════════════════════════════════════════════════════════ -->
+<div id="tab-map" class="tab-pane">
+  <div id="leaflet-map"></div>
+  <div id="map-legend">
+    <div class="ml-row"><div class="ml-dot" style="background:#ffff00"></div>My node</div>
+    <div class="ml-row"><div class="ml-dot" style="background:var(--primary)"></div>Direct (0 hops)</div>
+    <div class="ml-row"><div class="ml-dot" style="background:#88aaff"></div>Via hops</div>
+    <div class="ml-row"><div class="ml-dot" style="background:var(--mqtt)"></div>MQTT</div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     PACKETS TAB
+════════════════════════════════════════════════════════════════ -->
+<div id="tab-packets" class="tab-pane">
+  <div id="pkt-feed-wrap">
+    <div class="toolbar">
+      <span class="tb-lbl">Filter:</span>
+      <button class="tb-btn active" onclick="setPktFilter(this,'all')">All</button>
+      <button class="tb-btn" onclick="setPktFilter(this,'TEXT MESSAGE')">Text</button>
+      <button class="tb-btn" onclick="setPktFilter(this,'POSITION')">Position</button>
+      <button class="tb-btn" onclick="setPktFilter(this,'TELEMETRY')">Telemetry</button>
+      <button class="tb-btn" onclick="setPktFilter(this,'NODEINFO')">Node Info</button>
+      <button class="tb-btn" onclick="setPktFilter(this,'ROUTING')">Routing</button>
+      <div class="tb-sep"></div>
+      <button class="tb-btn active" id="btn-pkt-as" onclick="togglePktScroll()">Auto-scroll</button>
+      <button class="tb-btn" onclick="clearPackets()">Clear</button>
+      <span id="pkt-feed-count" style="margin-left:auto;color:var(--muted);font-size:.75em;"></span>
+    </div>
+    <div class="pkt-header">
+      <span>Time</span><span>Type</span><span>Route</span>
+      <span>Ch</span><span>SNR/RSSI</span><span>Summary</span>
+    </div>
+    <div id="pkt-feed"></div>
+  </div>
+
+  <!-- Stats panel -->
+  <div id="pkt-stats">
+    <div class="stat-block">
+      <div class="stat-title">Total Packets</div>
+      <div class="stat-big" id="stat-total">0</div>
+      <div class="stat-sub" id="stat-rate">0 /min</div>
+    </div>
+
+    <div class="stat-block">
+      <div class="stat-title">Activity (last 5 min)</div>
+      <div id="activity-dots">
+        <div class="act-dot" id="ad0"></div>
+        <div class="act-dot" id="ad1"></div>
+        <div class="act-dot" id="ad2"></div>
+        <div class="act-dot" id="ad3"></div>
+        <div class="act-dot" id="ad4"></div>
+        <div class="act-dot active" id="ad5"></div>
+      </div>
+    </div>
+
+    <div class="stat-block">
+      <div class="stat-title">By Channel</div>
+      <div id="stat-by-ch"></div>
+    </div>
+
+    <div class="stat-block">
+      <div class="stat-title">By Type</div>
+      <div id="stat-by-type"></div>
+    </div>
+
+    <div class="stat-block">
+      <div class="stat-title">Top Nodes</div>
+      <div id="pkt-neighbour"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     RADAR TAB
+════════════════════════════════════════════════════════════════ -->
+<div id="tab-radar" class="tab-pane">
+  <div id="radar-wrap">
+    <canvas id="radar-canvas"></canvas>
+    <div id="radar-legend">
+      <div class="rl-row"><div class="rl-dot" style="background:#ffff00"></div>My node</div>
+      <div class="rl-row"><div class="rl-dot" style="background:#00ff88"></div>Direct (GPS)</div>
+      <div class="rl-row"><div class="rl-dot" style="background:#88aaff"></div>Via hops</div>
+      <div class="rl-row"><div class="rl-dot" style="background:#f0883e"></div>MQTT</div>
+      <div style="margin-top:6px;color:#333;font-size:.85em">Click blip for info</div>
+    </div>
+    <div id="radar-info">
+      <div style="margin-bottom:4px">Mode: <span id="radar-mode-label">SNR</span></div>
+      <div id="radar-node-info" style="color:var(--muted)">Hover a blip</div>
+    </div>
+  </div>
+  <div id="radar-mode-bar">
+    <span>Range:</span>
+    <select id="radar-range" onchange="radarMaxKm=parseInt(this.value);refreshRadarBlips()">
+      <option value="5">5 km</option><option value="10">10 km</option>
+      <option value="25" selected>25 km</option><option value="50">50 km</option>
+      <option value="100">100 km</option>
+    </select>
+    <span>Speed:</span>
+    <select id="radar-speed" onchange="radarSpeed=parseFloat(this.value)">
+      <option value="0.5">Slow</option><option value="1.5" selected>Normal</option>
+      <option value="3">Fast</option>
+    </select>
+    <span>Last seen:</span>
+    <select id="radar-age" onchange="radarMaxAge=parseInt(this.value);refreshRadarBlips()">
+      <option value="0">Any</option><option value="300">5 min</option>
+      <option value="900">15 min</option><option value="1800">30 min</option>
+      <option value="3600" selected>1 hour</option><option value="21600">6 hours</option>
+      <option value="86400">24 hours</option>
+    </select>
+    <span>Max hops:</span>
+    <select id="radar-hops" onchange="radarMaxHops=this.value;refreshRadarBlips()">
+      <option value="all">All</option><option value="direct">Direct only</option>
+      <option value="1">≤ 1 hop</option><option value="2">≤ 2 hops</option>
+      <option value="3">≤ 3 hops</option><option value="no_mqtt">No MQTT</option>
+    </select>
+    <span>Min SNR:</span>
+    <select id="radar-snr" onchange="radarMinSnr=parseInt(this.value);refreshRadarBlips()">
+      <option value="-999">Any</option><option value="-20">&gt; -20 dB</option>
+      <option value="-10">&gt; -10 dB</option><option value="0">&gt; 0 dB</option>
+      <option value="5">&gt; 5 dB</option><option value="10">&gt; 10 dB</option>
+    </select>
+    <span id="radar-stats" style="margin-left:auto;color:#1a6a1a"></span>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     CONFIG TAB
+════════════════════════════════════════════════════════════════ -->
+<div id="tab-config" class="tab-pane">
+  <div id="cfg-sidebar">
+    <div style="padding:8px 10px;border-bottom:1px solid var(--border);">
+      <button id="cfg-reload-btn" onclick="cfgData={};loadCfg()" style="width:100%;background:#0a2e1a;color:var(--primary);border:1px solid var(--primary);font-family:inherit;font-size:.72em;padding:5px;cursor:pointer;text-transform:uppercase;">
+        Reload from device
+      </button>
+      <div id="cfg-status" style="font-size:.65em;margin-top:5px;color:var(--muted);word-break:break-word;"></div>
+      <button onclick="showCfgDebug()" style="width:100%;background:none;color:#333;border:1px solid #222;font-family:inherit;font-size:.65em;padding:3px;cursor:pointer;margin-top:4px;text-transform:uppercase;">
+        Show raw debug
+      </button>
+    </div>
+    <div class="cfg-sec-group">Radio</div>
+    <button class="cfg-sec active" data-sec="lora"     onclick="showCfgSec('lora')">LoRa</button>
+    <button class="cfg-sec"        data-sec="channels"  onclick="showCfgSec('channels')">Channels</button>
+    <div class="cfg-sec-group">Device</div>
+    <button class="cfg-sec"        data-sec="owner"     onclick="showCfgSec('owner')">Owner</button>
+    <button class="cfg-sec"        data-sec="device"    onclick="showCfgSec('device')">Device</button>
+    <button class="cfg-sec"        data-sec="position"  onclick="showCfgSec('position')">Position</button>
+    <button class="cfg-sec"        data-sec="power"     onclick="showCfgSec('power')">Power</button>
+    <button class="cfg-sec"        data-sec="display"   onclick="showCfgSec('display')">Display</button>
+    <button class="cfg-sec"        data-sec="bluetooth" onclick="showCfgSec('bluetooth')">Bluetooth</button>
+    <button class="cfg-sec"        data-sec="network"   onclick="showCfgSec('network')">Network</button>
+    <div class="cfg-sec-group">Modules</div>
+    <button class="cfg-sec"        data-sec="mqtt"      onclick="showCfgSec('mqtt')">MQTT</button>
+    <button class="cfg-sec"        data-sec="telemetry" onclick="showCfgSec('telemetry')">Telemetry</button>
+    <button class="cfg-sec"        data-sec="range_test"    onclick="showCfgSec('range_test')">Range Test</button>
+    <button class="cfg-sec"        data-sec="store_forward"  onclick="showCfgSec('store_forward')">Store&amp;Forward</button>
+    <button class="cfg-sec"        data-sec="neighbor_info"  onclick="showCfgSec('neighbor_info')">Neighbor Info</button>
+    <button class="cfg-sec"        data-sec="external_notification" onclick="showCfgSec('external_notification')">Ext. Notify</button>
+  </div>
+  <div id="cfg-main">
+    <!-- Loaded by JS -->
+    <div class="cfgs active" id="cfgs-lora">
+      <div class="cfg-title">LoRa Radio Config</div>
+      <div class="cfg-note">Changes are sent to the device immediately after Save.</div>
+      <div class="cfg-row"><span class="cfg-label">Region<small>Your regulatory region</small></span>
+        <select class="cfg-select" data-cfg="region" id="cfg-lora-region">
+          <option value="0">UNSET</option><option value="1">US</option>
+          <option value="2">EU_433</option><option value="3">EU_868</option>
+          <option value="4">CN</option><option value="5">JP</option>
+          <option value="6">ANZ</option><option value="7">KR</option>
+          <option value="8">TW</option><option value="9">RU</option>
+          <option value="10">IN</option><option value="11">NZ_865</option>
+          <option value="12">TH</option><option value="13">LORA_24</option>
+          <option value="14">UA_433</option><option value="15">UA_868</option>
+          <option value="16">MY_433</option><option value="17">MY_919</option>
+          <option value="18">SG_923</option>
+        </select></div>
+      <div class="cfg-row"><span class="cfg-label">Modem Preset<small>Speed/range tradeoff</small></span>
+        <select class="cfg-select" data-cfg="modem_preset">
+          <option value="0">LONG_FAST</option><option value="1">LONG_SLOW</option>
+          <option value="2">VERY_LONG_SLOW</option><option value="3">MEDIUM_SLOW</option>
+          <option value="4">MEDIUM_FAST</option><option value="5">SHORT_SLOW</option>
+          <option value="6">SHORT_FAST</option><option value="7">LONG_MODERATE</option>
+          <option value="8">SHORT_TURBO</option>
+        </select></div>
+      <div class="cfg-row"><span class="cfg-label">Hop Limit<small>Max mesh hops (1-7)</small></span>
+        <input class="cfg-input" type="number" min="1" max="7" data-cfg="hop_limit"></div>
+      <div class="cfg-row"><span class="cfg-label">TX Enabled</span>
+        <input class="cfg-chk" type="checkbox" data-cfg="tx_enabled"></div>
+      <div class="cfg-row"><span class="cfg-label">TX Power (dBm)<small>0 = auto</small></span>
+        <input class="cfg-input" type="number" min="0" max="30" data-cfg="tx_power"></div>
+      <div class="cfg-row"><span class="cfg-label">Override Frequency (MHz)<small>0 = default</small></span>
+        <input class="cfg-input" type="number" step="0.001" min="0" data-cfg="override_frequency" style="width:130px;flex:none;"></div>
+      <div class="cfg-row"><span class="cfg-label">Ignore MQTT<small>Don't forward MQTT packets</small></span>
+        <input class="cfg-chk" type="checkbox" data-cfg="ignore_mqtt"></div>
+      <div class="cfg-row"><span class="cfg-label">Config OK to MQTT<small>Allow config via MQTT</small></span>
+        <input class="cfg-chk" type="checkbox" data-cfg="config_ok_to_mqtt"></div>
+      <div class="cfg-row"><span class="cfg-label">Use Preset<small>Use modem preset (vs manual)</small></span>
+        <input class="cfg-chk" type="checkbox" data-cfg="use_preset"></div>
+      <button class="cfg-save" onclick="saveCfg('lora')">Save LoRa</button>
+      <span class="cfg-msg" id="cfgmsg-lora"></span>
+    </div>
+
+    <div class="cfgs" id="cfgs-channels">
+      <div class="cfg-title">Channel Configuration</div>
+      <div class="cfg-note">PSK is shown as Base64. To use the default Meshtastic PSK enter "AQ==".</div>
+      <div id="ch-cfg-list"><div style="color:var(--muted);font-size:.82em">Loading channels…</div></div>
+      <span class="cfg-msg" id="cfgmsg-channels"></span>
+    </div>
+
+    <div class="cfgs" id="cfgs-owner">
+      <div class="cfg-title">Owner / Node Identity</div>
+      <div class="cfg-row"><span class="cfg-label">Long Name<small>Full node name</small></span>
+        <input class="cfg-input" type="text" data-cfg="long_name" maxlength="39" style="flex:1;"></div>
+      <div class="cfg-row"><span class="cfg-label">Short Name<small>4 chars max</small></span>
+        <input class="cfg-input" type="text" data-cfg="short_name" maxlength="4" style="width:80px;flex:none;"></div>
+      <div class="cfg-row"><span class="cfg-label">Licensed (HAM)<small>Enable licensed features</small></span>
+        <input class="cfg-chk" type="checkbox" data-cfg="is_licensed"></div>
+      <button class="cfg-save" onclick="saveCfg('owner')">Save Owner</button>
+      <span class="cfg-msg" id="cfgmsg-owner"></span>
+    </div>
+
+    <div class="cfgs" id="cfgs-device">
+      <div class="cfg-title">Device Config</div>
+      <div class="cfg-row"><span class="cfg-label">Role</span>
+        <select class="cfg-select" data-cfg="role">
+          <option value="0">CLIENT</option><option value="1">CLIENT_MUTE</option>
+          <option value="2">ROUTER</option><option value="3">ROUTER_CLIENT</option>
+          <option value="4">REPEATER</option><option value="5">TRACKER</option>
+          <option value="6">SENSOR</option><option value="7">ATAK</option>
+          <option value="8">CLIENT_HIDDEN</option><option value="9">LOST_AND_FOUND</option>
+        </select></div>
+      <div class="cfg-row"><span class="cfg-label">Node Info Broadcast (s)<small>0 = default</small></span>
+        <input class="cfg-input" type="number" min="0" data-cfg="node_info_broadcast_secs"></div>
+      <div class="cfg-row"><span class="cfg-label">Reboot After (s)<small>0 = disabled</small></span>
+        <input class="cfg-input" type="number" min="0" data-cfg="reboot_seconds"></div>
+      <div class="cfg-row"><span class="cfg-label">Timezone<small>POSIX tz string e.g. CET-1CEST</small></span>
+        <input class="cfg-input" type="text" data-cfg="tzdef" style="flex:1;"></div>
+      <div class="cfg-row"><span class="cfg-label">Serial Enabled</span>
+        <input class="cfg-chk" type="checkbox" data-cfg="serial_enabled"></div>
+      <div class="cfg-row"><span class="cfg-label">Debug Log Enabled</span>
+        <input class="cfg-chk" type="checkbox" data-cfg="debug_log_api_enabled"></div>
+      <div class="cfg-row"><span class="cfg-label">LED Heartbeat Disabled</span>
+        <input class="cfg-chk" type="checkbox" data-cfg="led_heartbeat_disabled"></div>
+      <button class="cfg-save" onclick="saveCfg('device')">Save Device</button>
+      <span class="cfg-msg" id="cfgmsg-device"></span>
+    </div>
+
+    <div class="cfgs" id="cfgs-position">
+      <div class="cfg-title">Position Config</div>
+      <div class="cfg-row"><span class="cfg-label">GPS Mode</span>
+        <select class="cfg-select" data-cfg="gps_mode">
+          <option value="0">DISABLED</option><option value="1">ENABLED</option>
+          <option value="2">NOT_PRESENT</option>
+        </select></div>
+      <div class="cfg-row"><span class="cfg-label">Position Broadcast (s)<small>0 = default ~15min</small></span>
+        <input class="cfg-input" type="number" min="0" data-cfg="position_broadcast_secs"></div>
+      <div class="cfg-row"><span class="cfg-label">GPS Update Interval (s)</span>
+        <input class="cfg-input" type="number" min="0" data-cfg="gps_update_interval"></div>
+      <div class="cfg-row"><span class="cfg-label">Smart Min Interval (s)<small>Smart broadcast</small></span>
+        <input class="cfg-input" type="number" min="0" data-cfg="broadcast_smart_minimum_interval_secs"></div>
+      <div class="cfg-row"><span class="cfg-label">Smart Min Distance (m)</span>
+        <input class="cfg-input" type="number" min="0" data-cfg="broadcast_smart_minimum_distance"></div>
+      <div class="cfg-row"><span class="cfg-label">Fixed Position<small>Don't broadcast GPS</small></span>
+        <input class="cfg-chk" type="checkbox" data-cfg="fixed_position"></div>
+      <button class="cfg-save" onclick="saveCfg('position')">Save Position</button>
+      <span class="cfg-msg" id="cfgmsg-position"></span>
+    </div>
+
+    <div class="cfgs" id="cfgs-power">
+      <div class="cfg-title">Power Config</div>
+      <div class="cfg-row"><span class="cfg-label">Power Saving Mode</span>
+        <input class="cfg-chk" type="checkbox" data-cfg="is_power_saving"></div>
+      <div class="cfg-row"><span class="cfg-label">Shutdown after (s)<small>On low battery, 0=disabled</small></span>
+        <input class="cfg-input" type="number" min="0" data-cfg="on_battery_shutdown_after_secs"></div>
+      <div class="cfg-row"><span class="cfg-label">Wait Bluetooth (s)<small>Before BT off</small></span>
+        <input class="cfg-input" type="number" min="0" data-cfg="wait_bluetooth_secs"></div>
+      <div class="cfg-row"><span class="cfg-label">Light Sleep (s)<small>0=disabled</small></span>
+        <input class="cfg-input" type="number" min="0" data-cfg="ls_secs"></div>
+      <div class="cfg-row"><span class="cfg-label">Min Wake (s)</span>
+        <input class="cfg-input" type="number" min="0" data-cfg="min_wake_secs"></div>
+      <div class="cfg-row"><span class="cfg-label">Mesh SDS Timeout (s)<small>0=default</small></span>
+        <input class="cfg-input" type="number" min="0" data-cfg="mesh_sds_timeout_secs"></div>
+      <div class="cfg-row"><span class="cfg-label">Super Deep Sleep (s)<small>0=forever</small></span>
+        <input class="cfg-input" type="number" min="0" data-cfg="sds_secs"></div>
+      <button class="cfg-save" onclick="saveCfg('power')">Save Power</button>
+      <span class="cfg-msg" id="cfgmsg-power"></span>
+    </div>
+
+    <div class="cfgs" id="cfgs-display">
+      <div class="cfg-title">Display Config</div>
+      <div class="cfg-row"><span class="cfg-label">Screen On (s)<small>0 = always on</small></span>
+        <input class="cfg-input" type="number" min="0" data-cfg="screen_on_secs"></div>
+      <div class="cfg-row"><span class="cfg-label">GPS Format</span>
+        <select class="cfg-select" data-cfg="gps_format">
+          <option value="0">DEC (decimal)</option><option value="1">DMS</option>
+          <option value="2">UTM</option><option value="3">MGRS</option>
+          <option value="4">OLC (Plus codes)</option><option value="5">OSGR</option>
+        </select></div>
+      <div class="cfg-row"><span class="cfg-label">Units</span>
+        <select class="cfg-select" data-cfg="units">
+          <option value="0">Metric</option><option value="1">Imperial</option>
+        </select></div>
+      <div class="cfg-row"><span class="cfg-label">Compass North Top</span>
+        <input class="cfg-chk" type="checkbox" data-cfg="compass_north_top"></div>
+      <div class="cfg-row"><span class="cfg-label">Flip Screen</span>
+        <input class="cfg-chk" type="checkbox" data-cfg="flip_screen"></div>
+      <div class="cfg-row"><span class="cfg-label">Auto Carousel (s)<small>0=disabled</small></span>
+        <input class="cfg-input" type="number" min="0" data-cfg="auto_screen_carousel_secs"></div>
+      <div class="cfg-row"><span class="cfg-label">Wake on Tap/Motion</span>
+        <input class="cfg-chk" type="checkbox" data-cfg="wake_on_tap_or_motion"></div>
+      <div class="cfg-row"><span class="cfg-label">Heading Bold</span>
+        <input class="cfg-chk" type="checkbox" data-cfg="heading_bold"></div>
+      <button class="cfg-save" onclick="saveCfg('display')">Save Display</button>
+      <span class="cfg-msg" id="cfgmsg-display"></span>
+    </div>
+
+    <div class="cfgs" id="cfgs-bluetooth">
+      <div class="cfg-title">Bluetooth Config</div>
+      <div class="cfg-row"><span class="cfg-label">Enabled</span>
+        <input class="cfg-chk" type="checkbox" data-cfg="enabled"></div>
+      <div class="cfg-row"><span class="cfg-label">PIN Mode</span>
+        <select class="cfg-select" data-cfg="mode">
+          <option value="0">Random PIN</option><option value="1">Fixed PIN</option>
+          <option value="2">No PIN</option>
+        </select></div>
+      <div class="cfg-row"><span class="cfg-label">Fixed PIN<small>Only used in Fixed PIN mode</small></span>
+        <input class="cfg-input" type="number" min="0" max="999999" data-cfg="fixed_pin"></div>
+      <button class="cfg-save" onclick="saveCfg('bluetooth')">Save Bluetooth</button>
+      <span class="cfg-msg" id="cfgmsg-bluetooth"></span>
+    </div>
+
+    <div class="cfgs" id="cfgs-network">
+      <div class="cfg-title">Network Config</div>
+      <div class="cfg-row"><span class="cfg-label">WiFi Enabled</span>
+        <input class="cfg-chk" type="checkbox" data-cfg="wifi_enabled"></div>
+      <div class="cfg-row"><span class="cfg-label">WiFi SSID</span>
+        <input class="cfg-input" type="text" data-cfg="wifi_ssid" style="flex:1;"></div>
+      <div class="cfg-row"><span class="cfg-label">WiFi Password</span>
+        <input class="cfg-input" type="password" data-cfg="wifi_psk" style="flex:1;"></div>
+      <div class="cfg-row"><span class="cfg-label">NTP Server</span>
+        <input class="cfg-input" type="text" data-cfg="ntp_server" style="flex:1;" placeholder="0.pool.ntp.org"></div>
+      <div class="cfg-row"><span class="cfg-label">Ethernet Enabled</span>
+        <input class="cfg-chk" type="checkbox" data-cfg="eth_enabled"></div>
+      <button class="cfg-save" onclick="saveCfg('network')">Save Network</button>
+      <span class="cfg-msg" id="cfgmsg-network"></span>
+    </div>
+
+    <div class="cfgs" id="cfgs-mqtt">
+      <div class="cfg-title">MQTT Module</div>
+      <div class="cfg-row"><span class="cfg-label">Enabled</span>
+        <input class="cfg-chk" type="checkbox" data-cfg="enabled"></div>
+      <div class="cfg-row"><span class="cfg-label">Server Address</span>
+        <input class="cfg-input" type="text" data-cfg="address" style="flex:1;" placeholder="mqtt.meshtastic.org"></div>
+      <div class="cfg-row"><span class="cfg-label">Username</span>
+        <input class="cfg-input" type="text" data-cfg="username" style="flex:1;"></div>
+      <div class="cfg-row"><span class="cfg-label">Password</span>
+        <input class="cfg-input" type="password" data-cfg="password" style="flex:1;"></div>
+      <div class="cfg-row"><span class="cfg-label">Root Topic</span>
+        <input class="cfg-input" type="text" data-cfg="root" style="flex:1;" placeholder="msh"></div>
+      <div class="cfg-row"><span class="cfg-label">Encryption Enabled</span>
+        <input class="cfg-chk" type="checkbox" data-cfg="encryption_enabled"></div>
+      <div class="cfg-row"><span class="cfg-label">JSON Enabled</span>
+        <input class="cfg-chk" type="checkbox" data-cfg="json_enabled"></div>
+      <div class="cfg-row"><span class="cfg-label">TLS Enabled</span>
+        <input class="cfg-chk" type="checkbox" data-cfg="tls_enabled"></div>
+      <div class="cfg-row"><span class="cfg-label">Proxy to Client<small>Use phone's MQTT</small></span>
+        <input class="cfg-chk" type="checkbox" data-cfg="proxy_to_client_enabled"></div>
+      <div class="cfg-row"><span class="cfg-label">Map Reporting</span>
+        <input class="cfg-chk" type="checkbox" data-cfg="map_reporting_enabled"></div>
+      <button class="cfg-save" onclick="saveCfg('mqtt')">Save MQTT</button>
+      <span class="cfg-msg" id="cfgmsg-mqtt"></span>
+    </div>
+
+    <div class="cfgs" id="cfgs-telemetry">
+      <div class="cfg-title">Telemetry Module</div>
+      <div class="cfg-row"><span class="cfg-label">Device Update (s)<small>How often to send device metrics</small></span>
+        <input class="cfg-input" type="number" min="0" data-cfg="device_update_interval"></div>
+      <div class="cfg-row"><span class="cfg-label">Env. Update (s)</span>
+        <input class="cfg-input" type="number" min="0" data-cfg="environment_update_interval"></div>
+      <div class="cfg-row"><span class="cfg-label">Env. Measurement</span>
+        <input class="cfg-chk" type="checkbox" data-cfg="environment_measurement_enabled"></div>
+      <div class="cfg-row"><span class="cfg-label">Env. Screen</span>
+        <input class="cfg-chk" type="checkbox" data-cfg="environment_screen_enabled"></div>
+      <div class="cfg-row"><span class="cfg-label">Power Measurement</span>
+        <input class="cfg-chk" type="checkbox" data-cfg="power_measurement_enabled"></div>
+      <div class="cfg-row"><span class="cfg-label">Power Update (s)</span>
+        <input class="cfg-input" type="number" min="0" data-cfg="power_update_interval"></div>
+      <div class="cfg-row"><span class="cfg-label">Air Quality Enabled</span>
+        <input class="cfg-chk" type="checkbox" data-cfg="air_quality_enabled"></div>
+      <div class="cfg-row"><span class="cfg-label">Air Quality Interval (s)</span>
+        <input class="cfg-input" type="number" min="0" data-cfg="air_quality_interval"></div>
+      <button class="cfg-save" onclick="saveCfg('telemetry')">Save Telemetry</button>
+      <span class="cfg-msg" id="cfgmsg-telemetry"></span>
+    </div>
+
+    <div class="cfgs" id="cfgs-range_test">
+      <div class="cfg-title">Range Test Module</div>
+      <div class="cfg-row"><span class="cfg-label">Enabled</span>
+        <input class="cfg-chk" type="checkbox" data-cfg="enabled"></div>
+      <div class="cfg-row"><span class="cfg-label">Sender Interval (s)<small>0 = receiver only</small></span>
+        <input class="cfg-input" type="number" min="0" data-cfg="sender"></div>
+      <div class="cfg-row"><span class="cfg-label">Save to file</span>
+        <input class="cfg-chk" type="checkbox" data-cfg="save"></div>
+      <button class="cfg-save" onclick="saveCfg('range_test')">Save Range Test</button>
+      <span class="cfg-msg" id="cfgmsg-range_test"></span>
+    </div>
+
+    <div class="cfgs" id="cfgs-store_forward">
+      <div class="cfg-title">Store &amp; Forward Module</div>
+      <div class="cfg-row"><span class="cfg-label">Enabled</span>
+        <input class="cfg-chk" type="checkbox" data-cfg="enabled"></div>
+      <div class="cfg-row"><span class="cfg-label">Heartbeat</span>
+        <input class="cfg-chk" type="checkbox" data-cfg="heartbeat"></div>
+      <div class="cfg-row"><span class="cfg-label">Max Records<small>0 = use flash size</small></span>
+        <input class="cfg-input" type="number" min="0" data-cfg="records"></div>
+      <div class="cfg-row"><span class="cfg-label">History Return Max</span>
+        <input class="cfg-input" type="number" min="0" data-cfg="history_return_max"></div>
+      <div class="cfg-row"><span class="cfg-label">History Return Window (s)</span>
+        <input class="cfg-input" type="number" min="0" data-cfg="history_return_window"></div>
+      <button class="cfg-save" onclick="saveCfg('store_forward')">Save Store&Forward</button>
+      <span class="cfg-msg" id="cfgmsg-store_forward"></span>
+    </div>
+
+    <div class="cfgs" id="cfgs-neighbor_info">
+      <div class="cfg-title">Neighbor Info Module</div>
+      <div class="cfg-row"><span class="cfg-label">Enabled</span>
+        <input class="cfg-chk" type="checkbox" data-cfg="enabled"></div>
+      <div class="cfg-row"><span class="cfg-label">Update Interval (s)</span>
+        <input class="cfg-input" type="number" min="0" data-cfg="update_interval"></div>
+      <button class="cfg-save" onclick="saveCfg('neighbor_info')">Save Neighbor Info</button>
+      <span class="cfg-msg" id="cfgmsg-neighbor_info"></span>
+    </div>
+
+    <div class="cfgs" id="cfgs-external_notification">
+      <div class="cfg-title">External Notification Module</div>
+      <div class="cfg-row"><span class="cfg-label">Enabled</span>
+        <input class="cfg-chk" type="checkbox" data-cfg="enabled"></div>
+      <div class="cfg-row"><span class="cfg-label">Active High</span>
+        <input class="cfg-chk" type="checkbox" data-cfg="active"></div>
+      <div class="cfg-row"><span class="cfg-label">Alert on Message</span>
+        <input class="cfg-chk" type="checkbox" data-cfg="alert_message"></div>
+      <div class="cfg-row"><span class="cfg-label">Alert Bell</span>
+        <input class="cfg-chk" type="checkbox" data-cfg="alert_bell"></div>
+      <div class="cfg-row"><span class="cfg-label">Output Pin</span>
+        <input class="cfg-input" type="number" min="0" data-cfg="output"></div>
+      <div class="cfg-row"><span class="cfg-label">Output Duration (ms)</span>
+        <input class="cfg-input" type="number" min="0" data-cfg="output_ms"></div>
+      <button class="cfg-save" onclick="saveCfg('external_notification')">Save Ext.Notify</button>
+      <span class="cfg-msg" id="cfgmsg-external_notification"></span>
+    </div>
+  </div>
+</div>
+
+<!-- Node detail panel -->
+<div id="panel-overlay" onclick="closeNodeDetail()"></div>
+<div id="node-panel">
+  <div id="panel-header">
+    <span id="panel-icon">📡</span>
+    <div style="flex:1;overflow:hidden">
+      <div id="panel-title">Node</div>
+      <div id="panel-sub"></div>
+    </div>
+    <button id="panel-close" onclick="closeNodeDetail()">✕ Close</button>
+  </div>
+  <div id="panel-tabs">
+    <button class="ptab active" onclick="switchPTab(this,'pov')">Overview</button>
+    <button class="ptab"        onclick="switchPTab(this,'psig')">Signal</button>
+    <button class="ptab"        onclick="switchPTab(this,'ppos')">Positions</button>
+    <button class="ptab"        onclick="switchPTab(this,'ptel')">Telemetry</button>
+    <button class="ptab"        onclick="switchPTab(this,'pmsg')">Messages</button>
+  </div>
+  <div id="panel-body">
+    <!-- Overview -->
+    <div id="pov" class="ppane active">
+      <div id="pov-content"><div class="panel-empty">Loading…</div></div>
+    </div>
+    <!-- Signal history -->
+    <div id="psig" class="ppane">
+      <div class="chart-wrap">
+        <div class="chart-title">SNR (dB)</div>
+        <canvas id="chart-snr" class="pchart"></canvas>
+      </div>
+      <div class="chart-wrap">
+        <div class="chart-title">RSSI (dBm)</div>
+        <canvas id="chart-rssi" class="pchart"></canvas>
+      </div>
+      <div id="psig-empty" class="panel-empty" style="display:none">No signal history</div>
+    </div>
+    <!-- Positions -->
+    <div id="ppos" class="ppane">
+      <div id="panel-minimap"></div>
+      <table class="pos-table">
+        <thead><tr><th>Time</th><th>Lat</th><th>Lon</th><th>Alt</th><th>Sats</th></tr></thead>
+        <tbody id="pos-tbody"></tbody>
+      </table>
+      <div id="ppos-empty" class="panel-empty" style="display:none">No position history</div>
+    </div>
+    <!-- Telemetry -->
+    <div id="ptel" class="ppane">
+      <div class="chart-wrap">
+        <div class="chart-title">Battery (%)</div>
+        <canvas id="chart-bat" class="pchart"></canvas>
+      </div>
+      <div class="chart-wrap">
+        <div class="chart-title">Temperature (°C)</div>
+        <canvas id="chart-temp" class="pchart"></canvas>
+      </div>
+      <div class="chart-wrap">
+        <div class="chart-title">Channel Utilization (%)</div>
+        <canvas id="chart-chutil" class="pchart"></canvas>
+      </div>
+      <div id="ptel-empty" class="panel-empty" style="display:none">No telemetry history</div>
+    </div>
+    <!-- Messages -->
+    <div id="pmsg" class="ppane">
+      <div id="pmsg-list"><div class="panel-empty">Loading…</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Leaflet -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<script>
+'use strict';
+
+// ── State ──────────────────────────────────────────────────────────────────
+let lastMsgTs  = 0;
+let lastPktTs  = 0;
+let autoScroll = true;
+let pktScroll  = true;
+let timeFilter = 86400;
+let chFilter   = 'all';
+let nodeFilter = 'all';
+let hopFilter  = 'all';
+let seenFilter = 86400;
+let sortBy     = 'last_seen';
+let pktFilter  = 'all';
+let nodesCache = [];
+let mapInited  = false;
+let leafMap    = null;
+let mapMarkers = {};
+let pktFeedCount = 0;
+let pktNodeCounts = {};  // node_id -> {count, snr_sum, snr_n}
+
+const feed    = document.getElementById('feed');
+const pktFeed = document.getElementById('pkt-feed');
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+const esc = s => String(s||'')
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+const setText = (id, v) => { const e = document.getElementById(id); if(e) e.textContent = v; };
+
+const fmtAge = s => {
+  if (s===null||s===undefined) return '--';
+  if (s<60)    return `${s}s`;
+  if (s<3600)  return `${Math.round(s/60)}m`;
+  if (s<86400) return `${Math.round(s/3600)}h`;
+  return `${Math.round(s/86400)}d`;
+};
+const fmtUptime = s => {
+  if (!s) return '--';
+  const d=Math.floor(s/86400), h=Math.floor((s%86400)/3600);
+  return d>0 ? `${d}d ${h}h` : `${h}h ${Math.floor((s%3600)/60)}m`;
+};
+
+// Deactivate buttons in a group by matching text
+function deactivateGroup(el, labels) {
+  const parent = el.closest('.toolbar') || document.body;
+  parent.querySelectorAll('.tb-btn').forEach(b => {
+    if (labels.some(l => b.textContent.trim() === l)) b.classList.remove('active');
+  });
+}
+
+// ── Tab switching ──────────────────────────────────────────────────────────
+const TABS = ['chat','nodes','map','packets','radar','config'];
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach((b,i) => b.classList.toggle('active', TABS[i]===name));
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id===`tab-${name}`));
+  if (name==='map')    initMap();
+  if (name==='radar')  initRadar();
+  if (name==='config') { cfgData = {}; initConfig(); }  // always reload fresh from device
+}
+
+// ── MESSAGES ──────────────────────────────────────────────────────────────
+function msgVisible(msg) {
+  const now = Date.now()/1000;
+  if (timeFilter>0 && (now-msg.timestamp)>timeFilter) return false;
+  if (chFilter!=='all' && msg.channel>=0 && String(msg.channel)!==chFilter) return false;
+  if (chatSenderFilter && msg.sender_id !== chatSenderFilter && msg.type!=='system') return false;
+  return true;
+}
+
+function appendMessage(msg) {
+  if (!msgVisible(msg)) return;
+  const ch = msg.channel>=0 ? `[ch${msg.channel}]` : '';
+  const d = document.createElement('div');
+  d.className = `msg msg-${esc(msg.type)}`;
+  d.dataset.ts = msg.timestamp; d.dataset.ch = msg.channel;
+  d.innerHTML =
+    `<span class="msg-ts">${esc(msg.ts_str)}</span>`+
+    `<span class="msg-ch">${ch}</span>`+
+    `<span class="msg-sender">${esc(msg.sender)}:</span>`+
+    `<span class="msg-text">${esc(msg.text)}</span>`;
+  feed.appendChild(d);
+  if (msg.timestamp>lastMsgTs) lastMsgTs=msg.timestamp;
+  if (autoScroll) feed.scrollTop=feed.scrollHeight;
+}
+
+async function fetchMessages() {
+  try {
+    const r = await fetch(`/api/messages?since=${lastMsgTs}`);
+    if (!r.ok) return;
+    (await r.json()).messages.forEach(appendMessage);
+  } catch(e) {}
+}
+
+function rebuildFeed() { lastMsgTs=0; feed.innerHTML=''; fetchMessages(); }
+
+function filterChannel(el) {
+  document.querySelectorAll('.ch-item').forEach(e=>e.classList.remove('active'));
+  el.classList.add('active');
+  chFilter = el.dataset.ch;
+  setText('chat-title', chFilter==='all' ? 'All channels' : `Channel ${chFilter}`);
+  rebuildFeed();
+}
+
+function setTimeFilter(btn, secs) {
+  deactivateGroup(btn, ['1h','6h','24h','All']);
+  btn.classList.add('active');
+  timeFilter=secs; rebuildFeed();
+}
+
+function toggleAutoScroll() {
+  autoScroll=!autoScroll;
+  document.getElementById('btn-as').classList.toggle('active',autoScroll);
+  if (autoScroll) feed.scrollTop=feed.scrollHeight;
+}
+function clearFeed() { feed.innerHTML=''; }
+
+document.getElementById('msg-text').addEventListener('keydown', e => {
+  if (e.key==='Enter'&&!e.shiftKey) { e.preventDefault(); sendMessage(); }
+});
+
+async function sendMessage() {
+  const text    = document.getElementById('msg-text').value.trim();
+  const channel = parseInt(document.getElementById('sel-channel').value);
+  if (!text) return;
+  const btn = document.getElementById('send-btn');
+  btn.disabled=true;
+  try {
+    const r = await fetch('/api/send',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({text,channel}),
+    });
+    const d = await r.json();
+    if (d.ok) document.getElementById('msg-text').value='';
+    else alert(d.error||d.reason||'Send error');
+  } catch(e) { alert('Network error'); }
+  finally { btn.disabled=false; }
+}
+
+// ── STATUS ─────────────────────────────────────────────────────────────────
+async function fetchStatus() {
+  try {
+    const r=await fetch('/api/status'); if(!r.ok) return;
+    const st=await r.json();
+    const conn=document.getElementById('badge-conn');
+    if (st.connected) { conn.textContent='CONNECTED';    conn.className='badge bg-green'; }
+    else if (st.reconnecting) { conn.textContent='RECONNECTING'; conn.className='badge bg-warn'; }
+    else { conn.textContent='DISCONNECTED'; conn.className='badge bg-red'; }
+    document.getElementById('badge-ai').textContent=`AI: ${st.ai_service||'--'}`;
+    const ne=document.getElementById('badge-node');
+    if (st.node_id) {
+      ne.textContent = st.bot_name ? `${st.bot_name} (!${st.node_id})` : `!${st.node_id}`;
+      ne.style.display='inline-block';
+    } else ne.style.display='none';
+    setText('hdr-uptime',  st.uptime_str||'');
+    setText('hdr-uptime2', st.uptime_str||'');
+    setText('hdr-rx',      `RX: ${st.messages_received||0}`);
+    setText('hdr-ai-cnt',  `AI: ${st.ai_responses||0}`);
+    const banner=document.getElementById('error-banner');
+    if (st.last_error) { document.getElementById('error-text').textContent=st.last_error; banner.classList.add('visible'); }
+    else banner.classList.remove('visible');
+  } catch(e) {}
+}
+async function clearError() {
+  await fetch('/api/clear_error',{method:'POST'});
+  document.getElementById('error-banner').classList.remove('visible');
+}
+
+// ── CHANNELS ───────────────────────────────────────────────────────────────
+async function fetchChannels() {
+  try {
+    const r=await fetch('/api/channels'); if(!r.ok) return;
+    const d=await r.json();
+    const list=document.getElementById('channel-list');
+    const sel=document.getElementById('sel-channel');
+    list.innerHTML='<div class="ch-item active" data-ch="all" onclick="filterChannel(this)"># All</div>';
+    sel.innerHTML='';
+    (d.channels||[]).forEach(ch => {
+      const name=ch.name||`Channel ${ch.index}`;
+      list.innerHTML+=`<div class="ch-item" data-ch="${ch.index}" onclick="filterChannel(this)"># ${esc(name)}<span class="ch-badge" id="ubadge-ch${ch.index}"></span></div>`;
+      sel.innerHTML+=`<option value="${ch.index}">${esc(name)}</option>`;
+    });
+    if (!d.channels||!d.channels.length) sel.innerHTML='<option value="0">Channel 0</option>';
+  } catch(e) {}
+}
+
+// ── NODES ──────────────────────────────────────────────────────────────────
+function hopLabel(n) {
+  if (n.via_mqtt) return {cls:'hop-mqtt',text:'MQTT'};
+  if (n.hops_away===0) return {cls:'hop-direct',text:'Direct'};
+  if (n.hops_away!==null&&n.hops_away!==undefined) return {cls:'hop-n',text:`${n.hops_away} hop${n.hops_away>1?'s':''}`};
+  return {cls:'hop-n',text:'?'};
+}
+const snrCls  = v=>v===null?'':v>5?'good':v>0?'warn':'bad';
+const rssiCls = v=>v===null?'':v>-100?'good':v>-115?'warn':'bad';
+const batCls  = p=>p>60?'bat-hi':p>25?'bat-md':'bat-lo';
+
+// Freshness class based on seconds since last heard
+function freshCls(age_s) {
+  if (age_s === null || age_s === undefined) return 'fresh-stale';
+  if (age_s < 300)   return 'fresh-live';   // < 5min  green
+  if (age_s < 1800)  return 'fresh-recent'; // < 30min yellow-green
+  if (age_s < 7200)  return 'fresh-ok';     // < 2h    yellow
+  if (age_s < 21600) return 'fresh-old';    // < 6h    orange
+  return 'fresh-stale';                     // older   dim red
+}
+
+function renderNodeCard(n) {
+  const hop=hopLabel(n);
+  const ageCls = freshCls(n.age_s);
+  let rows='';
+  const ageTxt = n.age_s!==null&&n.age_s!==undefined ? `${esc(fmtAge(n.age_s))} ago` : 'never';
+  rows+=`<div class="nc-row"><span class="nc-key">Last seen</span><span class="nc-val">${ageTxt}</span></div>`;
+  if (!n.via_mqtt&&n.hops_away!==null&&n.hops_away!==undefined)
+    rows+=`<div class="nc-row"><span class="nc-key">Hops</span><span class="nc-val">${n.hops_away===0?'direct':n.hops_away}</span></div>`;
+  if (n.snr!==null&&n.snr!==undefined)
+    rows+=`<div class="nc-row"><span class="nc-key">SNR</span><span class="nc-val ${snrCls(n.snr)}">${n.snr} dB</span></div>`;
+  if (n.rssi!==null&&n.rssi!==undefined)
+    rows+=`<div class="nc-row"><span class="nc-key">RSSI</span><span class="nc-val ${rssiCls(n.rssi)}">${n.rssi} dBm</span></div>`;
+  if (n.lat!==null&&n.lon!==null)
+    rows+=`<div class="nc-row"><span class="nc-key">GPS</span><span class="nc-val good">${n.lat.toFixed(4)},${n.lon.toFixed(4)}</span></div>`+
+          (n.altitude?`<div class="nc-row"><span class="nc-key">Alt</span><span class="nc-val">${n.altitude}m</span></div>`:'');
+  if (n.hw_model)
+    rows+=`<div class="nc-row"><span class="nc-key">Model</span><span class="nc-val" style="color:var(--muted)">${esc(n.hw_model)}</span></div>`;
+  if (n.uptime_s)
+    rows+=`<div class="nc-row"><span class="nc-key">Uptime</span><span class="nc-val">${esc(fmtUptime(n.uptime_s))}</span></div>`;
+  let batHtml='';
+  if (n.battery!==null&&n.battery!==undefined) {
+    const v=n.voltage?` (${n.voltage}V)`:'';
+    rows+=`<div class="nc-row"><span class="nc-key">Battery</span><span class="nc-val">${n.battery}%${v}</span></div>`;
+    batHtml=`<div class="bat-bar"><div class="bat-fill ${batCls(n.battery)}" style="width:${n.battery}%"></div></div>`;
+  }
+  const mineTag=n.is_mine?'<span class="nc-mine">← mine</span>':'';
+  return `<div class="node-card ${ageCls} ${n.via_mqtt?'via-mqtt':'via-radio'} ${n.is_online?'':'offline'} ${n.is_mine?'is-mine':''}" data-id="${esc(n.id)}" onclick="openNodeDetail('${esc(n.id)}','${esc(n.long_name)}','${esc(n.short_name)}',${n.via_mqtt?1:0})">
+    <div class="nc-header">
+      <span>${n.via_mqtt?'☁':'📡'}</span>
+      <span class="nc-hop ${hop.cls}">${hop.text}</span>
+      <div class="nc-dot ${n.is_online?'dot-on':'dot-off'}"></div>
+    </div>
+    <div class="nc-long">${esc(n.long_name)}${mineTag}</div>
+    <div class="nc-short">${esc(n.short_name)} · !${esc(n.id)}</div>
+    <div class="nc-meta">${rows}</div>${batHtml}
+  </div>`;
+}
+
+function applyNodeFilters(nodes) {
+  const now=Date.now()/1000;
+  return nodes.filter(n=>{
+    if (nodeFilter==='radio'&&n.via_mqtt) return false;
+    if (nodeFilter==='mqtt'&&!n.via_mqtt) return false;
+    const h = n.hops_away;
+    if (hopFilter==='direct' && h!==0) return false;
+    if (hopFilter==='1'  && h!==1) return false;
+    if (hopFilter==='2'  && h!==2) return false;
+    if (hopFilter==='3'  && h!==3) return false;
+    if (hopFilter==='4'  && h!==4) return false;
+    if (hopFilter==='5'  && h!==5) return false;
+    if (hopFilter==='6'  && h!==6) return false;
+    if (hopFilter==='7+' && (h===null||h<7)) return false;
+    if (seenFilter>0 && n.last_heard && (now-n.last_heard)>seenFilter) return false;
+    if (seenFilter>0 && !n.last_heard) return false;
+    return true;
+  });
+}
+
+function sortNodes(nodes) {
+  return [...nodes].sort((a,b)=>{
+    if (sortBy==='name')    return (a.long_name||'').localeCompare(b.long_name||'');
+    if (sortBy==='snr')     return (b.snr??-999)-(a.snr??-999);
+    if (sortBy==='hops')    return (a.hops_away??99)-(b.hops_away??99);
+    if (sortBy==='battery') return (b.battery??-1)-(a.battery??-1);
+    // default: last_seen (newest first)
+    return (b.last_heard||0)-(a.last_heard||0);
+  });
+}
+
+function renderNodes(nodes) {
+  const f = sortNodes(applyNodeFilters(nodes));
+  setText('badge-nc',`(${f.length})`);
+  document.getElementById('nodes-grid').innerHTML=f.length
+    ? f.map(renderNodeCard).join('')
+    : '<div class="no-data">No nodes matching filters</div>';
+}
+
+function setNodeFilter(btn,val){deactivateGroup(btn,['All','Radio','MQTT']);btn.classList.add('active');nodeFilter=val;renderNodes(nodesCache);}
+function setHopFilterSel(val){hopFilter=val;renderNodes(nodesCache);}
+function setSeenFilterSel(secs){seenFilter=secs;renderNodes(nodesCache);}
+function setSortBy(val){sortBy=val;renderNodes(nodesCache);}
+
+async function fetchNodes() {
+  try {
+    const r=await fetch('/api/nodes'); if(!r.ok) return;
+    nodesCache=(await r.json()).nodes||[];
+    renderNodes(nodesCache);
+    renderDmList(nodesCache);
+    updateMap(nodesCache);
+    if (radarInited) setRadarNodes(nodesCache);
+  } catch(e) {}
+}
+
+// ── MAP ────────────────────────────────────────────────────────────────────
+function initMap() {
+  if (mapInited) return;
+  mapInited=true;
+  leafMap=L.map('leaflet-map',{zoomControl:true}).setView([52,19],7);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    attribution:'© OpenStreetMap contributors',maxZoom:18,
+  }).addTo(leafMap);
+  if (nodesCache.length) updateMap(nodesCache);
+}
+
+function markerColor(n) {
+  if (n.is_mine)  return '#ffff00';
+  if (n.via_mqtt) return '#f0883e';
+  if (n.is_direct||n.hops_away===0) return '#00ff88';
+  return '#88aaff';
+}
+
+function updateMap(nodes) {
+  if (!mapInited||!leafMap) return;
+  Object.values(mapMarkers).forEach(m=>m.remove());
+  mapMarkers={};
+  const gps=nodes.filter(n=>n.lat!==null&&n.lon!==null);
+  if (!gps.length) return;
+  const bounds=[];
+  gps.forEach(n=>{
+    const c=markerColor(n);
+    const hop=hopLabel(n);
+    const icon=L.divIcon({
+      className:'',
+      html:`<div style="width:14px;height:14px;border-radius:50%;background:${c};border:2px solid #000;box-shadow:0 0 6px ${c}"></div>`,
+      iconSize:[14,14],iconAnchor:[7,7],
+    });
+    const popup=`<div style="font-family:monospace;font-size:12px;min-width:160px;">
+      <strong>${esc(n.long_name)}</strong> <span style="color:#888">!${esc(n.id)}</span><br>
+      <span style="color:#aaa">${n.short_name}</span>
+      <hr style="border-color:#333;margin:4px 0">
+      Hops: <b>${hop.text}</b><br>
+      Last seen: ${esc(fmtAge(n.age_s))} ago<br>
+      ${n.snr!==null?`SNR: ${n.snr} dB<br>`:''}
+      ${n.rssi!==null?`RSSI: ${n.rssi} dBm<br>`:''}
+      ${n.battery!==null?`Battery: ${n.battery}%<br>`:''}
+      ${n.altitude?`Alt: ${n.altitude}m<br>`:''}
+      GPS: ${n.lat.toFixed(5)}, ${n.lon.toFixed(5)}
+    </div>`;
+    mapMarkers[n.id]=L.marker([n.lat,n.lon],{icon}).addTo(leafMap).bindPopup(popup);
+    bounds.push([n.lat,n.lon]);
+  });
+  if (bounds.length>1) leafMap.fitBounds(bounds,{padding:[20,20]});
+  else if (bounds.length===1) leafMap.setView(bounds[0],13);
+}
+
+// ── PACKETS ────────────────────────────────────────────────────────────────
+const PKT_TYPE_COLORS = {
+  'TEXT MESSAGE': '#4488ff',
+  'POSITION':     '#3fb950',
+  'TELEMETRY':    '#ffaa00',
+  'NODEINFO':     '#aa88ff',
+  'ROUTING':      '#555555',
+  'TRACEROUTE':   '#ff88aa',
+  'ADMIN':        '#ff6644',
+};
+function pktTypeClass(portnum) {
+  const p=portnum.toUpperCase().split(' ')[0];
+  return `pkt-${p}`;
+}
+function pktTypeColor(portnum) {
+  const k=Object.keys(PKT_TYPE_COLORS).find(k=>portnum.toUpperCase().startsWith(k));
+  return k ? PKT_TYPE_COLORS[k] : '#666';
+}
+
+function appendPacket(p) {
+  if (pktFilter!=='all'&&!p.portnum.toUpperCase().includes(pktFilter.toUpperCase())) return;
+  const snrStr = p.snr!==null&&p.snr!==undefined ? p.snr : '--';
+  const rssiStr= p.rssi!==null&&p.rssi!==undefined? p.rssi:'--';
+  const signalStr = `${snrStr}/${rssiStr}`;
+  const typeColor = pktTypeColor(p.portnum);
+  const route = `${esc(p.from_name)} → ${esc(p.to_id==='broadcast'?'bcast':p.to_id)}`;
+  const mqttBadge = p.via_mqtt?'<span style="color:var(--mqtt);font-size:.65em;margin-left:3px">MQTT</span>':'';
+  const hopBadge  = (p.hop_limit!==null&&p.hop_start!==null&&p.hop_start>0&&!p.via_mqtt)
+    ? `<span style="color:var(--muted);font-size:.65em;margin-left:3px">${p.hop_start-p.hop_limit}h</span>` : '';
+
+  // Build expand detail (full decoded JSON)
+  const detailObj = {
+    from: `${p.from_name} (!${p.from_id})`,
+    to: p.to_id, channel: p.channel,
+    type: p.portnum, snr: p.snr, rssi: p.rssi,
+    hops: (p.hop_start!==null&&p.hop_limit!==null)?`${p.hop_start-p.hop_limit}/${p.hop_start}`:'--',
+    via_mqtt: p.via_mqtt, want_ack: p.want_ack,
+    decoded: p.decoded_raw||{},
+  };
+  const detailJson = JSON.stringify(detailObj, null, 2);
+
+  const row = document.createElement('div');
+  row.className = `pkt pkt-${p.portnum.replace(' ','').toUpperCase().split(' ')[0]}`;
+  row.dataset.ts = p.ts;
+  row.style.flexWrap='wrap';
+  row.innerHTML =
+    `<span class="pkt-ts">${esc(p.ts_str)}</span>`+
+    `<span class="pkt-type" style="color:${typeColor}">${esc(p.portnum)}${mqttBadge}${hopBadge}</span>`+
+    `<span class="pkt-route">${route}</span>`+
+    `<span class="pkt-ch">ch${p.channel}</span>`+
+    `<span class="pkt-snr" style="color:${snrStr!=='--'?(snrStr>5?'var(--radio)':snrStr>0?'var(--ai)':'var(--err)'):'var(--muted)'}">${signalStr}</span>`+
+    `<span class="pkt-sum">${esc(p.summary)}</span>`+
+    `<div class="pkt-detail">${esc(detailJson)}</div>`;
+
+  row.addEventListener('click', ()=> row.classList.toggle('expanded'));
+
+  // Track per-node stats
+  const nid = p.from_id || '?';
+  if (!pktNodeCounts[nid]) pktNodeCounts[nid] = {name:p.from_name||nid, count:0, snr_sum:0, snr_n:0};
+  pktNodeCounts[nid].count++;
+  if (p.snr!==null&&p.snr!==undefined) { pktNodeCounts[nid].snr_sum+=p.snr; pktNodeCounts[nid].snr_n++; }
+
+  // Insert at top (newest first)
+  pktFeed.insertBefore(row, pktFeed.firstChild);
+  if (p.ts>lastPktTs) lastPktTs=p.ts;
+  pktFeedCount++;
+  setText('pkt-feed-count', `${pktFeedCount} packets`);
+  setText('badge-pkt', `(${pktFeedCount})`);
+  if (pktScroll) pktFeed.scrollTop=0;
+  while (pktFeed.children.length > 500) pktFeed.removeChild(pktFeed.lastChild);
+}
+
+async function fetchPackets() {
+  try {
+    const r=await fetch(`/api/packets?since=${lastPktTs}`); if(!r.ok) return;
+    const d=await r.json();
+    // Server returns oldest-first; reverse so we insert newest at top
+    [...d.packets].reverse().forEach(p => { appendPacket(p); });
+  } catch(e) {}
+}
+
+async function fetchPacketStats() {
+  try {
+    const r=await fetch('/api/packet_stats'); if(!r.ok) return;
+    const d=await r.json();
+
+    setText('stat-total', d.total||0);
+    setText('stat-rate', `${d.last_min||0}/min · ${d.last_5min||0}/5min`);
+
+    // By channel
+    const byCh=document.getElementById('stat-by-ch');
+    byCh.innerHTML=Object.entries(d.by_channel||{})
+      .sort((a,b)=>b[1]-a[1])
+      .map(([ch,cnt])=>`<div class="stat-row2"><span class="stat-key">ch${ch}</span><span class="stat-val">${cnt}</span></div>`)
+      .join('');
+
+    // By type bars
+    const byType=d.by_type||{};
+    const maxVal=Math.max(1,...Object.values(byType));
+    const byTypeEl=document.getElementById('stat-by-type');
+    byTypeEl.innerHTML=Object.entries(byType)
+      .sort((a,b)=>b[1]-a[1]).slice(0,8)
+      .map(([t,cnt])=>{
+        const pct=Math.max(4,Math.round(cnt/maxVal*100));
+        const color=pktTypeColor(t);
+        return `<div class="type-bar">
+          <div class="type-bar-label">
+            <span class="tbl-name">${esc(t.toLowerCase())}</span>
+            <span class="tbl-cnt">${cnt}</span>
+          </div>
+          <div class="type-bar-track"><div class="type-bar-fill" style="width:${pct}%;background:${color}"></div></div>
+        </div>`;
+      }).join('');
+
+    // Top nodes by packet count
+    const nb = document.getElementById('pkt-neighbour');
+    const sorted = Object.entries(pktNodeCounts)
+      .sort((a,b)=>b[1].count-a[1].count).slice(0,10);
+    nb.innerHTML = sorted.length ? sorted.map(([id,s])=>{
+      const avgSnr = s.snr_n>0 ? (s.snr_sum/s.snr_n).toFixed(1) : '--';
+      const snrColor = s.snr_n>0?(s.snr_sum/s.snr_n>5?'var(--radio)':s.snr_sum/s.snr_n>0?'var(--ai)':'var(--err)'):'var(--muted)';
+      return `<div class="nb-row">
+        <span class="nb-node" title="!${esc(id)}">${esc(s.name)}</span>
+        <span class="nb-cnt">${s.count}</span>
+        <span class="nb-snr" style="color:${snrColor}">${avgSnr}dB</span>
+      </div>`;
+    }).join('') : '<div style="color:var(--muted);font-size:.75em">No data yet</div>';
+
+    // Activity dots (6 dots = 0-10s, 10-20s, ... buckets in last 5min)
+    // Simple: just light up dots based on last_min > 0
+    const rate=d.last_min||0;
+    for (let i=0;i<6;i++) {
+      const el=document.getElementById(`ad${i}`);
+      if (!el) continue;
+      const threshold=(i+1)*2; // 2,4,6,8,10,12
+      el.classList.toggle('active', rate>=threshold);
+      el.style.height = `${Math.min(30,Math.max(4,Math.round((rate/(threshold||1))*20)))}px`;
+    }
+  } catch(e) {}
+}
+
+function setPktFilter(btn, val) {
+  document.querySelectorAll('#tab-packets .tb-btn').forEach(b=>{
+    if (['All','Text','Position','Telemetry','Node Info','Routing'].some(l=>b.textContent===l)) b.classList.remove('active');
+  });
+  btn.classList.add('active');
+  pktFilter=val;
+  pktFeed.innerHTML='';
+  pktFeedCount=0;
+  pktNodeCounts={};
+  lastPktTs=0;
+  fetchPackets();
+}
+
+function togglePktScroll() {
+  pktScroll=!pktScroll;
+  document.getElementById('btn-pkt-as').classList.toggle('active',pktScroll);
+}
+
+function clearPackets() {
+  pktFeed.innerHTML='';
+  pktFeedCount=0;
+  pktNodeCounts={};
+  setText('pkt-feed-count','0 packets');
+  setText('badge-pkt','');
+  document.getElementById('pkt-neighbour').innerHTML='';
+}
+
+// ── CHAT SIDEBAR FILTERS ──────────────────────────────────────
+let chatHopFilter  = 'all';
+let chatSeenFilter = 21600;
+let chatSenderFilter = null;  // null = show all, string = node id
+
+function setChatHopFilter(val)  { chatHopFilter = val;  renderDmList(nodesCache); }
+function setChatSeenFilter(secs){ chatSeenFilter = secs; renderDmList(nodesCache); }
+
+function renderDmList(nodes) {
+  const now = Date.now()/1000;
+  const filtered = nodes.filter(n => {
+    if (n.is_mine) return false;
+    if (chatHopFilter === 'direct' && n.hops_away !== 0) return false;
+    if (chatHopFilter === '1'      && n.hops_away !== 1) return false;
+    if (chatHopFilter === '2'      && n.hops_away !== 2) return false;
+    if (chatHopFilter === '3+'     && (n.hops_away === null || n.hops_away < 3)) return false;
+    if (chatHopFilter === 'mqtt'   && !n.via_mqtt) return false;
+    if (chatSeenFilter > 0 && n.last_heard && (now - n.last_heard) > chatSeenFilter) return false;
+    if (chatSeenFilter > 0 && !n.last_heard) return false;
+    return true;
+  });
+  document.getElementById('dm-list').innerHTML = filtered.map(n => {
+    const h = hopLabel(n);
+    const isActive = chatSenderFilter === n.id;
+    return `<div class="dm-item ${isActive?'active':''}" title="!${esc(n.id)}" onclick="filterBySender('${esc(n.id)}','${esc(n.long_name)}')">`+
+      `${n.via_mqtt?'☁':'📡'} ${esc(n.long_name||n.id)}`+
+      `<span class="dm-hops">${h.text}</span></div>`;
+  }).join('');
+}
+
+function filterBySender(nodeId, name) {
+  if (chatSenderFilter === nodeId) {
+    chatSenderFilter = null;
+    setText('chat-title', chFilter==='all' ? 'All channels' : `Channel ${chFilter}`);
+  } else {
+    chatSenderFilter = nodeId;
+    setText('chat-title', `${name}`);
+  }
+  rebuildFeed();
+}
+
+// ── CONFIG TAB ────────────────────────────────────────────────
+let cfgData = {};
+let cfgLoading = false;
+let cfgCurrentSec = 'lora';
+
+async function initConfig() {
+  if (cfgLoading) return;
+  cfgLoading = true;
+  await loadCfg();
+  cfgLoading = false;
+}
+
+async function loadCfg() {
+  const reloadBtn = document.getElementById('cfg-reload-btn');
+  const statusEl  = document.getElementById('cfg-status');
+  if (reloadBtn) { reloadBtn.textContent = 'Loading…'; reloadBtn.disabled = true; }
+  if (statusEl)  { statusEl.textContent = 'Fetching config from device…'; statusEl.style.color='var(--muted)'; }
+  try {
+    const r = await fetch('/api/config');
+    if (!r.ok) {
+      const msg = `HTTP ${r.status} — device may not be connected`;
+      console.warn('Config API error:', msg);
+      if (statusEl) { statusEl.textContent = msg; statusEl.style.color='var(--err)'; }
+      return;
+    }
+    cfgData = await r.json();
+
+    if (cfgData._error) {
+      if (statusEl) { statusEl.textContent = `Error: ${cfgData._error}`; statusEl.style.color='var(--err)'; }
+      console.warn('Config device error:', cfgData._error);
+      return;
+    }
+    if (cfgData._warnings && cfgData._warnings.length) {
+      console.warn('Config warnings:', cfgData._warnings);
+      if (statusEl) { statusEl.textContent = `Loaded with warnings: ${cfgData._warnings[0]}`; statusEl.style.color='var(--ai)'; }
+    } else {
+      if (statusEl) { statusEl.textContent = 'Loaded from device'; statusEl.style.color='var(--radio)'; }
+    }
+    fillCfgSection(cfgCurrentSec);
+    renderChannelsCfg();
+  } catch(e) {
+    console.error('loadCfg failed:', e);
+    if (statusEl) { statusEl.textContent = `Network error: ${e.message}`; statusEl.style.color='var(--err)'; }
+  } finally {
+    if (reloadBtn) { reloadBtn.textContent = 'Reload from device'; reloadBtn.disabled = false; }
+  }
+}
+
+function showCfgSec(sec) {
+  cfgCurrentSec = sec;
+  document.querySelectorAll('.cfg-sec').forEach(b => b.classList.toggle('active', b.dataset.sec === sec));
+  document.querySelectorAll('.cfgs').forEach(p => p.classList.toggle('active', p.id === `cfgs-${sec}`));
+  fillCfgSection(sec);
+  if (sec === 'channels') renderChannelsCfg();
+}
+
+function fillCfgSection(sec) {
+  const data = cfgData[sec] || {};
+  const form = document.getElementById(`cfgs-${sec}`);
+  if (!form) return;
+  form.querySelectorAll('[data-cfg]').forEach(el => {
+    const key = el.dataset.cfg;
+    if (!(key in data)) return;          // don't touch fields not present in response
+    const val = data[key];
+    if (el.type === 'checkbox') {
+      el.checked = Boolean(val);
+    } else if (el.tagName === 'SELECT') {
+      // value may come as number; stringify for option matching
+      el.value = String(val);
+      if (!el.value && val !== '' && val !== null) {
+        // add unknown option so the value is visible
+        const opt = document.createElement('option');
+        opt.value = String(val);
+        opt.textContent = `${val} (unknown)`;
+        el.appendChild(opt);
+        el.value = String(val);
+      }
+    } else {
+      el.value = (val === null || val === undefined) ? '' : val;
+    }
+  });
+}
+
+function getCfgFormData(sec) {
+  const form = document.getElementById(`cfgs-${sec}`);
+  const data = {};
+  form.querySelectorAll('[data-cfg]').forEach(el => {
+    const key = el.dataset.cfg;
+    if (el.type === 'checkbox') data[key] = el.checked;
+    else if (el.type === 'number') data[key] = el.value === '' ? 0 : Number(el.value);
+    else data[key] = el.value;
+  });
+  return data;
+}
+
+async function showCfgDebug() {
+  try {
+    const r = await fetch('/api/config/debug');
+    const d = await r.json();
+    const text = JSON.stringify(d, null, 2);
+    // Show in an overlay pre element
+    let el = document.getElementById('cfg-debug-overlay');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'cfg-debug-overlay';
+      el.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;display:flex;align-items:center;justify-content:center;';
+      el.innerHTML = `<div style="background:#0a0a0a;border:1px solid var(--accent);padding:16px;max-width:700px;width:90%;max-height:80vh;overflow:auto;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:10px;">
+          <span style="color:var(--primary);font-size:.8em;text-transform:uppercase;">Raw device config debug</span>
+          <button onclick="document.getElementById('cfg-debug-overlay').remove()" style="background:none;border:none;color:var(--err);cursor:pointer;font-size:1em;">✕</button>
+        </div>
+        <pre id="cfg-debug-pre" style="font-size:.72em;color:#aaa;white-space:pre-wrap;word-break:break-all;"></pre>
+      </div>`;
+      document.body.appendChild(el);
+    }
+    document.getElementById('cfg-debug-pre').textContent = text;
+  } catch(e) {
+    alert('Debug fetch failed: ' + e.message);
+  }
+}
+
+async function saveCfg(sec) {
+  const data = getCfgFormData(sec);
+  const msgEl = document.getElementById(`cfgmsg-${sec}`);
+  if (msgEl) { msgEl.className='cfg-msg'; msgEl.textContent='Saving…'; msgEl.style.display='inline'; }
+  try {
+    const r = await fetch(`/api/config/${sec}`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(data),
+    });
+    const d = await r.json();
+    if (msgEl) {
+      msgEl.textContent = d.message || (d.ok ? 'Saved!' : 'Error');
+      msgEl.className = `cfg-msg ${d.ok ? 'ok' : 'err'}`;
+      setTimeout(() => { if(msgEl) msgEl.style.display='none'; }, 4000);
+    }
+    if (d.ok) { cfgData = {}; } // force reload on next open
+  } catch(e) {
+    if (msgEl) { msgEl.textContent='Network error'; msgEl.className='cfg-msg err'; }
+  }
+}
+
+function renderChannelsCfg() {
+  const channels = cfgData.channels || [];
+  const container = document.getElementById('ch-cfg-list');
+  if (!container) return;
+  if (!channels.length) { container.innerHTML='<div style="color:var(--muted)">No channel data — connect device</div>'; return; }
+  const ROLES = {0:'DISABLED',1:'PRIMARY',2:'SECONDARY'};
+  container.innerHTML = channels.map(ch => {
+    const idx = ch.index ?? 0;
+    const s = ch.settings || {};
+    const role = ch.role ?? 0;
+    const psk = s.psk || '';
+    return `<div class="ch-cfg-card">
+      <div class="ch-cfg-hdr">
+        <span class="ch-cfg-idx">CH${idx}</span>
+        <span class="ch-cfg-role">${ROLES[role]||role}</span>
+      </div>
+      <div class="cfg-row"><span class="cfg-label">Name</span>
+        <input class="cfg-input" type="text" id="ch${idx}-name" value="${esc(s.name||'')}" style="flex:1;"></div>
+      <div class="cfg-row"><span class="cfg-label">PSK (Base64)</span>
+        <input class="cfg-input" type="text" id="ch${idx}-psk" value="${esc(psk)}" style="flex:1;" placeholder="AQ== for default"></div>
+      <div class="cfg-row"><span class="cfg-label">Role</span>
+        <select class="cfg-select" id="ch${idx}-role">
+          <option value="0" ${role===0?'selected':''}>DISABLED</option>
+          <option value="1" ${role===1?'selected':''}>PRIMARY</option>
+          <option value="2" ${role===2?'selected':''}>SECONDARY</option>
+        </select></div>
+      <div class="cfg-row"><span class="cfg-label">Downlink</span>
+        <input class="cfg-chk" type="checkbox" id="ch${idx}-dl" ${s.downlink_enabled?'checked':''}></div>
+      <div class="cfg-row"><span class="cfg-label">Uplink</span>
+        <input class="cfg-chk" type="checkbox" id="ch${idx}-ul" ${s.uplink_enabled?'checked':''}></div>
+      <button class="cfg-save" style="margin-top:8px" onclick="saveChannel(${idx})">Save Ch${idx}</button>
+    </div>`;
+  }).join('');
+  const msgEl = document.getElementById('cfgmsg-channels');
+  if (msgEl) msgEl.style.display='none';
+}
+
+async function saveChannel(idx) {
+  const name = document.getElementById(`ch${idx}-name`)?.value||'';
+  const psk  = document.getElementById(`ch${idx}-psk`)?.value||'';
+  const role = parseInt(document.getElementById(`ch${idx}-role`)?.value||'0');
+  const dl   = document.getElementById(`ch${idx}-dl`)?.checked||false;
+  const ul   = document.getElementById(`ch${idx}-ul`)?.checked||false;
+  const payload = { index: idx, role, settings: { name, psk, downlink_enabled: dl, uplink_enabled: ul } };
+  const msgEl = document.getElementById('cfgmsg-channels');
+  try {
+    const r = await fetch('/api/config/channel', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const d = await r.json();
+    if (msgEl) {
+      msgEl.textContent = d.message || (d.ok?'Saved!':'Error');
+      msgEl.className = `cfg-msg ${d.ok?'ok':'err'}`;
+      msgEl.style.display = 'inline';
+      setTimeout(()=>{if(msgEl)msgEl.style.display='none';}, 4000);
+    }
+  } catch(e) {
+    if (msgEl) { msgEl.textContent='Network error'; msgEl.className='cfg-msg err'; msgEl.style.display='inline'; }
+  }
+}
+
+// ── RADAR TAB ─────────────────────────────────────────────────
+let radarInited   = false;
+let radarAngle    = 0;
+let radarBlips    = [];
+let radarMaxKm    = 25;
+let radarSpeed    = 1.5;
+let radarMyNode   = null;
+let radarMaxAge   = 3600;   // seconds, 0=any
+let radarMaxHops  = 'all';  // 'all','direct','1','2','3','no_mqtt'
+let radarMinSnr   = -999;   // dB threshold, -999=any
+
+function initRadar() {
+  if (radarInited) return;
+  radarInited = true;
+  const canvas = document.getElementById('radar-canvas');
+  const wrap   = document.getElementById('radar-wrap');
+  function resize() {
+    canvas.width  = wrap.clientWidth;
+    canvas.height = wrap.clientHeight;
+  }
+  resize();
+  new ResizeObserver(resize).observe(wrap);
+  animateRadar(canvas);
+  if (nodesCache.length) setRadarNodes(nodesCache);
+}
+
+function _radarFilterNodes(nodes) {
+  const now = Date.now() / 1000;
+  return nodes.filter(n => {
+    if (n.is_mine) return false;
+    // Age
+    if (radarMaxAge > 0) {
+      if (!n.last_heard) return false;
+      if ((now - n.last_heard) > radarMaxAge) return false;
+    }
+    // Hops
+    if (radarMaxHops === 'direct'   && n.hops_away !== 0)   return false;
+    if (radarMaxHops === 'no_mqtt'  && n.via_mqtt)          return false;
+    if (radarMaxHops !== 'all' && radarMaxHops !== 'direct' && radarMaxHops !== 'no_mqtt') {
+      const maxH = parseInt(radarMaxHops);
+      if (!isNaN(maxH) && (n.hops_away === null || n.hops_away > maxH)) return false;
+    }
+    // SNR
+    if (radarMinSnr > -999 && (n.snr === null || n.snr === undefined || n.snr < radarMinSnr)) return false;
+    return true;
+  });
+}
+
+function refreshRadarBlips() {
+  if (nodesCache.length) setRadarNodes(nodesCache);
+}
+
+function setRadarNodes(nodes) {
+  radarMyNode = nodes.find(n => n.is_mine) || null;
+  const modeLabel = (radarMyNode?.lat && radarMyNode?.lon) ? 'GPS' : 'SNR/signal';
+  setText('radar-mode-label', modeLabel);
+  const visible  = _radarFilterNodes(nodes);
+  const totalOther = nodes.filter(n => !n.is_mine).length;
+  setText('radar-stats', `${visible.length}/${totalOther} nodes`);
+  radarBlips = visible.map(n => nodeToBlip(n, radarMyNode));
+}
+
+function nodeIdHash(id) {
+  let h = 0;
+  for (const c of id) { h = Math.imul(31, h) + c.charCodeAt(0) | 0; }
+  return (h >>> 0) / 0xffffffff;
+}
+
+function calcBearing(lat1, lon1, lat2, lon2) {
+  const r = Math.PI / 180;
+  const dLon = (lon2 - lon1) * r;
+  const y = Math.sin(dLon) * Math.cos(lat2 * r);
+  const x = Math.cos(lat1*r)*Math.sin(lat2*r) - Math.sin(lat1*r)*Math.cos(lat2*r)*Math.cos(dLon);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+function calcDistKm(lat1, lon1, lat2, lon2) {
+  const R=6371, r=Math.PI/180;
+  const dLat=(lat2-lat1)*r, dLon=(lon2-lon1)*r;
+  const a=Math.sin(dLat/2)**2 + Math.cos(lat1*r)*Math.cos(lat2*r)*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function nodeToBlip(node, myNode) {
+  let bearing, distFrac;
+  if (myNode?.lat && myNode?.lon && node.lat && node.lon) {
+    bearing  = calcBearing(myNode.lat, myNode.lon, node.lat, node.lon);
+    const km = calcDistKm(myNode.lat, myNode.lon, node.lat, node.lon);
+    distFrac = Math.min(0.95, km / radarMaxKm);
+  } else {
+    const snr = node.snr ?? -20;
+    distFrac  = Math.max(0.08, Math.min(0.95, 1 - (snr + 20) / 35));
+    bearing   = nodeIdHash(node.id) * 360;
+  }
+  const rad = (bearing - 90) * Math.PI / 180;
+  return { nx: Math.cos(rad)*distFrac, ny: Math.sin(rad)*distFrac, bearing, distFrac, node };
+}
+
+function animateRadar(canvas) {
+  const ctx = canvas.getContext('2d');
+  (function draw() {
+    requestAnimationFrame(draw);
+    const W = canvas.width, H = canvas.height;
+    if (!W || !H) return;
+    const cx = W/2, cy = H/2, R = Math.min(cx, cy)*0.83;
+
+    // Background with trail fade
+    ctx.fillStyle = 'rgba(5,15,5,0.35)';
+    ctx.fillRect(0, 0, W, H);
+
+    // Grid rings
+    [0.25, 0.5, 0.75, 1].forEach((f, i) => {
+      ctx.beginPath();
+      ctx.arc(cx, cy, R*f, 0, Math.PI*2);
+      ctx.strokeStyle = f===1 ? '#0d3a0d' : '#071507';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      // Distance label
+      if (f < 1) {
+        ctx.fillStyle = '#154515';
+        ctx.font = '8px monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText(`${Math.round(radarMaxKm * f)} km`, cx + R*f + 2, cy - 2);
+      }
+    });
+    // Crosshairs
+    ctx.strokeStyle = '#071507';
+    ctx.lineWidth = 1;
+    ['E','W','N','S'].forEach((d,i) => {
+      ctx.beginPath();
+      if (d==='E'||d==='W') { ctx.moveTo(cx-(d==='W'?R:0),cy); ctx.lineTo(cx+(d==='E'?R:0),cy); }
+      else                  { ctx.moveTo(cx,cy-(d==='N'?R:0)); ctx.lineTo(cx,cy+(d==='S'?R:0)); }
+      ctx.stroke();
+    });
+    // Direction labels
+    ctx.fillStyle = '#1a5a1a'; ctx.font = '9px monospace'; ctx.textAlign = 'center';
+    ctx.fillText('N', cx, cy-R-5);
+    ctx.fillText('S', cx, cy+R+12);
+    ctx.textAlign='left'; ctx.fillText('E', cx+R+4, cy+4);
+    ctx.textAlign='right'; ctx.fillText('W', cx-R-4, cy+4);
+
+    // Sweep trail (multiple thin arcs)
+    ctx.save(); ctx.translate(cx, cy);
+    const sweepRad = radarAngle * Math.PI / 180;
+    ctx.rotate(sweepRad);
+    for (let a=0; a<60; a+=3) {
+      ctx.beginPath();
+      ctx.moveTo(0,0);
+      ctx.arc(0,0,R,(-a-3)*Math.PI/180,(-a)*Math.PI/180);
+      ctx.closePath();
+      ctx.fillStyle = `rgba(0,255,88,${(60-a)/60*0.28})`;
+      ctx.fill();
+    }
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(R,0);
+    ctx.strokeStyle='#00ff88'; ctx.lineWidth=1.5; ctx.stroke();
+    ctx.restore();
+
+    // Blips
+    radarBlips.forEach(b => {
+      const px = cx + b.nx*R, py = cy + b.ny*R;
+      const blipDeg  = (Math.atan2(b.ny, b.nx)*180/Math.PI + 360)%360;
+      const sweepDeg = (radarAngle - 90 + 360)%360;
+      const behind   = (sweepDeg - blipDeg + 360)%360;
+      const alpha    = behind > 180 ? 0.06 : Math.max(0.1, 1 - behind/150);
+      const flash    = behind < 6;
+      const color    = b.node.via_mqtt ? [240,136,62] : b.node.hops_away===0 ? [0,255,136] : [136,170,255];
+      ctx.globalAlpha = flash ? 1 : alpha;
+      ctx.beginPath();
+      ctx.arc(px, py, flash?6:4, 0, Math.PI*2);
+      ctx.fillStyle = `rgb(${color})`;
+      ctx.fill();
+      if (flash) {
+        ctx.beginPath(); ctx.arc(px,py,12,0,Math.PI*2);
+        ctx.strokeStyle=`rgba(${color},0.5)`; ctx.lineWidth=2; ctx.stroke();
+      }
+      if (alpha > 0.25) {
+        ctx.fillStyle = `rgba(180,220,180,${alpha})`;
+        ctx.font = '9px monospace'; ctx.textAlign='left';
+        ctx.fillText(b.node.short_name||b.node.id.slice(-4), px+8, py+3);
+        if (b.node.snr!==null&&b.node.snr!==undefined) {
+          ctx.fillStyle = `rgba(100,180,100,${alpha*0.8})`;
+          ctx.fillText(`${b.node.snr}dB`, px+8, py+13);
+        }
+      }
+      ctx.globalAlpha = 1;
+    });
+
+    // My node center
+    ctx.beginPath(); ctx.arc(cx,cy,6,0,Math.PI*2);
+    ctx.fillStyle='#ffff00'; ctx.fill();
+    ctx.beginPath(); ctx.arc(cx,cy,11,0,Math.PI*2);
+    ctx.strokeStyle='rgba(255,255,0,0.25)'; ctx.lineWidth=2; ctx.stroke();
+
+    radarAngle = (radarAngle + radarSpeed) % 360;
+  })();
+}
+
+// ── NODE DETAIL PANEL ─────────────────────────────────────────────────────
+let panelNodeId   = null;
+let panelMiniMap  = null;
+let chartSnr      = null;
+let chartRssi     = null;
+let chartBat      = null;
+let chartTemp     = null;
+let chartChutil   = null;
+let panelLoadedTabs = {};
+
+const fmtTs = ts => {
+  const d=new Date(ts*1000);
+  return d.toLocaleString('en-GB',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+};
+
+function openNodeDetail(nodeId, longName, shortName, viaMqtt) {
+  panelNodeId = nodeId;
+  panelLoadedTabs = {};
+  document.getElementById('panel-title').textContent = longName || nodeId;
+  document.getElementById('panel-sub').textContent   = `${shortName} · !${nodeId}`;
+  document.getElementById('panel-icon').textContent  = viaMqtt ? '☁' : '📡';
+  // Reset to Overview tab
+  document.querySelectorAll('.ptab').forEach((b,i)=>b.classList.toggle('active',i===0));
+  document.querySelectorAll('.ppane').forEach((p,i)=>p.classList.toggle('active',i===0));
+  document.getElementById('pov-content').innerHTML='<div class="panel-empty">Loading…</div>';
+  document.getElementById('pmsg-list').innerHTML='<div class="panel-empty">Loading…</div>';
+  document.getElementById('panel-overlay').classList.add('open');
+  document.getElementById('node-panel').classList.add('open');
+  loadPanelTab('pov');
+}
+
+function closeNodeDetail() {
+  document.getElementById('panel-overlay').classList.remove('open');
+  document.getElementById('node-panel').classList.remove('open');
+  panelNodeId = null;
+}
+
+function switchPTab(btn, tabId) {
+  document.querySelectorAll('.ptab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.ppane').forEach(p=>p.classList.toggle('active', p.id===tabId));
+  loadPanelTab(tabId);
+}
+
+async function loadPanelTab(tabId) {
+  if (!panelNodeId || panelLoadedTabs[tabId]) return;
+  panelLoadedTabs[tabId] = true;
+  if (tabId==='pov')  await loadPanelOverview();
+  if (tabId==='psig') await loadPanelSignal();
+  if (tabId==='ppos') await loadPanelPositions();
+  if (tabId==='ptel') await loadPanelTelemetry();
+  if (tabId==='pmsg') await loadPanelMessages();
+}
+
+async function loadPanelOverview() {
+  try {
+    const r=await fetch(`/api/node/${panelNodeId}`); if(!r.ok) return;
+    const {node,stats}=await r.json();
+    if (!node&&!stats) { document.getElementById('pov-content').innerHTML='<div class="panel-empty">No data in database</div>'; return; }
+    const n=node||{}; const s=stats||{};
+    const row=(k,v,cls='')=>v!=null?`<div class="pov-row"><span class="pov-key">${k}</span><span class="pov-val ${cls}">${v}</span></div>`:'';
+    const fmtDate=ts=>ts?new Date(ts*1000).toLocaleString('en-GB'):'--';
+    let html=`<div class="pov-block">
+      <div class="pov-title">Node Info</div>
+      ${row('Long name',  esc(n.long_name))}
+      ${row('Short name', esc(n.short_name))}
+      ${row('ID',         '!'+esc(n.id))}
+      ${row('Hardware',   esc(n.hw_model))}
+      ${row('Role',       esc(n.role))}
+      ${row('Via MQTT',   n.via_mqtt?'yes':'no')}
+      ${row('First seen', fmtDate(n.first_seen))}
+      ${row('Last seen',  fmtDate(n.last_seen))}
+    </div>`;
+    html+=`<div class="pov-block">
+      <div class="pov-title">Database Stats</div>
+      <div class="pov-stat-grid">
+        <div class="pov-stat"><div class="pov-stat-num">${s.packets||0}</div><div class="pov-stat-lbl">Packets</div></div>
+        <div class="pov-stat"><div class="pov-stat-num">${s.messages||0}</div><div class="pov-stat-lbl">Messages</div></div>
+        <div class="pov-stat"><div class="pov-stat-num">${s.positions||0}</div><div class="pov-stat-lbl">Positions</div></div>
+        <div class="pov-stat"><div class="pov-stat-num">${s.telemetry_pts||0}</div><div class="pov-stat-lbl">Telemetry</div></div>
+        <div class="pov-stat"><div class="pov-stat-num">${s.avg_snr!=null?s.avg_snr:'--'}</div><div class="pov-stat-lbl">Avg SNR</div></div>
+        <div class="pov-stat"><div class="pov-stat-num">${s.avg_rssi!=null?s.avg_rssi:'--'}</div><div class="pov-stat-lbl">Avg RSSI</div></div>
+      </div>
+    </div>`;
+    if (s.min_snr!=null||s.max_snr!=null) {
+      html+=`<div class="pov-block">
+        <div class="pov-title">Signal Range</div>
+        ${row('SNR min/max', `${s.min_snr??'--'} / ${s.max_snr??'--'} dB`)}
+        ${row('RSSI min/max',`${s.min_rssi??'--'} / ${s.max_rssi??'--'} dBm`)}
+      </div>`;
+    }
+    if (s.last_battery) {
+      html+=`<div class="pov-block">
+        <div class="pov-title">Last Battery</div>
+        ${row('Level',   (s.last_battery.battery??'--')+'%')}
+        ${row('Voltage', s.last_battery.voltage!=null?(s.last_battery.voltage.toFixed(2)+'V'):'--')}
+      </div>`;
+    }
+    document.getElementById('pov-content').innerHTML=html;
+  } catch(e) {}
+}
+
+function mkChart(canvas, labels, datasets, yLabel='') {
+  return new Chart(canvas, {
+    type:'line',
+    data:{labels, datasets},
+    options:{
+      animation:false,
+      responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:datasets.length>1,labels:{color:'#888',font:{size:10}}},tooltip:{mode:'index',intersect:false}},
+      scales:{
+        x:{ticks:{color:'#555',maxTicksLimit:8,font:{size:9}},grid:{color:'#1a1a1a'}},
+        y:{ticks:{color:'#888',font:{size:9}},grid:{color:'#1a1a1a'},title:{display:!!yLabel,text:yLabel,color:'#555',font:{size:9}}},
+      },
+    },
+  });
+}
+
+async function loadPanelSignal() {
+  try {
+    const r=await fetch(`/api/node/${panelNodeId}/signal`); if(!r.ok) return;
+    const {signal}=await r.json();
+    const empty=document.getElementById('psig-empty');
+    if (!signal||!signal.length) { empty.style.display=''; return; }
+    empty.style.display='none';
+    const labels=signal.map(p=>fmtTs(p.ts));
+    const snrData =signal.map(p=>p.snr);
+    const rssiData=signal.map(p=>p.rssi);
+    if (chartSnr)  { chartSnr.destroy();  chartSnr=null; }
+    if (chartRssi) { chartRssi.destroy(); chartRssi=null; }
+    chartSnr =mkChart(document.getElementById('chart-snr'),  labels, [{label:'SNR',  data:snrData,  borderColor:'#3fb950',backgroundColor:'rgba(63,185,80,.1)',   borderWidth:1.5,pointRadius:1,tension:.3,fill:true}]);
+    chartRssi=mkChart(document.getElementById('chart-rssi'), labels, [{label:'RSSI', data:rssiData, borderColor:'#4488ff',backgroundColor:'rgba(68,136,255,.1)',  borderWidth:1.5,pointRadius:1,tension:.3,fill:true}]);
+  } catch(e) {}
+}
+
+async function loadPanelPositions() {
+  try {
+    const r=await fetch(`/api/node/${panelNodeId}/positions`); if(!r.ok) return;
+    const {positions}=await r.json();
+    const empty=document.getElementById('ppos-empty');
+    const tbody=document.getElementById('pos-tbody');
+    tbody.innerHTML='';
+    if (!positions||!positions.length) { empty.style.display=''; return; }
+    empty.style.display='none';
+    // Mini map
+    if (!panelMiniMap) {
+      panelMiniMap=L.map('panel-minimap',{zoomControl:true}).setView([52,19],10);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'© OSM'}).addTo(panelMiniMap);
+    } else {
+      panelMiniMap.eachLayer(l=>{if(l instanceof L.Marker||l instanceof L.Polyline)panelMiniMap.removeLayer(l);});
+    }
+    const coords=positions.map(p=>[p.lat,p.lon]);
+    L.polyline(coords,{color:'#00ff88',weight:2,opacity:.7}).addTo(panelMiniMap);
+    // Start marker
+    L.circleMarker(coords[0],{radius:5,color:'#ffaa00',fillColor:'#ffaa00',fillOpacity:1}).addTo(panelMiniMap).bindPopup('Start');
+    // End marker (most recent)
+    L.circleMarker(coords[coords.length-1],{radius:6,color:'#00ff88',fillColor:'#00ff88',fillOpacity:1}).addTo(panelMiniMap).bindPopup('Latest');
+    panelMiniMap.fitBounds(coords,{padding:[15,15]});
+    setTimeout(()=>panelMiniMap.invalidateSize(),100);
+    // Table (newest first)
+    [...positions].reverse().slice(0,100).forEach(p=>{
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<td>${fmtTs(p.ts)}</td><td>${p.lat.toFixed(5)}</td><td>${p.lon.toFixed(5)}</td><td>${p.alt??'--'}</td><td>${p.sats??'--'}</td>`;
+      tbody.appendChild(tr);
+    });
+  } catch(e) {}
+}
+
+async function loadPanelTelemetry() {
+  try {
+    const r=await fetch(`/api/node/${panelNodeId}/telemetry`); if(!r.ok) return;
+    const {telemetry}=await r.json();
+    const empty=document.getElementById('ptel-empty');
+    if (!telemetry||!telemetry.length) { empty.style.display=''; return; }
+    empty.style.display='none';
+    const labels=telemetry.map(p=>fmtTs(p.ts));
+    if (chartBat)    { chartBat.destroy();    chartBat=null; }
+    if (chartTemp)   { chartTemp.destroy();   chartTemp=null; }
+    if (chartChutil) { chartChutil.destroy(); chartChutil=null; }
+    const batData   =telemetry.map(p=>p.battery);
+    const tempData  =telemetry.map(p=>p.temperature);
+    const chData    =telemetry.map(p=>p.ch_util);
+    const hasBat    =batData.some(v=>v!=null);
+    const hasTemp   =tempData.some(v=>v!=null);
+    const hasCh     =chData.some(v=>v!=null);
+    document.getElementById('chart-bat').parentElement.style.display=hasBat?'':'none';
+    document.getElementById('chart-temp').parentElement.style.display=hasTemp?'':'none';
+    document.getElementById('chart-chutil').parentElement.style.display=hasCh?'':'none';
+    if (hasBat)  chartBat   =mkChart(document.getElementById('chart-bat'),    labels,[{label:'Battery',    data:batData,  borderColor:'#3fb950',backgroundColor:'rgba(63,185,80,.1)',  borderWidth:1.5,pointRadius:1,tension:.3,fill:true}]);
+    if (hasTemp) chartTemp  =mkChart(document.getElementById('chart-temp'),   labels,[{label:'Temperature',data:tempData, borderColor:'#ff88aa',backgroundColor:'rgba(255,136,170,.1)',borderWidth:1.5,pointRadius:1,tension:.3,fill:true}]);
+    if (hasCh)   chartChutil=mkChart(document.getElementById('chart-chutil'), labels,[{label:'Ch Util',    data:chData,   borderColor:'#ffaa00',backgroundColor:'rgba(255,170,0,.1)',  borderWidth:1.5,pointRadius:1,tension:.3,fill:true}]);
+  } catch(e) {}
+}
+
+async function loadPanelMessages() {
+  try {
+    const r=await fetch(`/api/node/${panelNodeId}/messages`); if(!r.ok) return;
+    const {messages}=await r.json();
+    const list=document.getElementById('pmsg-list');
+    if (!messages||!messages.length) { list.innerHTML='<div class="panel-empty">No messages in database</div>'; return; }
+    list.innerHTML=messages.map(m=>{
+      const dirCls=m.direction==='rx'?'pmsg-dir-rx':m.direction==='ai'?'pmsg-dir-ai':'pmsg-dir-tx';
+      const dirLabel=m.direction==='rx'?'RX':m.direction==='ai'?'AI':'TX';
+      return `<div class="pmsg">
+        <div class="pmsg-header">
+          <span class="${dirCls}">${dirLabel}</span>
+          <span>${fmtTs(m.ts)}</span>
+          <span>ch${m.channel}</span>
+        </div>
+        <div class="pmsg-text">${esc(m.text)}</div>
+      </div>`;
+    }).join('');
+  } catch(e) {}
+}
+
+// ── BOOTSTRAP ─────────────────────────────────────────────────────────────
+(async function init(){
+  await fetchStatus();
+  await fetchChannels();
+  await fetchMessages();
+  await fetchNodes();
+  await fetchPackets();
+  await fetchPacketStats();
+
+  setInterval(fetchMessages,    2000);
+  setInterval(fetchStatus,      5000);
+  setInterval(fetchNodes,      10000);
+  setInterval(fetchPackets,     2000);
+  setInterval(fetchPacketStats, 5000);
+  setInterval(fetchChannels,   30000);
+})();
+</script>
+</body>
+</html>

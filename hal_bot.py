@@ -6,26 +6,33 @@ from typing import Dict, Optional, Tuple
 import random
 
 class HalBot:
-    def __init__(self, meshtastic_handler):
+    def __init__(self, meshtastic_handler, app_config=None):
         self.meshtastic_handler = meshtastic_handler
-        self.command_pattern = re.compile(r'^(?:HAL\s+)?(\w+)(?:\s+(.+))?$', re.IGNORECASE)
+        self.app_config = app_config
+        self.bot_name = getattr(app_config, 'BOT_NAME', 'Eva') if app_config else 'Eva'
+        self.command_pattern = re.compile(r'^(?:bot\s+)?(\w+)(?:\s+(.+))?$', re.IGNORECASE)
+        self.admin_pattern = re.compile(r'^!admin\s+(\w+)(?:\s+(.+))?$', re.IGNORECASE)
         self.traceroute_timeout = 30  # seconds
         self.pending_traceroutes = {}  # Store pending traceroute requests
         self.active_traceroutes = {}  # Store active traceroute requests
         self.mqtt_broker = "mqtt.meshtastic.org"  # Default MQTT broker
         self.gateway_info = {}  # Store gateway information for MQTT nodes
+        self.admin_node_ids = getattr(app_config, 'ADMIN_NODE_IDS', []) if app_config else []
 
     def should_handle_message(self, text: str) -> bool:
-        """Check if the message should be handled by HAL bot"""
+        """Check if the message should be handled by the bot"""
+        text_lower = text.lower().strip()
+
+        # Admin commands
+        if text_lower.startswith("!admin"):
+            return True
+
         # Check for direct commands first
         direct_commands = ['ping', 'traceroute', 'info', 'test', 'qsl']
-        text_lower = text.lower().strip()
-        
-        # Handle direct commands without HAL prefix
         if text_lower in direct_commands:
             return True
-            
-        # Check for HAL prefixed commands
+
+        # Check for bot prefixed commands
         return bool(self.command_pattern.match(text))
 
     def get_node_info(self, node_id: str) -> Dict:
@@ -48,7 +55,7 @@ class HalBot:
                 node_id_str = str(node_num).lower().lstrip('!')
             
             # Debug print
-            print(f"Comparing node IDs: input='{node_id}', current='{node_id_str}'")
+            # Compare normalized node IDs
             
             if node_id_str == node_id:
                 # Get user info with fallbacks
@@ -92,18 +99,11 @@ class HalBot:
                     'uptime': uptime,
                     'gateway': gateway
                 }
-                print(f"Found node info: {node_info}")  # Debug print
+                pass  # node found
                 break
         
         if not node_info:
-            print(f"No node info found for ID: {node_id}")  # Debug print
-            # Print all available node IDs for debugging
-            print("Available nodes:")
-            for node_num in interface.nodes:
-                if isinstance(node_num, int):
-                    print(f"  !{node_num:x}")
-                else:
-                    print(f"  !{node_num}")
+            pass  # node not found
         
         return node_info
 
@@ -114,7 +114,7 @@ class HalBot:
         hops_str = f"{node_info['hops_away']} hop{'s' if node_info['hops_away'] != 1 else ''}" if node_info['hops_away'] is not None else "unknown"
         mqtt_str = "MQTT connected" if node_info['connection_type'] == 'mqtt' else "LoRa only"
         
-        response = f"HAL9000: {command.upper()} status for node {node_info['node_id']} ({node_info['long_name']}):\n"
+        response = f"{self.bot_name}: {command.upper()} status for node {node_info['node_id']} ({node_info['long_name']}):\n"
         response += f"• Status: {status}\n"
         response += f"• Signal: {rssi_str}\n"
         response += f"• Distance: {hops_str}\n"
@@ -176,7 +176,7 @@ class HalBot:
         if is_mqtt:
             return f"""[TRACEROUTE] MQTT route to !{target_id}:
 
-HAL9000 (!{self.meshtastic_handler.node_id:x})
+{self.bot_name} (!{self.meshtastic_handler.node_id:x})
 ↳ MQTT Broker: {self.mqtt_broker}
 ↳ !{target_id} (subscribed) ✅
 🌐 Path type: MQTT-direct
@@ -195,7 +195,7 @@ HAL9000 (!{self.meshtastic_handler.node_id:x})
                 snr_str = f"{snr} dB" if snr is not None else "N/A"
                 
                 if i == 0:
-                    path_lines.append(f"HAL9000 (!{node_id})")
+                    path_lines.append(f"{self.bot_name} (!{node_id})")
                 elif i == len(hops) - 1:
                     path_lines.append(f"↳ !{node_id} (Target) ✅")
                 else:
@@ -231,26 +231,30 @@ HAL9000 (!{self.meshtastic_handler.node_id:x})
         return None
 
     def handle_command(self, text: str, sender_id: str, sender_name: str, channel_id: int = None, is_dm: bool = False) -> Optional[dict]:
-        """Handle HAL bot commands"""
+        """Handle bot commands"""
         # Clean up the text and check for direct commands
         text = text.strip()
         text_lower = text.lower()
-        
+
         # Normalize sender_id
         sender_id = sender_id.lower().lstrip('!')
-        
-        # Handle direct commands without HAL prefix
+
+        # --- Admin commands ---
+        if text_lower.startswith("!admin"):
+            return self._handle_admin(text, sender_id, sender_name, channel_id)
+
+        # Handle direct commands without bot prefix
         if text_lower in ['ping', 'traceroute', 'info', 'test', 'qsl']:
             command = text_lower
             args = ""
         else:
-            # Handle HAL prefixed commands
+            # Handle bot prefixed commands
             match = self.command_pattern.match(text)
             if not match:
                 return None
             command = match.group(1).lower()
             args = match.group(2) if match.group(2) else ""
-        
+
         if command in ['info', 'test', 'ping', 'qsl']:
             # Get node info
             node_info = self.get_node_info(sender_id)
@@ -269,7 +273,7 @@ HAL9000 (!{self.meshtastic_handler.node_id:x})
                     'uptime': 'N/A',
                     'gateway': 'N/A'
                 }
-                print(f"Using fallback node info for {sender_id}: {node_info}")  # Debug print
+                pass  # using fallback info
             
             # Check if node is connected via MQTT
             is_mqtt = node_info.get('connection_type') == 'mqtt'
@@ -297,7 +301,7 @@ HAL9000 (!{self.meshtastic_handler.node_id:x})
                 target = args.strip().lstrip('!')
                 if not target:
                     return {
-                        'response': "HAL9000: Invalid target format. Please use !1234abcd, 1234abcd, or a node name",
+                        'response': f"{self.bot_name}: Invalid target format. Please use !1234abcd, 1234abcd, or a node name",
                         'channel_id': channel_id,
                         'is_channel_message': channel_id is not None
                     }
@@ -308,14 +312,14 @@ HAL9000 (!{self.meshtastic_handler.node_id:x})
                     target_id = self._find_node_by_name(target)
                     if not target_id:
                         return {
-                            'response': f"HAL9000: Could not find a node matching '{target}'",
+                            'response': f"{self.bot_name}: Could not find a node matching '{target}'",
                             'channel_id': channel_id,
                             'is_channel_message': channel_id is not None
                         }
             
             if target_id in self.active_traceroutes:
                 return {
-                    'response': "HAL9000: Traceroute already in progress for this node",
+                    'response': f"{self.bot_name}: Traceroute already in progress for this node",
                     'channel_id': channel_id,
                     'is_channel_message': channel_id is not None
                 }
@@ -324,7 +328,7 @@ HAL9000 (!{self.meshtastic_handler.node_id:x})
             target_info = self.get_node_info(target_id)
             if not target_info:
                 return {
-                    'response': f"HAL9000: Target node !{target_id} not found",
+                    'response': f"{self.bot_name}: Target node !{target_id} not found",
                     'channel_id': channel_id,
                     'is_channel_message': channel_id is not None
                 }
@@ -347,9 +351,9 @@ HAL9000 (!{self.meshtastic_handler.node_id:x})
             
             # Customize response based on whether we're using default target
             if not args:
-                response = f"HAL9000: Starting traceroute to your node (!{target_id})..."
+                response = f"{self.bot_name}: Starting traceroute to your node (!{target_id})..."
             else:
-                response = f"HAL9000: Starting traceroute to !{target_id}..."
+                response = f"{self.bot_name}: Starting traceroute to !{target_id}..."
             
             return {
                 'response': response,
@@ -443,11 +447,11 @@ HAL9000 (!{self.meshtastic_handler.node_id:x})
             else:
                 break
         
-        # Add HAL9000 as the first hop if not already present
+        # Add bot node as the first hop if not already present
         if not path_info['hops'] or path_info['hops'][0]['node_id'] != f"{self.meshtastic_handler.node_id:x}":
             path_info['hops'].insert(0, {
                 'node_id': f"{self.meshtastic_handler.node_id:x}",
-                'node_name': 'HAL9000',
+                'node_name': self.bot_name,
                 'rssi': 'N/A',
                 'snr': 'N/A'
             })
@@ -472,4 +476,131 @@ HAL9000 (!{self.meshtastic_handler.node_id:x})
         elif time_since < 3600:
             return f"{time_since // 60} minutes ago"
         else:
-            return f"{time_since // 3600} hours ago" 
+            return f"{time_since // 3600} hours ago"
+
+    # ------------------------------------------------------------------
+    # Admin / self-management commands  (!admin <cmd> [args])
+    # ------------------------------------------------------------------
+
+    def _handle_admin(self, text: str, sender_id: str, sender_name: str, channel_id: int) -> Optional[dict]:
+        """Process !admin commands. Only authorized nodes may use these."""
+        if self.admin_node_ids and sender_id not in self.admin_node_ids:
+            return {
+                'response': f"{self.bot_name}: Access denied. You are not authorised for admin commands.",
+                'channel_id': channel_id,
+                'is_channel_message': False,
+            }
+
+        match = self.admin_pattern.match(text)
+        if not match:
+            return {
+                'response': f"{self.bot_name}: Usage: !admin <status|persona|switch_ai|nodes|channels|reboot>",
+                'channel_id': channel_id,
+                'is_channel_message': False,
+            }
+
+        cmd = match.group(1).lower()
+        args = match.group(2).strip() if match.group(2) else ""
+
+        if cmd == "status":
+            return self._admin_status(channel_id)
+        elif cmd == "nodes":
+            return self._admin_nodes(channel_id)
+        elif cmd == "channels":
+            return self._admin_channels(channel_id)
+        elif cmd == "persona" and args:
+            return self._admin_set_persona(args, channel_id)
+        elif cmd == "switch_ai" and args:
+            return self._admin_switch_ai(args, channel_id)
+        else:
+            return {
+                'response': f"{self.bot_name}: Unknown admin command '{cmd}'. "
+                            f"Available: status, persona <text>, switch_ai <openai|gemini>, nodes, channels",
+                'channel_id': channel_id,
+                'is_channel_message': False,
+            }
+
+    def _admin_status(self, channel_id):
+        handler = self.meshtastic_handler
+        connected = handler.is_connected if handler else False
+        node_id = f"!{handler.node_id:x}" if handler and handler.node_id else "N/A"
+        node_count = 0
+        if handler and handler.interface and hasattr(handler.interface, 'nodes'):
+            node_count = len(handler.interface.nodes or {})
+
+        ai_service = getattr(self.app_config, 'DEFAULT_AI_SERVICE', 'N/A') if self.app_config else 'N/A'
+
+        # Get state machine status
+        conn_status = handler.get_connection_status() if handler and hasattr(handler, 'get_connection_status') else {}
+        state_name = conn_status.get('state', 'N/A')
+        retries = conn_status.get('retry_count', 0)
+
+        lines = [
+            f"{self.bot_name} System Status:",
+            f"Node: {node_id}",
+            f"State: {state_name}",
+            f"Connected: {'Yes' if connected else 'No'}",
+            f"Retries: {retries}",
+            f"Nodes seen: {node_count}",
+            f"AI service: {ai_service}",
+            f"Time: {datetime.now().strftime('%H:%M:%S')}",
+        ]
+        return {
+            'response': "\n".join(lines),
+            'channel_id': channel_id,
+            'is_channel_message': False,
+        }
+
+    def _admin_nodes(self, channel_id):
+        if not self.meshtastic_handler or not self.meshtastic_handler.interface:
+            return {'response': f"{self.bot_name}: No interface available.", 'channel_id': channel_id, 'is_channel_message': False}
+
+        interface = self.meshtastic_handler.interface
+        if not hasattr(interface, 'nodes') or not interface.nodes:
+            return {'response': f"{self.bot_name}: No nodes found.", 'channel_id': channel_id, 'is_channel_message': False}
+
+        lines = [f"{self.bot_name}: {len(interface.nodes)} node(s):"]
+        for node_num, info in list(interface.nodes.items())[:15]:  # cap at 15 to fit message
+            nid = f"{node_num:x}" if isinstance(node_num, int) else str(node_num)
+            user = info.get('user', {})
+            name = user.get('shortName') or user.get('longName') or 'UNK'
+            lines.append(f"  !{nid} {name}")
+
+        return {'response': "\n".join(lines), 'channel_id': channel_id, 'is_channel_message': False}
+
+    def _admin_channels(self, channel_id):
+        channels = self.meshtastic_handler.list_channels() if self.meshtastic_handler else []
+        if not channels:
+            return {'response': f"{self.bot_name}: No channel info available.", 'channel_id': channel_id, 'is_channel_message': False}
+
+        lines = [f"{self.bot_name}: Channels:"]
+        for ch in channels:
+            lines.append(f"  {ch['index']}: {ch['name']} ({ch['role']})")
+
+        return {'response': "\n".join(lines), 'channel_id': channel_id, 'is_channel_message': False}
+
+    def _admin_set_persona(self, persona_text, channel_id):
+        # Store on config so AI bridge picks it up
+        if self.app_config:
+            self.app_config.DEFAULT_PERSONA = persona_text
+        return {
+            'response': f"{self.bot_name}: Persona updated ({len(persona_text)} chars).",
+            'channel_id': channel_id,
+            'is_channel_message': False,
+        }
+
+    def _admin_switch_ai(self, service, channel_id):
+        service = service.lower().strip()
+        if service not in ("openai", "gemini"):
+            return {
+                'response': f"{self.bot_name}: Unknown AI service '{service}'. Use openai or gemini.",
+                'channel_id': channel_id,
+                'is_channel_message': False,
+            }
+        if self.app_config:
+            self.app_config.DEFAULT_AI_SERVICE = service
+        return {
+            'response': f"{self.bot_name}: AI service switched to {service}.",
+            'channel_id': channel_id,
+            'is_channel_message': False,
+        }

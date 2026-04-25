@@ -23,8 +23,14 @@ typing-extensions>=4.8.0
 asyncio>=3.4.3
 aiohttp>=3.9.0  # For async HTTP requests
 
+# Web UI
+flask>=3.0.0
+werkzeug>=3.0.0
+
+# Matrix error reporter (uses requests - already present above)
+
 # Development dependencies
 pytest>=7.4.0  # For testing
 black>=23.7.0  # For code formatting
 flake8>=6.1.0  # For linting
-mypy>=1.5.0  # For type checking 
+mypy>=1.5.0  # For type checking

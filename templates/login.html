@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Meshtastic AI Bridge — Login</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0a0a0a; color: #d0d0d0;
+      font-family: 'Courier New', Courier, monospace;
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    }
+    .card {
+      background: #111; border: 1px solid #1e5c38;
+      padding: 36px 32px 28px; width: 340px;
+      box-shadow: 0 0 40px rgba(0,255,136,.06);
+    }
+    .logo { text-align: center; margin-bottom: 24px; }
+    .logo-title { color: #00ff88; font-size: 1.1em; font-weight: bold; letter-spacing: 2px; text-transform: uppercase; }
+    .logo-sub   { color: #444; font-size: .75em; margin-top: 4px; }
+    label {
+      display: block; font-size: .72em; color: #666;
+      text-transform: uppercase; letter-spacing: 1px;
+      margin-bottom: 4px; margin-top: 14px;
+    }
+    input[type="text"], input[type="password"] {
+      width: 100%; background: #0a0a0a; border: 1px solid #333;
+      color: #d0d0d0; padding: 9px 10px; font-family: inherit;
+      font-size: .9em; outline: none; transition: border-color .15s;
+    }
+    input[type="text"]:focus, input[type="password"]:focus { border-color: #00ff88; }
+    .remember {
+      display: flex; align-items: center; gap: 8px;
+      margin-top: 14px; font-size: .78em; color: #666; cursor: pointer;
+    }
+    .remember input[type="checkbox"] { accent-color: #00ff88; width: 14px; height: 14px; cursor: pointer; }
+    .remember:hover { color: #aaa; }
+    button[type="submit"] {
+      width: 100%; margin-top: 20px; padding: 10px;
+      background: #0a2e1a; color: #00ff88; border: 1px solid #00ff88;
+      font-family: inherit; font-size: .9em; font-weight: bold;
+      letter-spacing: 1px; cursor: pointer; text-transform: uppercase;
+      transition: background .15s, color .15s;
+    }
+    button[type="submit"]:hover { background: #00ff88; color: #000; }
+    .error {
+      background: #2e0a0a; border: 1px solid #ff4444;
+      color: #ff6666; font-size: .8em; padding: 8px 10px; margin-top: 14px;
+    }
+    .footer { text-align: center; margin-top: 20px; color: #333; font-size: .68em; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">
+      <div class="logo-title">Meshtastic AI Bridge</div>
+      <div class="logo-sub">Control Panel</div>
+    </div>
+    <form method="post" action="/login" autocomplete="off">
+      <label for="username">Username</label>
+      <input type="text" id="username" name="username" autofocus autocomplete="username">
+
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" autocomplete="current-password">
+
+      <label class="remember">
+        <input type="checkbox" name="remember" id="remember">
+        Remember me for 30 days
+      </label>
+
+      <button type="submit">Login</button>
+
+      {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    </form>
+    <div class="footer">Meshtastic AI Bridge &bull; LAN Panel</div>
+  </div>
+</body>
+</html>

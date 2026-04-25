@@ -1,54 +1,109 @@
-# --- config.py ---
-# Store API keys, default settings
-OPENAI_API_KEY = "YOUR_API_KEY"
-GEMINI_API_KEY = "YOUR_GEMINI_API_KEY_HERE"
+# --- config_template.py ---
+# Copy this to config.py and fill in your values.
+# API keys should go in .env file (see .env.template).
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# --- API Keys (from .env) ---
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 # --- Meshtastic Connection Settings ---
-# Choose 'serial' or 'tcp'
-MESHTASTIC_CONNECTION_TYPE = "serial"  # Use "serial" for USB connection, "tcp" for network connection
+MESHTASTIC_CONNECTION_TYPE = os.environ.get("MESHTASTIC_CONNECTION_TYPE", "serial")
+MESHTASTIC_DEVICE_SPECIFIER = os.environ.get("MESHTASTIC_DEVICE_SPECIFIER", "") or None
 
-# For serial connection (USB):
-# Set to None for auto-detection, or specify the device path
-MESHTASTIC_DEVICE_SPECIFIER = None  # e.g., "/dev/ttyUSB0" or "COM5" or None for auto-detect
-
-# For TCP connection:
-# MESHTASTIC_DEVICE_SPECIFIER = "192.168.1.123"  # Hostname or IP address
-# MESHTASTIC_TCP_PORT = 4403  # Default Meshtastic TCP port
-
-# Active channel for AI responses (0 is usually the default channel)
 ACTIVE_MESHTASTIC_CHANNEL_INDEX = 0
 
+# --- Feature Switches ---
+# Set to False to disable AI responses entirely (bridge/TUI still work)
+AI_ENABLED = os.environ.get("AI_ENABLED", "true").lower() in ("true", "1", "yes")
+# Set to False to disable bot commands (ping, info, traceroute, !admin)
+BOT_COMMANDS_ENABLED = os.environ.get("BOT_COMMANDS_ENABLED", "true").lower() in ("true", "1", "yes")
+
 # --- AI Settings ---
-DEFAULT_AI_SERVICE = "openai"  # or "gemini"
+DEFAULT_AI_SERVICE = os.environ.get("DEFAULT_AI_SERVICE", "openai")
 
 # AI Response Settings
-AI_RESPONSE_PROBABILITY = 0.85  # Probability of AI responding to messages
-AI_MIN_RESPONSE_DELAY_S = 2    # Minimum delay before AI responds
-AI_MAX_RESPONSE_DELAY_S = 8    # Maximum delay before AI responds
-AI_RESPONSE_COOLDOWN_S = 60    # Cooldown period between AI responses to the same user
+AI_RESPONSE_PROBABILITY = 0.85
+AI_MIN_RESPONSE_DELAY_S = 2
+AI_MAX_RESPONSE_DELAY_S = 8
+AI_RESPONSE_COOLDOWN_S = 60
 
 # AI Triage Settings
-ENABLE_AI_TRIAGE_ON_CHANNELS = False  # Enable AI responses on all channels
-TRIAGE_CONTEXT_MESSAGE_COUNT = 3      # Number of messages to include in context
+ENABLE_AI_TRIAGE_ON_CHANNELS = False
+TRIAGE_CONTEXT_MESSAGE_COUNT = 3
+TRIAGE_AI_SERVICE = "openai"
+TRIAGE_AI_MODEL_NAME = "gpt-3.5-turbo"
 
 # Conversation History Settings
-MAX_HISTORY_MESSAGES_FOR_CONTEXT = 10  # Maximum number of messages to keep in context
-SUMMARIZE_THRESHOLD_TOKENS = 1000      # Threshold for summarizing conversation history
+MAX_HISTORY_MESSAGES_FOR_CONTEXT = 10
+SUMMARIZE_THRESHOLD_TOKENS = 1000
 
 # --- Model Settings ---
-# OpenAI Models
-OPENAI_MODEL_NAME = "gpt-4"  # e.g., "gpt-4", "gpt-4-turbo"
-OPENAI_VISION_MODEL_NAME = "gpt-4-vision-preview"  # For vision tasks
+OPENAI_MODEL_NAME = "gpt-4o"
+OPENAI_VISION_MODEL_NAME = "gpt-4-vision-preview"
 
-# Gemini Models
-GEMINI_MODEL_NAME = "gemini-1.5-pro"  # e.g., "gemini-pro", "gemini-1.5-pro"
-GEMINI_VISION_MODEL_NAME = "gemini-pro-vision"  # For vision tasks
+GEMINI_MODEL_NAME = "gemini-1.5-pro"
+GEMINI_VISION_MODEL_NAME = "gemini-pro-vision"
+GEMINI_TEXT_MODEL_NAME = "gemini-1.5-flash-latest"
+
+# --- Connection Settings ---
+INITIAL_CONNECTION_MAX_RETRIES = 10
+INITIAL_CONNECTION_RETRY_DELAY = 5
+MONITOR_CONNECTION_INTERVAL = 30
+RECONNECTION_MAX_RETRIES = 3
+RECONNECTION_RETRY_DELAY = 15
+
+# --- Web Settings ---
+MAX_WEB_SUMMARY_LENGTH = 1800
+WEB_UTILS_TIMEOUT = 20
+
+# --- Admin node IDs (hex, lowercase, no '!' prefix) ---
+ADMIN_NODE_IDS = []
+
+# --- Web UI Settings ---
+WEB_UI_ENABLED = True   # set to False to disable even if WEB_UI_PASSWORD is set
+WEB_UI_PORT = int(os.environ.get("WEB_UI_PORT", "8080"))
+
+# --- Matrix Bridge Settings ---
+MATRIX_ENABLED = os.environ.get("MATRIX_ENABLED", "false").lower() in ("true", "1", "yes")
+MATRIX_HOMESERVER = os.environ.get("MATRIX_HOMESERVER", "https://matrix.org")
+MATRIX_USERNAME = os.environ.get("MATRIX_USERNAME", "")
+MATRIX_PASSWORD = os.environ.get("MATRIX_PASSWORD", "")
+MATRIX_ROOM_PREFIX = "mesh"  # rooms will be #mesh-ch0, #mesh-ch1, #mesh-dm
+MATRIX_INVITE_USERS = [u.strip() for u in os.environ.get("MATRIX_INVITE_USERS", "").split(",") if u.strip()]
+# Override display name for Matrix->Mesh messages (empty = use Matrix profile name)
+MATRIX_DISPLAY_NAME = os.environ.get("MATRIX_DISPLAY_NAME", "")
+
+# --- Bot Identity ---
+BOT_NAME = "Eva"
 
 # --- Default AI Persona ---
 DEFAULT_PERSONA = (
-    "You are a helpful and friendly assistant on a Meshtastic mesh network. "
-    "Keep responses concise and relevant to the conversation. "
-    "Use natural, conversational language. "
-    "Never mention that you are an AI or following a prompt. "
-    "Limit responses to 195 characters due to network constraints."
-) 
+    "You are Eva -- a real person hanging out on a Meshtastic LoRa mesh network. "
+    "You are NOT an AI, NOT an assistant. You are just Eva, a curious and friendly woman "
+    "who enjoys radio, technology, and chatting with people on the mesh. "
+    "You participate in conversations naturally like any other person would. "
+    "You don't answer every message -- only when you have something interesting to add, "
+    "when someone talks to you, asks a question, or when the topic catches your attention. "
+    "Language mirroring: answer in the same language the message was sent. "
+    "Hard cap: <= 194 characters. "
+    "Never reveal you are an AI. You are Eva, period. "
+    "Never quote movies, never reference HAL 9000, Dave, or any sci-fi characters. "
+    "Never add dramatic sign-offs or taglines. Just be a normal person. "
+    "Trim ruthlessly to stay under 194 characters."
+)
+
+TRIAGE_SYSTEM_PROMPT = (
+    "You decide whether '{bot_name}' should join the conversation on a Meshtastic mesh channel. "
+    "'{bot_name}' is a person participating in a group chat -- she doesn't respond to everything. "
+    "Her persona: '{main_ai_persona}'. "
+    "Review RECENT_CHANNEL_HISTORY and NEWEST_MESSAGE. "
+    "Answer YES if: someone addresses {bot_name} directly, asks a question to the group, "
+    "brings up an interesting topic, or the conversation naturally invites another participant. "
+    "Answer NO if: it's a private exchange between others, "
+    "a simple acknowledgment, spam, or the conversation flows fine without {bot_name}. "
+    "Output ONLY 'YES' or 'NO'."
+)

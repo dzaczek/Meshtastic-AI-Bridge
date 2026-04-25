@@ -21,17 +21,31 @@ from meshtastic_handler import MeshtasticHandler
 from ai_bridge import AIBridge
 from conversation_manager import ConversationManager
 from hal_bot import HalBot
+from message_router import MessageRouter, RouteResult
+try:
+    from matrix_bridge import MatrixBridge
+    HAS_MATRIX = True
+except ImportError:
+    HAS_MATRIX = False
 import config
 import random
 from rich.text import Text
 from rich.panel import Panel
 from rich.table import Table
 from rich.console import RenderableType
+from rich.markup import escape as rich_escape
+
+try:
+    from mesh_map import render_map_text
+    HAS_MESH_MAP = True
+except ImportError:
+    HAS_MESH_MAP = False
 import json
 import os
 import sys
 import re
 import traceback
+import math
 
 class AIProcessingWorker:
     """Worker class to handle AI processing in a separate thread"""
@@ -107,6 +121,16 @@ class AIProcessingWorker:
                         channel_index=self.channel_id
                     )
                 log_info(f"[AIWorker] send_message result: success={success}, reason={reason}")
+                # Forward AI reply to Matrix
+                if self.app.matrix_bridge:
+                    bot_name = getattr(self.app.app_config, 'BOT_NAME', 'Eva')
+                    # For DMs, sender_id must be the remote node (for room routing)
+                    self.app.matrix_bridge.send_to_matrix(
+                        ai_response, bot_name,
+                        self.sender_id if self.is_dm else f"{self.app.meshtastic_handler.node_id:x}",
+                        channel_index=self.channel_id,
+                        is_dm=self.is_dm,
+                    )
                 # Update UI
                 asyncio.run_coroutine_threadsafe(
                     self.app.update_after_ai_response(
@@ -125,89 +149,86 @@ class AIProcessingWorker:
             traceback.print_exc()
 
 class NodeListItem(ListItem):
-    """Custom list item for nodes"""
+    """Custom list item for nodes with connection type icons"""
+    # Connection type icons
+    ICONS = {
+        'radio':    ("📡", "R"),   # LoRa radio
+        'mqtt':     ("☁️",  "M"),   # MQTT / internet
+        'favorite': ("★",  "*"),   # Favorite
+    }
+
     def __init__(self, node_id: str, node_info: dict, is_favorite: bool = False, unread_count: int = 0):
         super().__init__()
         self.node_id = node_id
         self.node_info = node_info
         self.is_favorite = is_favorite
         self.unread_count = unread_count
-        
-        # Define fallback icons for terminals with limited Unicode support
-        self.favorite_icon = "★"  # Unicode star
-        self.favorite_icon_fallback = "*"  # ASCII fallback
-        self.node_icon = "●"  # Unicode circle
-        self.node_icon_fallback = "o"  # ASCII fallback
-        self.mqtt_icon = "🌐"  # Unicode globe
-        self.mqtt_icon_fallback = "[M]"  # ASCII fallback
-        
-    def _get_icon(self, unicode_icon: str, fallback_icon: str) -> str:
-        """Try to use Unicode icon, fall back to ASCII if terminal doesn't support it"""
+
+    @staticmethod
+    def _icon(key: str) -> str:
+        uni, fallback = NodeListItem.ICONS.get(key, ("?", "?"))
         try:
-            # Test if terminal can display the Unicode character
-            unicode_icon.encode('utf-8').decode('utf-8')
-            return unicode_icon
+            uni.encode('utf-8').decode('utf-8')
+            return uni
         except UnicodeError:
-            return fallback_icon
-        
+            return fallback
+
     def _sanitize_name(self, name: str) -> str:
-        """Sanitize node name while preserving UTF-8 characters"""
         if not name:
             return "Unknown"
-            
-        # Remove any markup that could interfere with display
-        name = re.sub(r'\[.*?\]', '', name)  # Remove any remaining brackets and their contents
-        
-        # Remove control characters but preserve printable Unicode
-        name = ''.join(char for char in name if char.isprintable() or char.isspace())
-        
-        # Clean up any double spaces created by the replacements
-        name = re.sub(r'\s+', ' ', name).strip()
-        
-        return name
-        
+        name = re.sub(r'\[.*?\]', '', name)
+        name = ''.join(c for c in name if c.isprintable() or c.isspace())
+        return re.sub(r'\s+', ' ', name).strip()
+
     def compose(self) -> ComposeResult:
-        """Compose the node item"""
-        # Get appropriate icons with fallbacks
-        icon = self._get_icon(self.favorite_icon, self.favorite_icon_fallback) if self.is_favorite else self._get_icon(self.node_icon, self.node_icon_fallback)
-        
-        # Get name and sanitize it while preserving UTF-8
         name = self._sanitize_name(self.node_info.get('long_name', 'Unknown'))
         node_id = self.node_id
-        
-        # Check if this is a default Meshtastic name
-        # Default names are like "Meshtastic XXXX" where XXXX matches the last 4 chars of node ID
+        is_mqtt = self.node_info.get('connection_type') == 'tcp'
+
+        # Connection icon
+        if self.is_favorite:
+            conn_icon = self._icon('favorite')
+        elif is_mqtt:
+            conn_icon = self._icon('mqtt')
+        else:
+            conn_icon = self._icon('radio')
+
+        # Default Meshtastic name check
         is_default_name = False
         if name.startswith("Meshtastic ") and len(name) > 11:
-            # Extract the suffix from the name
             name_suffix = name[11:].strip()
-            # Check if it matches the end of the node ID
             if node_id.endswith(name_suffix.lower()):
                 is_default_name = True
-                # For default names, just show "Node" + suffix to avoid redundancy
                 name = f"Node {name_suffix}"
-        
-        # Add hop count to the name
+
+        # Hop count
         hops_away = self.node_info.get('hops_away')
         if hops_away is not None:
-            if hops_away == 0:
-                hop_indicator = " (D)"  # Direct connection
-            else:
-                hop_indicator = f" ({hops_away})"  # Number of hops
+            hop_indicator = " [D]" if hops_away == 0 else f" [{hops_away}hop]"
         else:
-            hop_indicator = ""  # No hop count data available
+            hop_indicator = ""
 
-        # Add MQTT indicator if node is connected via TCP/MQTT
-        mqtt_icon = self._get_icon(self.mqtt_icon, self.mqtt_icon_fallback) if self.node_info.get('connection_type') == 'tcp' else ""
-        mqtt_indicator = f" {mqtt_icon}" if mqtt_icon else ""
-        
-        # For default names, we can skip showing the full node ID since it's redundant
-        if is_default_name:
-            display_text = f"{icon} {name}{hop_indicator}{mqtt_indicator}"
+        # Last heard age (rounded to full minutes/hours)
+        last_heard = self.node_info.get('last_heard', 0)
+        if last_heard:
+            age_s = int(time.time() - last_heard)
+            if age_s < 120:
+                age_str = "1m"
+            elif age_s < 3600:
+                age_str = f"{round(age_s / 60)}m"
+            elif age_s < 86400:
+                age_str = f"{round(age_s / 3600)}h"
+            else:
+                age_str = f"{round(age_s / 86400)}d"
+            age_tag = f" {age_str}"
         else:
-            display_text = f"{icon} {name}{hop_indicator}{mqtt_indicator} !{node_id}"
-        
-        # Use plain text style to avoid markup issues
+            age_tag = ""
+
+        if is_default_name:
+            display_text = f"{conn_icon}{age_tag} {name}{hop_indicator}"
+        else:
+            display_text = f"{conn_icon}{age_tag} {name}{hop_indicator}"
+
         style = "reverse" if self.unread_count > 0 else ""
         yield Label(display_text, classes=style, markup=False)
 
@@ -218,52 +239,14 @@ class ChannelListItem(ListItem):
         self.channel_id = channel_id
         self.channel_name = channel_name
         self.unread_count = unread_count
-        
-    def compose(self) -> ComposeResult:
-        """Compose the channel item"""
-        style = "reverse" if self.unread_count > 0 else ""
-        yield Label(f"Ch {self.channel_id}: {self.channel_name}", classes=style)
 
-class StatsPanel(Static):
-    """Stats panel widget"""
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.is_connected = False
-        self.node_count = 0
-        self.channel_info = "Channel 0"
-    
-    def on_mount(self) -> None:
-        """Set up periodic updates"""
-        self.set_interval(1.0, self.refresh_stats)
-    
-    def refresh_stats(self) -> None:
-        """Refresh the stats display"""
-        self.refresh()
-    
-    def render(self) -> RenderableType:
-        """Render the stats panel"""
-        table = Table(show_header=False, box=None, expand=True)
-        table.add_column("Stat", style="bold")
-        table.add_column("Value")
-        
-        # Connection status
-        status = "Connected" if self.is_connected else "Disconnected"
-        status_style = "green" if self.is_connected else "red"
-        table.add_row("Status", Text(status, style=status_style))
-        
-        # Node count
-        table.add_row("Nodes", str(self.node_count))
-        
-        # Current channel
-        table.add_row("Active", self.channel_info)
-        
-        # Time
-        table.add_row("Time", datetime.now().strftime("%H:%M:%S"))
-        
-        return Panel(table, title="Stats", border_style="blue")
+    def compose(self) -> ComposeResult:
+        badge = f" ({self.unread_count})" if self.unread_count > 0 else ""
+        style = "unread" if self.unread_count > 0 else ""
+        yield Label(f"# {self.channel_name}{badge}", classes=style, markup=False)
 
 class InfoPanel(Static):
-    """Shows aggregate info such as unread counts and node stats."""
+    """Compact status bar for the sidebar bottom."""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -275,12 +258,19 @@ class InfoPanel(Static):
 
     def render(self) -> RenderableType:  # type: ignore[override]
         if not self.stats:
-            return Panel("No stats", border_style="red", title="Info")
-
-        table = Table(show_header=False, box=None)
+            return Text(" -- ", style="dim")
+        parts = []
         for key, val in self.stats.items():
-            table.add_row(key, str(val))
-        return Panel(table, title="Info", border_style="green")
+            if key == "Status":
+                style = "bold green" if val == "ON" else "bold red"
+                parts.append(Text(f"{val}", style=style))
+            else:
+                parts.append(Text(f"{key}:{val}", style="dim"))
+        line = Text(" ")
+        for p in parts:
+            line.append(p)
+            line.append("  ")
+        return line
 
 class NodeStatsPanel(Static):
     """Detailed node statistics panel"""
@@ -298,105 +288,87 @@ class NodeStatsPanel(Static):
     def render(self) -> RenderableType:
         """Render the detailed node statistics"""
         if not self.selected_node_id or not self.node_data:
-            return Panel("Select a node to view detailed statistics", title="Node Statistics", border_style="blue")
-        
+            return Panel("[dim]Select a node\nto view stats[/dim]", title="Node Info", border_style="dim")
+
         # Create main table
-        table = Table(show_header=False, box=None, expand=True)
-        table.add_column("Property", style="bold cyan")
-        table.add_column("Value", style="white")
-        
-        # Basic node info
+        table = Table(show_header=False, box=None, expand=True, padding=(0, 1))
+        table.add_column("K", style="bold #58a6ff", width=10, no_wrap=True)
+        table.add_column("V", style="#e6edf3")
+
         node_id = self.node_data.get('node_id', 'Unknown')
         long_name = self.node_data.get('long_name', 'Unknown')
         short_name = self.node_data.get('short_name', 'UNK')
-        
-        table.add_row("Node ID", f"!{node_id}")
-        table.add_row("Long Name", long_name)
-        table.add_row("Short Name", short_name)
-        
-        # User role (if available)
+
+        table.add_row("Name", f"[bold #e6edf3]{long_name}[/]")
+        table.add_row("ID", f"[#8b949e]!{node_id}[/]")
+        table.add_row("Short", short_name)
+
         user_role = self.node_data.get('user_role', 'Unknown')
-        table.add_row("User Role", user_role)
-        
-        # First heard
-        first_heard = self.node_data.get('first_heard')
-        if first_heard:
-            first_heard_str = datetime.fromtimestamp(first_heard).strftime("%Y-%m-%d %H:%M:%S")
-            table.add_row("First Heard", first_heard_str)
-        
-        # Last heard
-        last_heard = self.node_data.get('last_heard')
-        if last_heard:
-            last_heard_str = datetime.fromtimestamp(last_heard).strftime("%Y-%m-%d %H:%M:%S")
-            time_ago = self._format_time_ago(last_heard)
-            table.add_row("Last Heard", f"{last_heard_str} ({time_ago})")
-        
+        if user_role != 'Unknown':
+            table.add_row("Role", user_role)
+
         # Connection info
         connection_type = self.node_data.get('connection_type', 'radio')
         hops_away = self.node_data.get('hops_away')
-        if hops_away is not None:
-            hops_str = f"{hops_away} hop{'s' if hops_away != 1 else ''}"
-        else:
-            hops_str = "Unknown"
-        
-        table.add_row("Connection", f"{connection_type.upper()} ({hops_str})")
-        
-        # Signal statistics for last 4 packets
-        signal_history = self.node_data.get('signal_history', [])
-        if signal_history:
-            table.add_row("", "")  # Empty row for spacing
-            table.add_row("Signal History", "")
-            
-            for i, packet in enumerate(signal_history[-4:], 1):  # Last 4 packets
-                timestamp = packet.get('timestamp', 0)
-                rssi = packet.get('rssi')
-                snr = packet.get('snr')
-                time_ago = self._format_time_ago(timestamp)
-                
-                rssi_str = f"{rssi} dBm" if rssi is not None else "N/A"
-                snr_str = f"{snr} dB" if snr is not None else "N/A"
-                
-                table.add_row(f"  Packet {i}", f"{time_ago} - RSSI: {rssi_str}, SNR: {snr_str}")
-        
-        # Current signal info
+        conn_icon = "[#f0883e]MQTT[/]" if connection_type == 'tcp' else "[#3fb950]RADIO[/]"
+        hops_str = f" {hops_away}h" if hops_away is not None else ""
+        table.add_row("Link", f"{conn_icon}{hops_str}")
+
+        # Last heard
+        last_heard = self.node_data.get('last_heard')
+        if last_heard:
+            table.add_row("Heard", f"[#e6edf3]{self._format_time_ago(last_heard)}[/]")
+
+        # Signal
         current_rssi = self.node_data.get('rssi')
         current_snr = self.node_data.get('snr')
-        if current_rssi is not None or current_snr is not None:
-            table.add_row("", "")  # Empty row for spacing
-            table.add_row("Current Signal", "")
-            rssi_str = f"{current_rssi} dBm" if current_rssi is not None else "N/A"
-            snr_str = f"{current_snr} dB" if current_snr is not None else "N/A"
-            table.add_row("  RSSI", rssi_str)
-            table.add_row("  SNR", snr_str)
-        
-        # GPS Position (if available)
+        if current_rssi is not None:
+            color = "#3fb950" if current_rssi > -100 else "#f0883e" if current_rssi > -115 else "#f85149"
+            table.add_row("RSSI", f"[{color}]{current_rssi} dBm[/]")
+        if current_snr is not None:
+            color = "#3fb950" if current_snr > 5 else "#f0883e" if current_snr > 0 else "#f85149"
+            table.add_row("SNR", f"[{color}]{current_snr} dB[/]")
+
+        # Signal history (compact)
+        signal_history = self.node_data.get('signal_history', [])
+        if signal_history:
+            table.add_row("", "")
+            table.add_row("[bold #58a6ff]History[/]", "")
+            for packet in signal_history[-3:]:
+                rssi = packet.get('rssi')
+                snr = packet.get('snr')
+                t = self._format_time_ago(packet.get('timestamp', 0))
+                r = f"{rssi}" if rssi is not None else "-"
+                s = f"{snr}" if snr is not None else "-"
+                table.add_row(f"  {t}", f"[#8b949e]{r}/{s}[/]")
+
+        # GPS
         position = self.node_data.get('position')
         if position:
-            table.add_row("", "")  # Empty row for spacing
-            table.add_row("GPS Position", "")
             lat = position.get('latitude')
             lon = position.get('longitude')
             alt = position.get('altitude')
             if lat is not None and lon is not None:
-                table.add_row("  Coordinates", f"{lat:.6f}, {lon:.6f}")
-            if alt is not None:
-                table.add_row("  Altitude", f"{alt}m")
-        
-        # Model info
+                table.add_row("", "")
+                table.add_row("GPS", f"[#e6edf3]{lat:.4f},{lon:.4f}[/]")
+                if alt is not None:
+                    table.add_row("Alt", f"{alt}m")
+
+        # Model / Battery
         model = self.node_data.get('model', 'Unknown')
-        table.add_row("Model", model)
-        
-        # Battery info
+        if model != 'Unknown':
+            table.add_row("Model", f"[#8b949e]{model}[/]")
+
         battery = self.node_data.get('battery_level')
         if battery is not None:
-            table.add_row("Battery", f"{battery}%")
-        
-        # Uptime
+            color = "#3fb950" if battery > 50 else "#f0883e" if battery > 20 else "#f85149"
+            table.add_row("Batt", f"[{color}]{battery}%[/]")
+
         uptime = self.node_data.get('uptime')
         if uptime:
-            table.add_row("Uptime", uptime)
-        
-        return Panel(table, title=f"Node Statistics - {short_name}", border_style="green")
+            table.add_row("Up", f"[#8b949e]{uptime}[/]")
+
+        return Panel(table, title=f"[bold #58a6ff]{short_name}[/]", border_style="#30363d")
     
     def _format_time_ago(self, timestamp: float) -> str:
         """Format time ago from timestamp"""
@@ -415,163 +387,350 @@ class NodeStatsPanel(Static):
         else:
             return f"{int(diff // 86400)}d ago"
 
+class MeshMapPanel(Static):
+    """ASCII map of mesh nodes based on GPS coordinates"""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.nodes_data = {}
+        self.selected_node_id = None
+        self.map_filter = "all"
+        self.center_lat = None
+        self.center_lon = None
+        self.zoom_level = 0  # 0 = auto
+
+    def set_nodes(self, nodes: dict, selected: str = None, map_filter: str = "all",
+                  center_lat: float = None, center_lon: float = None, zoom_level: int = 0):
+        self.nodes_data = nodes
+        self.selected_node_id = selected
+        self.map_filter = map_filter
+        self.center_lat = center_lat
+        self.center_lon = center_lon
+        self.zoom_level = zoom_level
+        self.refresh()
+
+    def _filter_nodes(self) -> dict:
+        filtered = {}
+        now = time.time()
+        for nid, info in self.nodes_data.items():
+            pos = info.get('position')
+            if not pos or pos.get('latitude') is None or pos.get('longitude') is None:
+                continue
+            # Apply filter
+            f = self.map_filter
+            if f == "all":
+                pass
+            elif f == "0hop":
+                if info.get('hops_away') != 0:
+                    continue
+            elif f == "1hop":
+                if (info.get('hops_away') or 999) > 1:
+                    continue
+            elif f == "2hop":
+                if (info.get('hops_away') or 999) > 2:
+                    continue
+            elif f == "3hop+":
+                if (info.get('hops_away') or 0) < 3:
+                    continue
+            elif f == "1h":
+                if now - info.get('last_heard', 0) > 3600:
+                    continue
+            elif f == "6h":
+                if now - info.get('last_heard', 0) > 21600:
+                    continue
+            elif f == "24h":
+                if now - info.get('last_heard', 0) > 86400:
+                    continue
+            filtered[nid] = info
+        return filtered
+
+    def render(self) -> RenderableType:
+        if not HAS_MESH_MAP:
+            return Panel(
+                "[dim]mesh_map module not available.\nInstall Pillow: pip install Pillow[/dim]",
+                title="[bold #58a6ff]Mesh Map[/]", border_style="#30363d"
+            )
+
+        # Get terminal size for map rendering
+        try:
+            term_w = self.size.width - 2  # account for panel border
+            term_h = self.size.height - 2
+        except Exception:
+            term_w, term_h = 80, 35
+
+        term_w = max(40, term_w)
+        term_h = max(10, term_h)
+
+        try:
+            zoom_kw = {}
+            if self.zoom_level and self.zoom_level > 0 and self.center_lat is not None:
+                zoom_kw = {
+                    "center_lat": self.center_lat,
+                    "center_lon": self.center_lon,
+                    "zoom_override": self.zoom_level,
+                }
+            map_text = render_map_text(
+                self.nodes_data,
+                selected_node_id=self.selected_node_id,
+                map_filter=self.map_filter,
+                term_width=term_w,
+                term_height=term_h,
+                **zoom_kw,
+            )
+        except Exception as e:
+            map_text = f"[dim]Map error: {e}[/dim]"
+
+        return map_text
+
+
 class MeshtasticInteractive(App):
     """Main Interactive Application using Textual"""
-    
-    TITLE = "Meshtastic AI Bridge - Interactive Interface"
-    CSS_PATH = "meshtastic_tui.css"
+
+    TITLE = "Eva  Mesh AI"
     BINDINGS = [
-        ("q", "quit_app", "Quit"),
-        ("ctrl+c", "quit_app", "Quit"),
-        ("f", "force_ai", "Force AI Response"),
-        ("c", "focus_channel_list", "Focus Channels"),
-        ("n", "focus_node_list", "Focus Nodes"),
-        ("m", "focus_messages", "Focus Messages"),
-        ("i", "focus_input", "Focus Input")
+        Binding("ctrl+c", "quit", "Quit"),
+        Binding("ctrl+q", "quit", "Quit"),
+        Binding("f5", "force_ai", "AI Reply", show=True),
+        Binding("f1", "focus_channel_list", "Channels", show=True),
+        Binding("f2", "focus_node_list", "Nodes", show=True),
+        Binding("f3", "focus_messages", "Chat", show=True),
+        Binding("f4", "focus_input", "Input", show=True),
+        Binding("f6", "toggle_logs", "Logs", show=True),
+        Binding("f7", "cycle_node_filter", "Filter", show=True),
+        Binding("f8", "cycle_hop_filter", "Hops", show=True),
+        Binding("f9", "toggle_map", "Map", show=True),
+        Binding("f10", "cycle_map_filter", "MapFlt", show=True),
+        Binding("plus", "map_zoom_in", "Zoom+", show=False),
+        Binding("equals", "map_zoom_in", "Zoom+", show=False),
+        Binding("minus", "map_zoom_out", "Zoom-", show=False),
+        Binding("0", "map_zoom_reset", "ZoomRst", show=False),
+        Binding("escape", "focus_input", "Input"),
     ]
     current_conversation_id = reactive(None, layout=True)
     sidebar_conversations = reactive([], layout=True)
+    show_logs = reactive(False)
+    node_filter = reactive("all")  # "all", "radio", "mqtt"
+    hop_filter = reactive("all")  # "all", "0", "1", "2", "3+"
+    show_map = reactive(False)
+    map_filter = reactive("all")  # "all", "0hop", "1hop", "2hop", "3hop+", "1h", "6h", "24h"
+    map_zoom = reactive(0)  # 0 = auto, positive = OSM zoom level (1-18)
 
     CSS = """
     Screen {
-        layout: grid;
-        grid-size: 4 7;
-        grid-columns: 1fr 1fr 1fr 1fr;
-        grid-rows: auto 1fr 1fr 1fr 1fr 1fr 1;
+        background: #0d1117;
+        color: #c9d1d9;
     }
-    
+
     Header {
-        column-span: 4;
+        background: #161b22;
+        color: #58a6ff;
+        dock: top;
+        height: 1;
     }
-    
-    #left-panel {
-        column-span: 1;
-        row-span: 5;
-        border: solid green;
-        height: 100%;
-        padding: 1;
-        layout: vertical;
-    }
-    
-    #center-panel {
-        column-span: 2;
-        row-span: 5;
-        border: solid yellow;
-        height: 100%;
-        overflow: hidden;
-        layout: vertical;
-    }
-    
-    #right-panel {
-        column-span: 1;
-        row-span: 5;
-        border: solid blue;
-        height: 100%;
-        padding: 1;
-        layout: vertical;
-    }
-    
-    #channel-list {
-        height: 30%;
-        border-bottom: solid $accent;
-        margin-bottom: 1;
-    }
-    
-    #info-panel {
-        height: 30%;
-        border-bottom: solid $accent;
-        margin-bottom: 1;
-    }
-    
-    #stats-panel {
-        height: 40%;
-    }
-    
-    #node-list {
-        height: 60%;
-        border-bottom: solid $accent;
-        margin-bottom: 1;
-    }
-    
-    #node-stats {
-        height: 40%;
-    }
-    
-    #bottom-panel {
-        column-span: 4;
-        border: solid cyan;
-        height: 100%;
-        layout: horizontal;
-    }
-    
-    #log-box {
-        width: 100%;
-        padding: 1;
-    }
-    
+
     Footer {
-        column-span: 4;
+        background: #161b22;
+        color: #8b949e;
     }
-    
-    ListView {
-        height: 100%;
-        background: $surface;
-    }
-    
-    #message-display {
-        height: 1fr;
-        background: $surface;
-        overflow-y: scroll;
-        scrollbar-gutter: stable;
-        scrollbar-size: 1 1;
-    }
-    
-    #message-display:focus {
-        border: thick $accent;
-    }
-    
-    #message-container {
-        padding: 0 1;
-        width: 100%;
-    }
-    
-    #input-container {
+
+    /* ---- Main grid ---- */
+    #app-grid {
         layout: horizontal;
+        height: 1fr;
+    }
+
+    /* ---- Sidebar ---- */
+    #sidebar {
+        width: 34;
+        min-width: 28;
+        background: #0d1117;
+        border-right: vkey #30363d;
+        layout: vertical;
+    }
+
+    .sidebar-label {
+        color: #8b949e;
+        text-style: bold;
+        padding: 0 1;
+        margin-top: 1;
+        height: 1;
+    }
+
+    #channel-list {
+        height: auto;
+        max-height: 12;
+        background: #0d1117;
+        margin: 0;
+        padding: 0;
+    }
+
+    #node-list {
+        height: 1fr;
+        background: #0d1117;
+        margin: 0;
+        padding: 0;
+    }
+
+    #status-bar {
         height: 3;
         dock: bottom;
-        width: 100%;
+        background: #161b22;
+        padding: 0 1;
+        border-top: solid #30363d;
     }
-    
+
+    ListView {
+        background: #0d1117;
+        scrollbar-size: 1 1;
+    }
+
+    ListView > ListItem {
+        padding: 0 1;
+        height: 1;
+        background: #0d1117;
+    }
+
+    ListView > ListItem:hover {
+        background: #161b22;
+    }
+
+    ListView > ListItem.-selected,
+    ListView:focus > ListItem.--highlight {
+        background: #1f6feb33;
+        color: #58a6ff;
+    }
+
+    /* ---- Center: chat ---- */
+    #center {
+        width: 1fr;
+        layout: vertical;
+        background: #0d1117;
+    }
+
+    #chat-header {
+        height: 1;
+        background: #161b22;
+        color: #58a6ff;
+        text-style: bold;
+        padding: 0 1;
+        border-bottom: solid #30363d;
+    }
+
+    #message-display {
+        height: 1fr;
+        background: #0d1117;
+        padding: 0 1;
+        scrollbar-size: 1 1;
+        scrollbar-gutter: stable;
+    }
+
+    #message-display:focus {
+        border: none;
+    }
+
+    #input-area {
+        height: 3;
+        dock: bottom;
+        layout: horizontal;
+        background: #161b22;
+        padding: 0;
+    }
+
     #message-input {
         width: 1fr;
         height: 3;
+        background: #0d1117;
+        color: #e6edf3;
+        border: none;
+        border-top: solid #58a6ff;
+        padding: 0 1;
     }
-    
+
+    #message-input:focus {
+        border-top: solid #79c0ff;
+        background: #161b22;
+    }
+
     #force-ai-button {
-        width: 10;
+        width: 6;
         height: 3;
-        margin-left: 1;
-        background: #2c3e50;
-        color: white;
+        background: #238636;
+        color: #ffffff;
+        text-style: bold;
+        border: none;
+        margin: 0;
     }
-    
+
     #force-ai-button:hover {
-        background: #34495e;
+        background: #2ea043;
     }
-    
-    #force-ai-button:focus {
-        background: #1a252f;
+
+    /* ---- Right panel (node details) ---- */
+    #right-panel {
+        width: 36;
+        background: #0d1117;
+        border-left: vkey #30363d;
+        layout: vertical;
+        padding: 1;
     }
-    
-    Log {
-        height: 100%;
-        background: $surface;
+
+    #node-stats {
+        height: 1fr;
     }
-    
-    /* Add styles for unread highlighting */
+
+    #map-panel {
+        width: 1fr;
+        height: 1fr;
+        background: #0d1117;
+        display: none;
+        padding: 0;
+    }
+
+    #map-panel.visible {
+        display: block;
+    }
+
+    #mesh-map {
+        height: 1fr;
+        width: 1fr;
+    }
+
+    #info-panel {
+        height: auto;
+        margin-bottom: 1;
+    }
+
+    /* ---- Bottom log bar ---- */
+    #log-panel {
+        height: 8;
+        dock: bottom;
+        background: #161b22;
+        border-top: solid #30363d;
+        display: none;
+    }
+
+    #log-panel.visible {
+        display: block;
+    }
+
+    #app-log {
+        height: 1fr;
+        background: #161b22;
+        scrollbar-size: 1 1;
+        padding: 0 1;
+    }
+
+    /* ---- Unread badge ---- */
+    .unread {
+        background: #1f6feb33;
+        color: #58a6ff;
+        text-style: bold;
+    }
+
     .reverse {
-        background: $accent;
-        color: $surface;
+        background: #1f6feb33;
+        color: #58a6ff;
+        text-style: bold;
     }
     """
     
@@ -594,9 +753,34 @@ class MeshtasticInteractive(App):
         self.ai_node_id = self._norm_id(f"{self.meshtastic_handler.node_id:x}") if self.meshtastic_handler.node_id else None
         self.log_info(f"AI Node ID set to: '{self.ai_node_id}' (from meshtastic_handler.node_id: {self.meshtastic_handler.node_id})")
         
-        # Initialize HAL bot
-        self.hal_bot = HalBot(self.meshtastic_handler)
+        # Initialize HAL bot and message router
+        self.hal_bot = HalBot(self.meshtastic_handler, self.app_config)
+        self.router = MessageRouter(
+            self.app_config, self.ai_bridge,
+            self.conversation_manager, self.hal_bot,
+            self.meshtastic_handler
+        )
         
+        # Initialize Matrix bridge (if configured)
+        self.matrix_bridge = None
+        if HAS_MATRIX and getattr(self.app_config, 'MATRIX_ENABLED', False):
+            try:
+                self.matrix_bridge = MatrixBridge(
+                    homeserver=getattr(self.app_config, 'MATRIX_HOMESERVER', ''),
+                    username=getattr(self.app_config, 'MATRIX_USERNAME', ''),
+                    password=getattr(self.app_config, 'MATRIX_PASSWORD', ''),
+                    room_prefix=getattr(self.app_config, 'MATRIX_ROOM_PREFIX', 'mesh'),
+                    bot_name=getattr(self.app_config, 'BOT_NAME', 'Eva'),
+                    invite_users=getattr(self.app_config, 'MATRIX_INVITE_USERS', []),
+                    meshtastic_handler=self.meshtastic_handler,
+                    display_name=getattr(self.app_config, 'MATRIX_DISPLAY_NAME', ''),
+                )
+                self.matrix_bridge.start()
+                self.log_info("Matrix bridge started")
+            except Exception as e:
+                self.log_info(f"Matrix bridge failed to start: {e}")
+                self.matrix_bridge = None
+
         # Other initializations
         self.url_pattern = re.compile(r'https?://[^\s/$.?#].[^\s]*', re.IGNORECASE)
         self.last_response_times = {}
@@ -613,6 +797,7 @@ class MeshtasticInteractive(App):
         self.nodes: Dict[str, dict] = {}
         self.current_chat_type = "channel"
         self.current_chat_id = "0"
+        self.selected_node_id = None
         self.last_viewed_messages: Dict[str, int] = {}
         
         # Unread message tracking
@@ -646,65 +831,176 @@ class MeshtasticInteractive(App):
     def compose(self) -> ComposeResult:
         """Create child widgets"""
         yield Header()
-        
-        # Left panel - Channels, Info, and Stats
-        with Container(id="left-panel"):
-            yield Label("Channels", classes="title")
-            yield ListView(
-                ChannelListItem(0, "Primary"),
-                ChannelListItem(1, "Channel 1"),
-                ChannelListItem(2, "Channel 2"),
-                ChannelListItem(3, "Channel 3"),
-                ChannelListItem(4, "Channel 4"),
-                ChannelListItem(5, "Channel 5"),
-                ChannelListItem(6, "Channel 6"),
-                ChannelListItem(7, "Channel 7"),
-                id="channel-list"
-            )
-            yield InfoPanel(id="info-panel")
-            yield StatsPanel(id="stats-panel")
-        
-        # Center panel - Messages
-        with Container(id="center-panel"):
-            yield RichLog(id="message-display", wrap=True, markup=True, highlight=True, auto_scroll=True)
-            with Horizontal(id="input-container"):
-                yield Input(placeholder="Type a message...", id="message-input")
-                yield Button("🤖 Force AI", id="force-ai-button")
-        
-        # Right panel - Node list and stats
-        with Container(id="right-panel"):
-            yield Label("Nodes", classes="title")
-            yield ListView(id="node-list")
-            yield NodeStatsPanel(id="node-stats")
-        
-        # Bottom panel - Logs only
-        with Container(id="bottom-panel"):
-            with Container(id="log-box"):
-                yield RichLog(id="app-log", highlight=True, markup=True)
-        
+
+        with Horizontal(id="app-grid"):
+            # -- Sidebar: channels + nodes --
+            with Vertical(id="sidebar"):
+                yield Label(" CHANNELS", classes="sidebar-label")
+                yield ListView(
+                    ChannelListItem(0, "Primary"),
+                    id="channel-list"
+                )
+                yield Label(" NODES (t=filter)", classes="sidebar-label", id="node-filter-label", markup=False)
+                yield ListView(id="node-list")
+                yield InfoPanel(id="status-bar")
+
+            # -- Center: chat --
+            with Vertical(id="center"):
+                yield Label(" Channel 0 - Primary", id="chat-header")
+                yield RichLog(id="message-display", wrap=True, markup=True, highlight=True, auto_scroll=True)
+                with Horizontal(id="input-area"):
+                    yield Input(placeholder="Type a message...", id="message-input")
+                    yield Button("AI", id="force-ai-button")
+
+            # -- Right: node details --
+            with Vertical(id="right-panel"):
+                yield NodeStatsPanel(id="node-stats")
+
+        # -- Map overlay (hidden by default, replaces app-grid) --
+        with Vertical(id="map-panel"):
+            yield MeshMapPanel(id="mesh-map")
+
+        # -- Collapsible log bar --
+        with Container(id="log-panel"):
+            yield RichLog(id="app-log", highlight=True, markup=True)
+
         yield Footer()
     
+    def action_cycle_node_filter(self) -> None:
+        """Cycle node filter: all -> radio -> mqtt -> all"""
+        cycle = {"all": "radio", "radio": "mqtt", "mqtt": "all"}
+        self.node_filter = cycle.get(self.node_filter, "all")
+        filter_labels = {"all": " NODES (F7=type F8=hops)", "radio": " NODES radio only", "mqtt": " NODES mqtt only"}
+        try:
+            self.query_one("#node-filter-label", Label).update(filter_labels[self.node_filter])
+        except Exception:
+            pass
+        self.update_node_list()
+
+    def action_cycle_hop_filter(self) -> None:
+        """Cycle hop filter: all -> 0 -> 1 -> 2 -> 3+ -> all"""
+        cycle = {"all": "0", "0": "1", "1": "2", "2": "3+", "3+": "all"}
+        self.hop_filter = cycle.get(self.hop_filter, "all")
+        hop_labels = {
+            "all": " NODES (F7=type F8=hops)",
+            "0": " NODES [direct only]",
+            "1": " NODES [<=1 hop]",
+            "2": " NODES [<=2 hops]",
+            "3+": " NODES [3+ hops]",
+        }
+        try:
+            self.query_one("#node-filter-label", Label).update(hop_labels[self.hop_filter])
+        except Exception:
+            pass
+        self.update_node_list()
+
+    def action_toggle_map(self) -> None:
+        """Toggle mesh map view (replaces main grid)"""
+        self.show_map = not self.show_map
+        try:
+            app_grid = self.query_one("#app-grid")
+            map_panel = self.query_one("#map-panel")
+            if self.show_map:
+                app_grid.styles.display = "none"
+                map_panel.add_class("visible")
+                self._refresh_map()
+            else:
+                app_grid.styles.display = "block"
+                map_panel.remove_class("visible")
+        except Exception:
+            pass
+
+    def action_cycle_map_filter(self) -> None:
+        """Cycle map filter"""
+        cycle = {"all": "0hop", "0hop": "1hop", "1hop": "2hop", "2hop": "3hop+",
+                 "3hop+": "1h", "1h": "6h", "6h": "24h", "24h": "all"}
+        self.map_filter = cycle.get(self.map_filter, "all")
+        self._refresh_map()
+
+    def _get_my_node_position(self):
+        """Get lat/lon of our own mesh node."""
+        if self.ai_node_id and self.ai_node_id in self.nodes:
+            pos = self.nodes[self.ai_node_id].get('position', {})
+            lat = pos.get('latitude')
+            lon = pos.get('longitude')
+            if lat is not None and lon is not None and not (lat == 0 and lon == 0):
+                return lat, lon
+        return None, None
+
+    def _refresh_map(self) -> None:
+        """Refresh the mesh map with current nodes"""
+        try:
+            mesh_map = self.query_one("#mesh-map", MeshMapPanel)
+            center_lat, center_lon = self._get_my_node_position()
+            mesh_map.set_nodes(
+                self.nodes, self.selected_node_id, self.map_filter,
+                center_lat=center_lat, center_lon=center_lon,
+                zoom_level=self.map_zoom,
+            )
+        except Exception:
+            pass
+
+    def action_map_zoom_in(self) -> None:
+        """Zoom in on map (centered on own node)"""
+        if not self.show_map:
+            return
+        if self.map_zoom == 0:
+            # Start from a reasonable default zoom
+            self.map_zoom = 12
+        elif self.map_zoom < 18:
+            self.map_zoom += 1
+        self._refresh_map()
+
+    def action_map_zoom_out(self) -> None:
+        """Zoom out on map"""
+        if not self.show_map:
+            return
+        if self.map_zoom <= 1:
+            self.map_zoom = 0  # back to auto
+        elif self.map_zoom > 1:
+            self.map_zoom -= 1
+        self._refresh_map()
+
+    def action_map_zoom_reset(self) -> None:
+        """Reset map zoom to auto-fit"""
+        if not self.show_map:
+            return
+        self.map_zoom = 0
+        self._refresh_map()
+
+    def action_toggle_logs(self) -> None:
+        """Toggle log panel visibility"""
+        self.show_logs = not self.show_logs
+        log_panel = self.query_one("#log-panel")
+        if self.show_logs:
+            log_panel.add_class("visible")
+        else:
+            log_panel.remove_class("visible")
+
     async def on_mount(self) -> None:
         """Called when the app is mounted"""
         self.app_loop = asyncio.get_running_loop()
         # Start message queue processor
         self.run_worker(self.process_message_queue, group="message_processor")
-        
+
+        # Populate channel list from device
+        self.update_channel_list()
+
         # Load initial nodes
         self.load_initial_nodes()
-        
+
         # Set default channel
         self.load_conversation()
-        
+
         # Update stats
         self.update_stats()
-        
+
         # Log startup
-        self.query_one("#app-log", RichLog).write("[green]TUI started successfully[/green]")
-        
+        self.query_one("#app-log", RichLog).write("[green]Eva Mesh AI started[/green]")
+
         # Initial info panel update
         self.refresh_info_panel()
-        
+
         # Focus the message input by default
         self.query_one("#message-input").focus()
     
@@ -734,6 +1030,11 @@ class MeshtasticInteractive(App):
         user = node_info.get('user', {})
         
         # Basic info
+        # Detect connection type: viaMqtt flag or hopsAway=-1 means MQTT
+        is_mqtt = node_info.get('viaMqtt', False)
+        if not is_mqtt and node_info.get('hopsAway') == -1:
+            is_mqtt = True
+
         detailed_info = {
             'long_name': user.get('longName', 'Unknown'),
             'short_name': user.get('shortName', 'UNK'),
@@ -741,7 +1042,7 @@ class MeshtasticInteractive(App):
             'first_heard': node_info.get('firstHeard', time.time()),
             'is_favorite': node_info.get('isFavorite', False),
             'hops_away': node_info.get('hopsAway', None),
-            'connection_type': self.app_config.MESHTASTIC_CONNECTION_TYPE,
+            'connection_type': 'tcp' if is_mqtt else 'radio',
             'node_id': node_id_str,
             'user_role': user.get('role', 'Unknown'),
             'model': node_info.get('model', 'Unknown'),
@@ -789,13 +1090,38 @@ class MeshtasticInteractive(App):
         return detailed_info
 
     def update_node_list(self) -> None:
-        """Update the node list widget with unread counts"""
+        """Update the node list widget with unread counts.
+        Sort order: MQTT/internet nodes first, then by last_heard (newest first), then by hops (closest first).
+        Respects self.node_filter: 'all', 'radio', or 'mqtt'.
+        """
         node_list = self.query_one("#node-list", ListView)
         node_list.clear()
-        
-        # Sort nodes by last heard
-        sorted_nodes = sorted(self.nodes.items(), key=lambda x: x[1]['last_heard'], reverse=True)
-        
+
+        def sort_key(item):
+            _nid, info = item
+            is_mqtt = 0 if info.get('connection_type') == 'tcp' else 1  # MQTT first
+            last_heard = -(info.get('last_heard', 0))  # newest first (negative for desc)
+            hops = info.get('hops_away') if info.get('hops_away') is not None else 999  # closest first
+            return (is_mqtt, last_heard, hops)
+
+        sorted_nodes = sorted(self.nodes.items(), key=sort_key)
+
+        # Apply connection type filter
+        if self.node_filter == "radio":
+            sorted_nodes = [(nid, info) for nid, info in sorted_nodes if info.get('connection_type') != 'tcp']
+        elif self.node_filter == "mqtt":
+            sorted_nodes = [(nid, info) for nid, info in sorted_nodes if info.get('connection_type') == 'tcp']
+
+        # Apply hop filter
+        if self.hop_filter == "0":
+            sorted_nodes = [(nid, info) for nid, info in sorted_nodes if info.get('hops_away') == 0]
+        elif self.hop_filter == "1":
+            sorted_nodes = [(nid, info) for nid, info in sorted_nodes if (info.get('hops_away') or 999) <= 1]
+        elif self.hop_filter == "2":
+            sorted_nodes = [(nid, info) for nid, info in sorted_nodes if (info.get('hops_away') or 999) <= 2]
+        elif self.hop_filter == "3+":
+            sorted_nodes = [(nid, info) for nid, info in sorted_nodes if (info.get('hops_away') or 0) >= 3]
+
         for node_id, node_info in sorted_nodes:
             # Get DM conversation ID
             conv_id = self._dm_conv(node_id)
@@ -840,81 +1166,85 @@ class MeshtasticInteractive(App):
     
     def load_conversation(self) -> None:
         """Load messages for current conversation"""
-        log_widget = self.query_one("#app-log", RichLog)
         if self.current_chat_type == "channel":
             conv_id = f"ch_{self.current_chat_id}_broadcast"
         else:
             conv_id = self._dm_conv(self.current_chat_id)
-        
-        log_widget.write(f"[dodger_blue1]Loading conversation for conv_id: {conv_id}[/dodger_blue1]")
 
         messages = self.conversation_manager.load_conversation(conv_id)
-        
-        # Debug: Show the actual message count and some info about first/last messages
-        if messages:
-            first_msg = messages[0]
-            last_msg = messages[-1]
-            log_widget.write(f"[green]Loaded {len(messages)} total messages from file[/green]")
-            log_widget.write(f"[green]First: {first_msg.get('user_name', 'Unknown')} at {datetime.fromtimestamp(first_msg.get('timestamp', 0)).strftime('%Y-%m-%d %H:%M')}[/green]")
-            log_widget.write(f"[green]Last: {last_msg.get('user_name', 'Unknown')} at {datetime.fromtimestamp(last_msg.get('timestamp', 0)).strftime('%Y-%m-%d %H:%M')}[/green]")
-        else:
-            log_widget.write(f"[yellow]No messages found for conv_id: {conv_id}[/yellow]")
-        
+
+        # Update chat header
+        bot_name = getattr(self.app_config, 'BOT_NAME', 'Eva')
+        try:
+            header = self.query_one("#chat-header", Label)
+            if self.current_chat_type == "channel":
+                header.update(f" Ch {self.current_chat_id}  |  {len(messages)} msgs  |  {bot_name}")
+            else:
+                node = self.nodes.get(self.current_chat_id, {})
+                name = node.get('long_name', self.current_chat_id)
+                header.update(f" DM  {name}  |  {len(messages)} msgs")
+        except Exception:
+            pass
+
         message_display = self.query_one("#message-display", RichLog)
-        
-        # Clear the message display
         message_display.clear()
-        
-        # Write all messages to the RichLog
+
         if not messages:
             message_display.write("[dim italic]No messages yet...[/dim italic]")
         else:
+            prev_date = None
             for msg in messages:
-                # Format each message
-                timestamp = datetime.fromtimestamp(msg.get('timestamp', time.time())).strftime("%H:%M:%S")
+                ts = msg.get('timestamp', time.time())
+                msg_date = datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
+                timestamp = datetime.fromtimestamp(ts).strftime("%H:%M")
                 sender = msg.get('user_name', 'Unknown')
+                node_id = msg.get('node_id', '')
                 content = msg.get('content', '')
                 role = msg.get('role', 'user')
-                
-                # Style based on role
+
+                # Date separator
+                if msg_date != prev_date:
+                    message_display.write(f"[dim]{'':>10}--- {msg_date} ---[/dim]")
+                    prev_date = msg_date
+
+                # Style per role
                 if role == 'assistant':
-                    style = "cyan"
-                    sender = "AI"
-                elif sender == "You" or sender == "You (TUI)":
-                    style = "green"
+                    name_style = "bold #58a6ff"
+                    sender = bot_name
+                    msg_style = "#58a6ff"
+                    node_tag = ""
+                elif sender in ("You", "You (TUI)"):
+                    name_style = "bold #3fb950"
                     sender = "You"
+                    msg_style = "#c9d1d9"
+                    node_tag = ""
                 else:
-                    style = "yellow"
-                
-                # Write the message with markup
-                message_display.write(f"[dim]{timestamp}[/dim] [{style} bold]{sender}:[/{style} bold] {content}")
-        
-        # Update last viewed count and persist it
+                    name_style = "bold #d2a8ff"
+                    msg_style = "#c9d1d9"
+                    node_tag = f" [dim #6e7681](!{node_id})[/dim #6e7681]" if node_id else ""
+
+                message_display.write(
+                    f"[dim #484f58]{timestamp}[/dim #484f58] [{name_style}]{sender}[/{name_style}]{node_tag}  [{msg_style}]{content}[/{msg_style}]"
+                )
+
+        # Update last viewed count and persist
         self.last_viewed_messages[conv_id] = len(messages)
         self.save_last_viewed_state()
-        
-        # Update lists to reflect current unread status
+
+        # Update sidebar counts
         self.update_channel_list()
         self.update_node_list()
         self.refresh_info_panel()
-        
-        # Scroll to bottom to show newest messages
+
+        # Scroll to bottom
         message_display.scroll_end(animate=False)
-        
-        # Focus the message input
+
+        # Focus input
         self.query_one("#message-input").focus()
     
     def update_stats(self) -> None:
-        """Update stats panel"""
-        stats = self.query_one("#stats-panel", StatsPanel)
-        stats.is_connected = self.meshtastic_handler.is_connected if self.meshtastic_handler else False
-        stats.node_count = len(self.nodes)
-        
-        if self.current_chat_type == "channel":
-            stats.channel_info = f"Channel {self.current_chat_id}"
-        else:
-            node = self.nodes.get(self.current_chat_id, {})
-            stats.channel_info = f"DM: {node.get('long_name', 'Unknown')[:15]}"
+        """Update info/status bar"""
+        self.refresh_info_panel()
     
     async def on_list_view_selected(self, event: ListView.Selected) -> None:
         """Handle list selection"""
@@ -935,6 +1265,11 @@ class MeshtasticInteractive(App):
             node_stats_panel = self.query_one("#node-stats", NodeStatsPanel)
             node_info = self.nodes.get(event.item.node_id, {})
             node_stats_panel.set_node(event.item.node_id, node_info)
+            self.selected_node_id = event.item.node_id
+
+            # Update map if visible
+            if self.show_map:
+                self._refresh_map()
             
             log = self.query_one("#app-log", RichLog)
             log.write(f"[magenta]Selected DM with {event.item.node_info['long_name']}[/magenta]")
@@ -1027,10 +1362,9 @@ class MeshtasticInteractive(App):
                 await asyncio.sleep(1)  # Longer delay on error
     
     async def process_incoming_message(self, data: dict) -> None:
-        """Process an incoming message"""
+        """Process an incoming message via the central MessageRouter."""
         try:
             log_widget = self.query_one("#app-log", RichLog)
-            log_widget.write(f"[deep_sky_blue1]Processing incoming message data: {data!r}[/deep_sky_blue1]")
 
             text = data['text']
             sender_id = self._norm_id(data['sender_id'])
@@ -1038,162 +1372,92 @@ class MeshtasticInteractive(App):
             destination_id = self._norm_id(data['destination_id'])
             channel_id = data['channel_id']
 
-            # Determine effective channel ID first (treat None as 0)
-            effective_channel_id = channel_id if channel_id is not None else 0
+            # Update AI node ID
+            self._update_ai_node_id()
 
-            # Determine conversation ID consistently
-            is_broadcast = destination_id.lower() == f"{meshtastic.BROADCAST_NUM:x}".lower() or destination_id.lower() == "broadcast"
-            is_dm_to_ai = (self.ai_node_id and destination_id == self.ai_node_id)
-            
-            # Debug logging for DM detection
-            log_widget.write(f"[cyan]DM Debug: ai_node_id='{self.ai_node_id}', destination_id='{destination_id}', is_dm_to_ai={is_dm_to_ai}[/cyan]")
-            
-            if is_dm_to_ai:
-                conv_id = self._dm_conv(sender_id)  # DM with the sender of this message
-            else:
-                conv_id = f"ch_{effective_channel_id}_broadcast"
+            # --- Route via centralised router ---
+            result = self.router.on_message(
+                text, sender_id, sender_name, destination_id,
+                channel_id, self.ai_node_id
+            )
+            conv_id = result.conversation_id
 
-            # Add the incoming message to conversation history first
-            self.conversation_manager.add_message(conv_id, "user", text, user_name=sender_name, node_id=sender_id)
+            # Update node info
+            eff_ch = channel_id if channel_id is not None else 0
+            self._update_node_info_from_message(sender_id, sender_name, eff_ch)
 
-            # Check if this is a HAL bot command
-            if self.hal_bot.should_handle_message(text):
-                log_widget.write(f"[bright_green]Message is a HAL bot command. Processing...[/bright_green]")
-                hal_result = self.hal_bot.handle_command(text, sender_id, sender_name, effective_channel_id, is_dm_to_ai)
-                if hal_result and isinstance(hal_result, dict):
-                    response_text = hal_result['response']  # Extract just the response text
-                    is_channel_message = hal_result.get('is_channel_message', False)
-                    
-                    log_widget.write(f"[bright_green]Sending HAL bot response to {sender_name}[/bright_green]")
-                    if self.meshtastic_handler and self.meshtastic_handler.is_connected:
-                        if is_channel_message:
-                            # Send to channel
-                            success, reason = self.meshtastic_handler.send_message(
-                                response_text,  # Use the extracted response text
-                                channel_index=effective_channel_id
-                            )
-                        else:
-                            # Send as DM
-                            success, reason = self.meshtastic_handler.send_message(
-                                response_text,  # Use the extracted response text
-                                destination_id_hex=sender_id,
-                                channel_index=effective_channel_id
-                            )
-                        
-                        if success:
-                            log_widget.write(f"[green]HAL bot response sent successfully[/green]")
-                            self.tx_count += 1
-                            
-                            # Add HAL bot response to conversation history
-                            self.conversation_manager.add_message(
-                                conv_id, 
-                                "assistant", 
-                                response_text, 
-                                user_name="HAL9000", 
-                                node_id=f"{self.meshtastic_handler.node_id:x}"
-                            )
-                            
-                            # Update display if this is the current conversation
-                            current_conv_id = f"ch_{self.current_chat_id}_broadcast" if self.current_chat_type == "channel" else self._dm_conv(self.current_chat_id)
-                            if conv_id == current_conv_id:
-                                self.load_conversation()
-                            else:
-                                self.update_channel_list()
-                                self.update_node_list()
-                                self.refresh_info_panel()
-                        else:
-                            log_widget.write(f"[red]Failed to send HAL bot response: {reason}[/red]")
-                    return
-
-            # Update node info with enhanced data
-            self._update_node_info_from_message(sender_id, sender_name, effective_channel_id)
-            
-            # Get current conversation ID that is being viewed
-            current_conv_id = f"ch_{self.current_chat_id}_broadcast" if self.current_chat_type == "channel" else self._dm_conv(self.current_chat_id)
-            log_widget.write(f"[plum2]  Currently viewing conv_id: {current_conv_id}[/plum2]")
-
-            # Update unread status and display
+            # Refresh UI
+            current_conv_id = (f"ch_{self.current_chat_id}_broadcast"
+                               if self.current_chat_type == "channel"
+                               else self._dm_conv(self.current_chat_id))
             if conv_id == current_conv_id:
-                log_widget.write(f"[green3]  Incoming message for currently viewed chat. Reloading conversation.[/green3]")
-                self.load_conversation() # This also handles unread count for the current conversation
+                self.load_conversation()
             else:
-                log_widget.write(f"[yellow3]  Incoming message for a background chat. Updating unread lists.[/yellow3]")
-                # Update lists to show new unread status for background chats
                 self.update_channel_list()
                 self.update_node_list()
                 self.refresh_info_panel()
-            
-            # Log raw message to app log
-            log_widget.write(f"[yellow]MSG from {sender_name}: {text[:50].strip()}...[/yellow]")
-            
-            # rx counter update
+
+            log_widget.write(f"[yellow]MSG from {sender_name}: {text[:50].strip()}[/yellow]")
             self.rx_count += 1
-            
-            # STEP 2: Decide if our AI should respond to this incoming message
-            log_widget.write(f"[bright_magenta]AI Decision Logic: is_dm_to_ai={is_dm_to_ai}, channel_id={effective_channel_id}, active_ai_channel={self.active_channel_for_ai_posts}[/bright_magenta]")
-            
-            should_ai_respond = False
-            skip_triage = False
-            
-            # Check if AI should respond
-            if is_dm_to_ai:
-                log_widget.write(f"[bright_magenta]  This is a DM to AI - AI WILL respond (skip_triage=True)[/bright_magenta]")
-                should_ai_respond = True
-                skip_triage = True  # Always skip triage for DMs
-            elif effective_channel_id == self.active_channel_for_ai_posts and is_broadcast:
-                log_widget.write(f"[bright_magenta]  This is on AI's active channel {self.active_channel_for_ai_posts} - checking probability...[/bright_magenta]")
-                # Check cooldown
-                now = time.time()
-                if self.ai_cooldown > 0:
-                    last_response_time = self.last_response_times.get(conv_id, 0)
-                    time_since_last = now - last_response_time
-                    if time_since_last < self.ai_cooldown:
-                        log_widget.write(f"[bright_magenta]  Cooldown active: {time_since_last:.1f}s < {self.ai_cooldown}s - AI will NOT respond[/bright_magenta]")
-                        should_ai_respond = False
+
+            # --- Forward to Matrix bridge ---
+            if self.matrix_bridge:
+                eff_ch = channel_id if channel_id is not None else 0
+                is_dm = bool(self.ai_node_id and destination_id == self.ai_node_id)
+                self.matrix_bridge.send_to_matrix(
+                    text, sender_name, sender_id,
+                    channel_index=eff_ch, is_dm=is_dm,
+                )
+
+            # --- Broadcast SOS alert ---
+            if result.broadcast_alert and self.meshtastic_handler and self.meshtastic_handler.is_connected:
+                for ch in result.broadcast_channels:
+                    self.meshtastic_handler.send_message(result.broadcast_alert, channel_index=ch)
+                log_widget.write(f"[red bold]SOS ALERT broadcast on {len(result.broadcast_channels)} channel(s)[/red bold]")
+
+            # --- Send direct reply (HAL bot / help confirmation) ---
+            if result.reply_text and result.handled:
+                if self.meshtastic_handler and self.meshtastic_handler.is_connected:
+                    if result.reply_as_dm:
+                        success, reason = self.meshtastic_handler.send_message(
+                            result.reply_text, destination_id_hex=result.reply_destination, channel_index=0
+                        )
                     else:
-                        # Check probability
-                        roll = random.random()
-                        if roll <= self.ai_response_probability:
-                            log_widget.write(f"[bright_magenta]  Probability check passed: {roll:.2f} <= {self.ai_response_probability} - AI WILL respond[/bright_magenta]")
-                            should_ai_respond = True
-                            skip_triage = not self.enable_ai_triage  # Use triage if enabled for channels
-                        else:
-                            log_widget.write(f"[bright_magenta]  Probability check failed: {roll:.2f} > {self.ai_response_probability} - AI will NOT respond[/bright_magenta]")
-                            should_ai_respond = False
-                else:
-                    # No cooldown, just check probability
-                    roll = random.random()
-                    if roll <= self.ai_response_probability:
-                        log_widget.write(f"[bright_magenta]  Probability check passed: {roll:.2f} <= {self.ai_response_probability} - AI WILL respond[/bright_magenta]")
-                        should_ai_respond = True
-                        skip_triage = not self.enable_ai_triage  # Use triage if enabled for channels
+                        success, reason = self.meshtastic_handler.send_message(
+                            result.reply_text, channel_index=result.reply_channel
+                        )
+                    if success:
+                        log_widget.write(f"[green]Bot response sent to {sender_name}[/green]")
+                        self.tx_count += 1
+                        bot_name = getattr(self.app_config, 'BOT_NAME', 'Eva')
+                        self.conversation_manager.add_message(
+                            conv_id, "assistant", result.reply_text,
+                            user_name=bot_name,
+                            node_id=f"{self.meshtastic_handler.node_id:x}"
+                        )
+                        # Forward bot reply to Matrix
+                        if self.matrix_bridge:
+                            self.matrix_bridge.send_to_matrix(
+                                result.reply_text, bot_name,
+                                sender_id if result.reply_as_dm else f"{self.meshtastic_handler.node_id:x}",
+                                channel_index=result.reply_channel,
+                                is_dm=result.reply_as_dm,
+                            )
+                        if conv_id == current_conv_id:
+                            self.load_conversation()
                     else:
-                        log_widget.write(f"[bright_magenta]  Probability check failed: {roll:.2f} > {self.ai_response_probability} - AI will NOT respond[/bright_magenta]")
-                        should_ai_respond = False
-            else:
-                log_widget.write(f"[bright_magenta]  Not a DM to AI and not on AI's active channel - AI will NOT respond[/bright_magenta]")
-                should_ai_respond = False
-            
-            # Start AI worker if needed
-            if should_ai_respond:
-                log_widget.write(f"[bright_green]Starting AIProcessingWorker for {sender_name} in conv_id={conv_id}, skip_triage={skip_triage}[/bright_green]")
+                        log_widget.write(f"[red]Failed to send bot response: {reason}[/red]")
+                return
+
+            # --- AI response needed: spawn worker ---
+            if result.needs_ai_response:
+                log_widget.write(f"[bright_green]Starting AI worker for {sender_name} (conv={conv_id})[/bright_green]")
                 processor = AIProcessingWorker(
-                    self,
-                    text,
-                    sender_id,
-                    sender_name,
-                    effective_channel_id,
-                    is_dm_to_ai,
-                    conv_id,
-                    self.url_pattern,
-                    skip_triage=skip_triage
+                    self, text, sender_id, sender_name, eff_ch,
+                    result.reply_as_dm, conv_id, self.router.url_pattern,
+                    skip_triage=result.skip_triage
                 )
-                self.run_worker(
-                    processor.run,
-                    exclusive=True,
-                    group="ai_proc",
-                    thread=True
-                )
+                self.run_worker(processor.run, exclusive=True, group="ai_proc", thread=True)
             else:
                 log_widget.write(f"[bright_red]AI will NOT respond to this message[/bright_red]")
 
@@ -1294,44 +1558,52 @@ class MeshtasticInteractive(App):
         self.query_one("#message-input").focus()
 
     def refresh_info_panel(self):
-        """Update the compact info panel with current stats."""
+        """Update the compact status bar in sidebar."""
         try:
-            # Calculate total unread from both channels and nodes
             total_channel_unread = sum(self.channel_unread.values())
             total_node_unread = sum(self.node_unread.values())
             total_unread = total_channel_unread + total_node_unread
-            
+            connected = self.meshtastic_handler.is_connected if self.meshtastic_handler else False
+
             info_stats = {
-                "Unread": total_unread,
+                "Status": "ON" if connected else "OFF",
                 "Nodes": len(self.nodes),
-                "RX": self.rx_count,
-                "TX": self.tx_count,
+                "Unread": total_unread,
             }
-            # Future: add SNR / RSSI / Util: placeholders for now
-            self.query_one("#info-panel", InfoPanel).set_stats(info_stats)
-        except Exception as e:
-            # Log the error but don't crash
-            log = self.query_one("#app-log", RichLog)
-            log.write(f"[red]Error updating info panel: {str(e)}[/red]")
+            self.query_one("#status-bar", InfoPanel).set_stats(info_stats)
+        except Exception:
+            pass
 
     def update_channel_list(self) -> None:
-        """Update the channel list widget with unread counts"""
+        """Update the channel list from device info with unread counts"""
         channel_list = self.query_one("#channel-list", ListView)
         channel_list.clear()
-        
-        # Add all channels with unread counts
-        for channel_id in range(8):  # Assuming 8 channels
-            channel_name = "Primary" if channel_id == 0 else f"Channel {channel_id}"
-            conv_id = f"ch_{channel_id}_broadcast"
-            # Get total messages in conversation
-            messages = self.conversation_manager.load_conversation(conv_id)
-            total_messages = len(messages)
-            # Get last viewed count
-            last_viewed = self.last_viewed_messages.get(conv_id, 0)
-            # Calculate unread
-            unread = max(0, total_messages - last_viewed)
-            self.channel_unread[channel_id] = unread
-            channel_list.append(ChannelListItem(channel_id, channel_name, unread))
+
+        # Get actual channels from device
+        device_channels = self.meshtastic_handler.list_channels() if self.meshtastic_handler else []
+
+        if device_channels:
+            for ch in device_channels:
+                ch_id = ch['index']
+                ch_name = ch['name'] if ch['name'] not in ('', f'Ch-{ch_id}', f'Secondary-{ch_id}') else f"Ch {ch_id}"
+                conv_id = f"ch_{ch_id}_broadcast"
+                messages = self.conversation_manager.load_conversation(conv_id)
+                total_messages = len(messages)
+                last_viewed = self.last_viewed_messages.get(conv_id, 0)
+                unread = max(0, total_messages - last_viewed)
+                self.channel_unread[ch_id] = unread
+                channel_list.append(ChannelListItem(ch_id, ch_name, unread))
+        else:
+            # Fallback: show 8 channels
+            for channel_id in range(8):
+                channel_name = "Primary" if channel_id == 0 else f"Ch {channel_id}"
+                conv_id = f"ch_{channel_id}_broadcast"
+                messages = self.conversation_manager.load_conversation(conv_id)
+                total_messages = len(messages)
+                last_viewed = self.last_viewed_messages.get(conv_id, 0)
+                unread = max(0, total_messages - last_viewed)
+                self.channel_unread[channel_id] = unread
+                channel_list.append(ChannelListItem(channel_id, channel_name, unread))
 
     async def on_unmount(self, event: events.Unmount) -> None:
         """Called when app is unmounting"""
@@ -1426,7 +1698,7 @@ class MeshtasticInteractive(App):
                 'first_heard': current_time,
                 'is_favorite': False,
                 'hops_away': None,
-                'connection_type': self.app_config.MESHTASTIC_CONNECTION_TYPE,
+                'connection_type': 'unknown',
                 'node_id': sender_id,
                 'user_role': 'Unknown',
                 'model': 'Unknown',
@@ -1466,6 +1738,12 @@ class MeshtasticInteractive(App):
             'hops_away': node_info.get('hopsAway'),
         })
         
+        # Detect connection type from viaMqtt flag
+        is_mqtt = node_info.get('viaMqtt', False)
+        if not is_mqtt and node_info.get('hopsAway') == -1:
+            is_mqtt = True
+        self.nodes[node_id]['connection_type'] = 'tcp' if is_mqtt else 'radio'
+
         # Update signal info
         rssi = node_info.get('rssi')
         snr = node_info.get('snr')

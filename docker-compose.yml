@@ -1,0 +1,50 @@
+services:
+  meshtastic-ai-bridge:
+    build: .
+    container_name: meshtastic-ai-bridge
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    ports:
+      - "8080:8080"
+
+    volumes:
+      # Configuration (read-only inside container)
+      - ./config.py:/app/config.py:ro
+      # Persistent data
+      - ./conversations:/app/conversations
+      - ./logs:/app/logs
+      - ./.map_cache:/app/.map_cache
+      - ./data:/app/data
+      # Log files visible on host
+      - ./interactive.backend.log:/app/interactive.backend.log
+      - ./matrix_bridge.log:/app/matrix_bridge.log
+
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONIOENCODING=utf-8
+
+    # --- USB Serial device passthrough ---
+    # Uncomment if using serial connection to Meshtastic device.
+    # For TCP connection (recommended for Docker) leave commented out
+    # and set MESHTASTIC_CONNECTION_TYPE=tcp in .env
+    #
+    # devices:
+    #   - /dev/ttyUSB0:/dev/ttyUSB0
+    #   - /dev/ttyACM0:/dev/ttyACM0
+
+    # Keep a compact rotating log
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "10"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s

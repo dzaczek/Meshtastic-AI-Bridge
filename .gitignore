@@ -191,3 +191,13 @@ cython_debug/
 
 *.json
 config.py
+config.py_backup
+*.py_backup
+template_config.py
+.env
+logs/
+.map_cache/
+data/
+*.db
+*.db-shm
+*.db-wal
