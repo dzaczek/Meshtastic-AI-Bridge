@@ -291,11 +291,14 @@ class MeshtasticAIAppConsole:
         Intended for Docker/server deployments where the web UI is used instead of TUI."""
         log_info("Running in headless mode. Web UI is the primary interface.")
         if _HAS_WEB_UI:
-            web_ui.set_send_callback(
-                lambda text, ch: self.meshtastic_handler.send_message(text, channel_index=ch)
-                if self.meshtastic_handler and self.meshtastic_handler.is_connected
-                else (False, "Not connected")
-            )
+            def _web_send(text, ch, dest=None):
+                if not self.meshtastic_handler or not self.meshtastic_handler.is_connected:
+                    return False, "Not connected"
+                if dest:
+                    return self.meshtastic_handler.send_message(
+                        text, destination_id_hex=dest, channel_index=ch)
+                return self.meshtastic_handler.send_message(text, channel_index=ch)
+            web_ui.set_send_callback(_web_send)
         try:
             while not self._stop_event.is_set():
                 if _HAS_WEB_UI:

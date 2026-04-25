@@ -124,8 +124,20 @@
 
     #send-bar{
       border-top:1px solid var(--border);padding:8px 10px;
-      background:var(--surf);display:flex;gap:6px;flex-shrink:0;
+      background:var(--surf);display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;
     }
+    #dm-indicator{
+      display:none;align-items:center;gap:6px;
+      background:#0a2e1a;border:1px solid var(--primary);
+      padding:2px 8px;font-size:.75em;color:var(--primary);white-space:nowrap;
+      border-radius:2px;
+    }
+    #dm-indicator.active{display:flex;}
+    #dm-indicator button{
+      background:none;border:none;color:var(--muted);cursor:pointer;
+      font-size:.9em;padding:0 2px;line-height:1;
+    }
+    #dm-indicator button:hover{color:var(--err);}
     #sel-channel{
       background:var(--bg);border:1px solid var(--border);color:var(--text);
       font-family:inherit;font-size:.82em;padding:6px;width:120px;outline:none;
@@ -133,7 +145,7 @@
     #msg-text{
       flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);
       font-family:inherit;font-size:.88em;padding:6px 8px;resize:none;
-      height:34px;outline:none;transition:border-color .15s;
+      height:34px;outline:none;transition:border-color .15s;min-width:120px;
     }
     #msg-text:focus{border-color:var(--primary);}
     #send-btn{
@@ -506,6 +518,8 @@
   <div id="badge-conn" class="badge bg-gray">--</div>
   <div id="badge-ai"   class="badge bg-blue">AI: --</div>
   <div id="badge-node" class="badge bg-blue" style="display:none"></div>
+  <div id="badge-radio" class="badge bg-gray" style="display:none" title="Radio preset · Region · Hop limit"></div>
+  <div id="badge-rx"   class="badge bg-gray" style="display:none" title="Time since last received packet"></div>
   <div id="hdr-right">
     <span id="hdr-uptime"></span>
     <a href="/logout">logout</a>
@@ -588,6 +602,10 @@
     </div>
     <div id="feed"></div>
     <div id="send-bar">
+      <div id="dm-indicator">
+        <span>📨 DM → </span><span id="dm-name"></span>
+        <button onclick="clearDm()" title="Back to channel">✕</button>
+      </div>
       <select id="sel-channel"><option value="0">Ch 0</option></select>
       <textarea id="msg-text" placeholder="Type a message… (Enter = send, Shift+Enter = newline)" maxlength="194"></textarea>
       <button id="send-btn" onclick="sendMessage()">Send</button>
@@ -781,6 +799,9 @@
       <div id="cfg-status" style="font-size:.65em;margin-top:5px;color:var(--muted);word-break:break-word;"></div>
       <button onclick="showCfgDebug()" style="width:100%;background:none;color:#333;border:1px solid #222;font-family:inherit;font-size:.65em;padding:3px;cursor:pointer;margin-top:4px;text-transform:uppercase;">
         Show raw debug
+      </button>
+      <button onclick="rebootDevice()" id="cfg-reboot-btn" style="width:100%;background:#2e0a0a;color:var(--err);border:1px solid var(--err);font-family:inherit;font-size:.7em;padding:5px;cursor:pointer;margin-top:6px;text-transform:uppercase;font-weight:bold;">
+        ⚡ Reboot device
       </button>
     </div>
     <div class="cfg-sec-group">Radio</div>
@@ -1292,20 +1313,22 @@ document.getElementById('msg-text').addEventListener('keydown', e => {
 
 async function sendMessage() {
   const text    = document.getElementById('msg-text').value.trim();
-  const channel = parseInt(document.getElementById('sel-channel').value);
+  const channel = parseInt(document.getElementById('sel-channel').value || '0');
   if (!text) return;
   const btn = document.getElementById('send-btn');
-  btn.disabled=true;
+  btn.disabled = true;
   try {
-    const r = await fetch('/api/send',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({text,channel}),
+    const body = {text, channel};
+    if (dmNodeId) body.destination = dmNodeId;
+    const r = await fetch('/api/send', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body),
     });
     const d = await r.json();
-    if (d.ok) document.getElementById('msg-text').value='';
-    else alert(d.error||d.reason||'Send error');
-  } catch(e) { alert('Network error'); }
-  finally { btn.disabled=false; }
+    if (d.ok) document.getElementById('msg-text').value = '';
+    else alert(d.error || d.reason || 'Send error');
+  } catch(e) { alert('Network error: ' + e.message); }
+  finally { btn.disabled = false; }
 }
 
 // ── STATUS ─────────────────────────────────────────────────────────────────
@@ -1313,23 +1336,67 @@ async function fetchStatus() {
   try {
     const r=await fetch('/api/status'); if(!r.ok) return;
     const st=await r.json();
+
+    // ── Connection badge ──────────────────────────────────────────────
     const conn=document.getElementById('badge-conn');
-    if (st.connected) { conn.textContent='CONNECTED';    conn.className='badge bg-green'; }
-    else if (st.reconnecting) { conn.textContent='RECONNECTING'; conn.className='badge bg-warn'; }
-    else { conn.textContent='DISCONNECTED'; conn.className='badge bg-red'; }
+    if (st.link_stale) {
+      conn.textContent = `STALE (last RX: ${st.last_rx_str||'?'})`;
+      conn.className   = 'badge bg-warn';
+    } else if (st.connected) {
+      conn.textContent = 'CONNECTED';
+      conn.className   = 'badge bg-green';
+    } else if (st.reconnecting) {
+      conn.textContent = 'RECONNECTING';
+      conn.className   = 'badge bg-warn';
+    } else {
+      conn.textContent = 'DISCONNECTED';
+      conn.className   = 'badge bg-red';
+    }
+
     document.getElementById('badge-ai').textContent=`AI: ${st.ai_service||'--'}`;
+
+    // ── Node badge ────────────────────────────────────────────────────
     const ne=document.getElementById('badge-node');
     if (st.node_id) {
       ne.textContent = st.bot_name ? `${st.bot_name} (!${st.node_id})` : `!${st.node_id}`;
       ne.style.display='inline-block';
     } else ne.style.display='none';
+
+    // ── Radio preset badge ────────────────────────────────────────────
+    const rb=document.getElementById('badge-radio');
+    if (st.radio_preset) {
+      rb.textContent = `${st.radio_preset} · ${st.radio_region||'?'} · ${st.radio_hops||'?'}hop`;
+      // Only warn if region is UNSET (device not properly configured)
+      rb.className = st.radio_region === 'UNSET' ? 'badge bg-warn' : 'badge bg-gray';
+      rb.style.display='inline-block';
+    } else rb.style.display='none';
+
+    // ── Last RX badge ─────────────────────────────────────────────────
+    const rxb=document.getElementById('badge-rx');
+    if (st.last_rx_str && st.connected) {
+      const ago = st.last_rx_ago_s||0;
+      rxb.textContent = `RX: ${st.last_rx_str}`;
+      rxb.className   = ago>120 ? 'badge bg-warn' : 'badge bg-gray';
+      rxb.style.display='inline-block';
+    } else rxb.style.display='none';
+
     setText('hdr-uptime',  st.uptime_str||'');
     setText('hdr-uptime2', st.uptime_str||'');
     setText('hdr-rx',      `RX: ${st.messages_received||0}`);
     setText('hdr-ai-cnt',  `AI: ${st.ai_responses||0}`);
+
     const banner=document.getElementById('error-banner');
-    if (st.last_error) { document.getElementById('error-text').textContent=st.last_error; banner.classList.add('visible'); }
-    else banner.classList.remove('visible');
+    if (st.last_error) {
+      document.getElementById('error-text').textContent=st.last_error;
+      banner.classList.add('visible');
+    } else banner.classList.remove('visible');
+
+    // ── Stale link alert ──────────────────────────────────────────────
+    if (st.link_stale && !banner.classList.contains('visible')) {
+      document.getElementById('error-text').textContent =
+        `No packets received for ${st.last_rx_str} — link may be down or device offline`;
+      banner.classList.add('visible');
+    }
   } catch(e) {}
 }
 async function clearError() {
@@ -1719,15 +1786,47 @@ function renderDmList(nodes) {
   }).join('');
 }
 
+let dmNodeId = null;   // hex id of DM target, null = channel mode
+
 function filterBySender(nodeId, name) {
   if (chatSenderFilter === nodeId) {
+    // Second click: clear filter AND dm
     chatSenderFilter = null;
+    dmNodeId = null;
+    _applyDmUi();
     setText('chat-title', chFilter==='all' ? 'All channels' : `Channel ${chFilter}`);
   } else {
     chatSenderFilter = nodeId;
-    setText('chat-title', `${name}`);
+    dmNodeId         = nodeId;
+    _applyDmUi(name);
+    setText('chat-title', `DM: ${name}`);
   }
   rebuildFeed();
+  renderDmList(nodesCache);
+}
+
+function _applyDmUi(name) {
+  const ind = document.getElementById('dm-indicator');
+  const ch  = document.getElementById('sel-channel');
+  if (dmNodeId && name) {
+    setText('dm-name', name);
+    ind.classList.add('active');
+    if (ch) ch.style.display = 'none';
+    document.getElementById('msg-text').placeholder = `DM to ${name}… (Enter = send)`;
+  } else {
+    ind.classList.remove('active');
+    if (ch) ch.style.display = '';
+    document.getElementById('msg-text').placeholder = 'Type a message… (Enter = send, Shift+Enter = newline)';
+  }
+}
+
+function clearDm() {
+  chatSenderFilter = null;
+  dmNodeId = null;
+  _applyDmUi();
+  setText('chat-title', chFilter==='all' ? 'All channels' : `Channel ${chFilter}`);
+  rebuildFeed();
+  renderDmList(nodesCache);
 }
 
 // ── CONFIG TAB ────────────────────────────────────────────────
@@ -1823,6 +1922,21 @@ function getCfgFormData(sec) {
     else data[key] = el.value;
   });
   return data;
+}
+
+async function rebootDevice() {
+  if (!confirm('Send reboot command to the Meshtastic device?\nThe bot will reconnect automatically after ~30 seconds.')) return;
+  const btn = document.getElementById('cfg-reboot-btn');
+  if (btn) { btn.textContent = 'Rebooting…'; btn.disabled = true; }
+  try {
+    const r = await fetch('/api/device/reboot', {method: 'POST'});
+    const d = await r.json();
+    const st = document.getElementById('cfg-status');
+    if (st) { st.textContent = d.ok ? 'Reboot command sent — reconnecting in ~30s' : `Error: ${d.error}`; st.style.color = d.ok ? 'var(--ai)' : 'var(--err)'; }
+    if (btn) { setTimeout(() => { btn.textContent = '⚡ Reboot device'; btn.disabled = false; }, 35000); }
+  } catch(e) {
+    if (btn) { btn.textContent = '⚡ Reboot device'; btn.disabled = false; }
+  }
 }
 
 async function showCfgDebug() {

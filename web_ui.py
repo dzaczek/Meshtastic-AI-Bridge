@@ -394,6 +394,16 @@ def _build_channels_list(handler) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _fmt_age(s: int) -> str:
+    if s < 60:   return f"{s}s ago"
+    if s < 3600: return f"{s//60}m ago"
+    return f"{s//3600}h ago"
+
+
+# ---------------------------------------------------------------------------
 # Flask app
 # ---------------------------------------------------------------------------
 
@@ -470,24 +480,61 @@ if _HAS_FLASK:
         st["uptime_s"]   = elapsed
         st["uptime_str"] = f"{h:02d}:{m:02d}:{s:02d}"
         st["bot_name"]   = _bot_name
+
+        # Real link health: check last received packet time
+        if _meshtastic_handler:
+            last_rx = _meshtastic_handler.last_rx_time
+            if last_rx:
+                ago = int(time.time() - last_rx)
+                st["last_rx_ago_s"] = ago
+                st["last_rx_str"]   = _fmt_age(ago)
+                # If state-machine says connected but radio is silent > 3 min → warn
+                if st.get("connected") and ago > 180:
+                    st["link_stale"] = True
+                    st["connected"]  = False   # correct the displayed status
+            else:
+                st["last_rx_ago_s"] = None
+                st["last_rx_str"]   = "no data"
+
+            # Expose radio preset from device so UI can show it
+            try:
+                node = _meshtastic_handler.interface.getNode('^local')
+                lc   = getattr(node, 'localConfig', None)
+                if lc and hasattr(lc, 'lora'):
+                    PRESETS = {0:'LONG_FAST',1:'LONG_SLOW',2:'VERY_LONG_SLOW',
+                               3:'MEDIUM_SLOW',4:'MEDIUM_FAST',5:'SHORT_SLOW',
+                               6:'SHORT_FAST',7:'LONG_MODERATE',8:'SHORT_TURBO'}
+                    REGIONS = {0:'UNSET',1:'US',2:'EU_433',3:'EU_868',4:'CN',
+                               5:'JP',6:'ANZ',7:'KR',8:'TW',9:'RU',10:'IN'}
+                    preset_id = int(lc.lora.modem_preset)
+                    region_id = int(lc.lora.region)
+                    st["radio_preset"] = PRESETS.get(preset_id, str(preset_id))
+                    st["radio_region"] = REGIONS.get(region_id, str(region_id))
+                    st["radio_hops"]   = int(lc.lora.hop_limit)
+            except Exception:
+                pass
+
         return jsonify(st)
 
     @app.route("/api/send", methods=["POST"])
     @login_required
     def api_send():
-        data    = request.get_json(silent=True) or {}
-        text    = (data.get("text") or "").strip()
-        channel = int(data.get("channel", 0))
+        data        = request.get_json(silent=True) or {}
+        text        = (data.get("text") or "").strip()
+        channel     = int(data.get("channel", 0))
+        destination = (data.get("destination") or "").strip()   # hex node id for DM
         if not text:
             return jsonify({"ok": False, "error": "Empty message"}), 400
         if not _send_callback:
             return jsonify({"ok": False, "error": "Send callback not configured"}), 503
         try:
-            ok, reason = _send_callback(text, channel)
+            ok, reason = _send_callback(text, channel, destination or None)
         except Exception as e:
             return jsonify({"ok": False, "error": str(e)}), 500
         if ok:
-            add_message(text, "WebUI", channel, "tx")
+            sender = f"DM→{destination}" if destination else get_bot_name()
+            add_message(text, sender, channel, "tx",
+                        sender_id=_status.get("node_id", ""))
         return jsonify({"ok": ok, "reason": reason})
 
     @app.route("/api/nodes")
@@ -634,6 +681,18 @@ if _HAS_FLASK:
         if not _meshtastic_handler:
             return jsonify({"_error": "Not connected"}), 503
         return jsonify(_meshtastic_handler.get_device_config())
+
+    @app.route("/api/device/reboot", methods=["POST"])
+    @login_required
+    def api_device_reboot():
+        if not _meshtastic_handler:
+            return jsonify({"ok": False, "error": "Not connected"}), 503
+        try:
+            node = _meshtastic_handler.interface.getNode('^local')
+            node.reboot()
+            return jsonify({"ok": True, "message": "Reboot command sent to device"})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
 
     @app.route("/api/config/debug")
     @login_required

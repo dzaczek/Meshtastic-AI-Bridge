@@ -28,6 +28,7 @@ class MeshtasticHandler:
         self.node_id = None
         self._connection_type = connection_type
         self._device_specifier = device_specifier
+        self._last_rx_time: float = 0.0   # unix ts of last received packet
 
         # Initialize connection state machine
         self._conn_sm = ConnectionStateMachine(
@@ -222,8 +223,23 @@ class MeshtasticHandler:
             log_error(f"Reconnection failed: {e}")
             self._conn_sm.connection_failed(e)
 
+    @property
+    def last_rx_time(self) -> float:
+        """Unix timestamp of last received packet (0 = never)."""
+        return self._last_rx_time
+
+    @property
+    def is_link_alive(self) -> bool:
+        """True if connected AND received traffic in the last 3 minutes."""
+        if not self.is_connected:
+            return False
+        if self._last_rx_time == 0:
+            return True          # just connected, give it grace period
+        return (time.time() - self._last_rx_time) < 180
+
     def _on_receive_internal(self, packet, interface):
         if not packet: return
+        self._last_rx_time = time.time()
         # Update state machine activity on every received packet
         self._conn_sm.update_activity()
 
