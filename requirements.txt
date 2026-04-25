@@ -27,7 +27,8 @@ aiohttp>=3.9.0  # For async HTTP requests
 flask>=3.0.0
 werkzeug>=3.0.0
 
-# Matrix error reporter (uses requests - already present above)
+# Matrix bridge (bidirectional mesh<->Matrix)
+matrix-nio[e2e]>=0.20.0
 
 # Development dependencies
 pytest>=7.4.0  # For testing

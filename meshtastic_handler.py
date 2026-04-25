@@ -28,7 +28,8 @@ class MeshtasticHandler:
         self.node_id = None
         self._connection_type = connection_type
         self._device_specifier = device_specifier
-        self._last_rx_time: float = 0.0   # unix ts of last received packet
+        self._last_rx_time: float = 0.0    # unix ts of last received packet
+        self._last_tx_packet_id: int | None = None  # id of last sent packet
 
         # Initialize connection state machine
         self._conn_sm = ConnectionStateMachine(
@@ -352,8 +353,8 @@ class MeshtasticHandler:
                     dest_node_num = int(destination_id_hex, 16)
                     log_info(f"{log_prefix} Sending DM to node {dest_node_num:x}")
                     before = datetime.now()
-                    # For DMs, don't specify channelIndex to use default channel
-                    self.interface.sendText(text, destinationId=dest_node_num, wantAck=True)
+                    pkt = self.interface.sendText(text, destinationId=dest_node_num, wantAck=True)
+                    self._last_tx_packet_id = getattr(pkt, 'id', None)
                     after = datetime.now()
                     log_info(f"{log_prefix} sendText() for DM completed in {(after-before).total_seconds():.3f}s")
                     self._conn_sm.update_activity()
@@ -366,7 +367,8 @@ class MeshtasticHandler:
             else:
                 log_info(f"{log_prefix} Sending channel message on channel {channel_index}")
                 before = datetime.now()
-                self.interface.sendText(text, channelIndex=channel_index, wantAck=False)
+                pkt = self.interface.sendText(text, channelIndex=channel_index, wantAck=False)
+                self._last_tx_packet_id = getattr(pkt, 'id', None)
                 after = datetime.now()
                 log_info(f"{log_prefix} sendText() for channel completed in {(after-before).total_seconds():.3f}s")
                 self._conn_sm.update_activity()

@@ -162,6 +162,27 @@
     .leg{font-size:.68em;color:var(--muted);display:flex;align-items:center;gap:3px;}
     .leg-dot{width:7px;height:7px;border-radius:1px;}
 
+    /* ACK indicator */
+    .msg-ack{margin-left:4px;font-size:.75em;opacity:.7;}
+    .ack-pending{color:var(--muted);}
+    .ack-ok     {color:var(--radio);}
+    .ack-fail   {color:var(--err);}
+
+    /* Conversation list */
+    .conv-section{padding:6px 10px 2px;color:var(--primary);font-size:.63em;text-transform:uppercase;letter-spacing:1.5px;}
+    .conv-item{
+      padding:5px 10px;cursor:pointer;display:flex;align-items:center;gap:6px;
+      font-size:.82em;border-left:3px solid transparent;transition:background .1s;
+    }
+    .conv-item:hover{background:var(--surf2);}
+    .conv-item.active{background:#0a2e1a;border-left-color:var(--primary);color:var(--primary);}
+    .conv-badge{
+      margin-left:auto;background:var(--err);color:#fff;
+      border-radius:8px;padding:0 5px;font-size:.68em;min-width:16px;
+      text-align:center;
+    }
+    .conv-last{font-size:.68em;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100px;}
+
     /* ── NODES TAB ── */
     #tab-nodes{flex-direction:column;}
     #nodes-grid{
@@ -467,6 +488,34 @@
     }
     .tb-select:focus{border-color:var(--primary);}
 
+    /* Route table */
+    #route-feed{flex:1;overflow-y:auto;padding:4px 2px;display:none;}
+    #route-feed.active{display:block;}
+    #pkt-feed.routes-hidden{display:none;}
+    .route-row{
+      padding:5px 8px;border-left:3px solid #ff88aa;
+      font-size:.8em;display:flex;align-items:center;gap:6px;flex-wrap:wrap;
+      cursor:pointer;
+    }
+    .route-row:hover{background:#131313;}
+    .route-ts{color:var(--muted);white-space:nowrap;flex-shrink:0;width:55px;}
+    .route-path{flex:1;display:flex;align-items:center;gap:3px;flex-wrap:wrap;}
+    .route-node{
+      background:var(--surf2);border:1px solid var(--border);
+      padding:1px 6px;font-size:.85em;white-space:nowrap;cursor:pointer;
+    }
+    .route-node:hover{border-color:var(--primary);color:var(--primary);}
+    .route-node.has-gps{border-color:var(--radio);}
+    .route-node.origin{border-color:#ff88aa;color:#ff88aa;}
+    .route-node.dest{border-color:var(--ai);color:var(--ai);}
+    .route-arrow{color:var(--muted);}
+    .route-hop-badge{background:#2e1a2e;color:#ff88aa;border:1px solid #ff88aa;
+      padding:1px 5px;font-size:.72em;white-space:nowrap;}
+    .route-snr{font-size:.72em;color:var(--muted);}
+    /* Map route lines */
+    .route-line-label{background:rgba(10,10,10,.8);border:none;color:#ff88aa;
+      font-size:.7em;padding:1px 4px;white-space:nowrap;}
+
     /* Packet expand row */
     .pkt-detail{
       display:none;
@@ -552,33 +601,32 @@
 ════════════════════════════════════════════════════════════════ -->
 <div id="tab-chat" class="tab-pane active">
   <div id="chat-sidebar">
-    <div class="sb-sec">
-      <div class="sb-title">Channels</div>
-      <div id="channel-list">
-        <div class="ch-item active" data-ch="all" onclick="filterChannel(this)"># All</div>
-        <div class="ch-item" data-ch="0" onclick="filterChannel(this)"># Channel 0<span class="ch-badge" id="ubadge-ch0"></span></div>
+    <div id="conv-list" style="overflow-y:auto;flex:1;">
+      <div class="conv-section">All</div>
+      <div class="conv-item active" data-conv="all" onclick="switchConv('all')">
+        💬 All conversations
       </div>
-    </div>
-    <div class="sb-sec" style="flex:1;overflow:hidden;display:flex;flex-direction:column;">
-      <div class="sb-title">Nodes</div>
-      <div style="padding:2px 0 4px;display:flex;gap:4px;flex-wrap:wrap;">
-        <select class="tb-select" style="font-size:.65em;padding:1px 4px;" id="chat-hop-filter" onchange="setChatHopFilter(this.value)">
-          <option value="all">All hops</option>
-          <option value="direct">Direct</option>
-          <option value="1">1 hop</option>
-          <option value="2">2 hops</option>
-          <option value="3+">3+ hops</option>
-          <option value="mqtt">MQTT</option>
-        </select>
-        <select class="tb-select" style="font-size:.65em;padding:1px 4px;" id="chat-seen-filter" onchange="setChatSeenFilter(parseInt(this.value))">
-          <option value="0">Any time</option>
-          <option value="1800">30 min</option>
-          <option value="3600">1 hour</option>
-          <option value="21600" selected>6 hours</option>
-          <option value="86400">24 hours</option>
-        </select>
+      <div class="conv-section">Channels</div>
+      <div id="conv-channels"></div>
+      <div class="conv-section" style="display:flex;align-items:center;justify-content:space-between;">
+        <span>Direct</span>
+        <div style="display:flex;gap:3px;">
+          <select class="tb-select" style="font-size:.6em;padding:1px 3px;" id="chat-hop-filter" onchange="setChatHopFilter(this.value)">
+            <option value="all">All hops</option>
+            <option value="direct">Direct</option>
+            <option value="1">1 hop</option>
+            <option value="3+">3+ hops</option>
+            <option value="mqtt">MQTT</option>
+          </select>
+          <select class="tb-select" style="font-size:.6em;padding:1px 3px;" id="chat-seen-filter" onchange="setChatSeenFilter(parseInt(this.value))">
+            <option value="0" selected>All time</option>
+            <option value="3600">1h</option>
+            <option value="21600">6h</option>
+            <option value="86400">24h</option>
+          </select>
+        </div>
       </div>
-      <div id="dm-list" style="flex:1;overflow-y:auto;"></div>
+      <div id="conv-nodes"></div>
     </div>
   </div>
 
@@ -685,6 +733,7 @@
       <button class="tb-btn" onclick="setPktFilter(this,'TELEMETRY')">Telemetry</button>
       <button class="tb-btn" onclick="setPktFilter(this,'NODEINFO')">Node Info</button>
       <button class="tb-btn" onclick="setPktFilter(this,'ROUTING')">Routing</button>
+      <button class="tb-btn" id="btn-routes" onclick="toggleRoutesView(this)">Routes</button>
       <div class="tb-sep"></div>
       <button class="tb-btn active" id="btn-pkt-as" onclick="togglePktScroll()">Auto-scroll</button>
       <button class="tb-btn" onclick="clearPackets()">Clear</button>
@@ -695,6 +744,7 @@
       <span>Ch</span><span>SNR/RSSI</span><span>Summary</span>
     </div>
     <div id="pkt-feed"></div>
+    <div id="route-feed"></div>
   </div>
 
   <!-- Stats panel -->
@@ -730,6 +780,10 @@
     <div class="stat-block">
       <div class="stat-title">Top Nodes</div>
       <div id="pkt-neighbour"></div>
+    </div>
+    <div class="stat-block">
+      <div class="stat-title">Recent Routes</div>
+      <div id="stat-routes" style="font-size:.72em;"></div>
     </div>
   </div>
 </div>
@@ -1252,47 +1306,155 @@ function switchTab(name) {
 }
 
 // ── MESSAGES ──────────────────────────────────────────────────────────────
+let activeConv    = 'all';   // 'all' | 'ch:N' | 'dm:nodeid' | 'system'
+let unreadCounts  = {};      // convKey → count
+let convScrollPos = {};      // convKey → scrollTop
+
 function msgVisible(msg) {
   const now = Date.now()/1000;
-  if (timeFilter>0 && (now-msg.timestamp)>timeFilter) return false;
-  if (chFilter!=='all' && msg.channel>=0 && String(msg.channel)!==chFilter) return false;
-  if (chatSenderFilter && msg.sender_id !== chatSenderFilter && msg.type!=='system') return false;
-  return true;
+  if (timeFilter > 0 && (now - msg.timestamp) > timeFilter) return false;
+  if (msg.type === 'system') return activeConv === 'all';
+  if (activeConv === 'all') return true;
+  return msgConvKey(msg) === activeConv;
+}
+
+function switchConv(key) {
+  // Save scroll position of current conv
+  convScrollPos[activeConv] = feed.scrollTop;
+  // Clear unread for new conv
+  unreadCounts[key] = 0;
+  activeConv = key;
+
+  // Update sidebar active state
+  document.querySelectorAll('.conv-item').forEach(el =>
+    el.classList.toggle('active', el.dataset.conv === key));
+
+  // Update send bar / DM mode
+  if (key.startsWith('dm:')) {
+    const nodeId = key.slice(3);
+    const node = nodesCache.find(n => n.id === nodeId);
+    dmNodeId = nodeId;
+    _applyDmUi(node ? (node.short_name || node.long_name || nodeId) : nodeId);
+    setText('chat-title', node ? `DM: ${node.long_name || nodeId}` : `DM: !${nodeId}`);
+  } else {
+    dmNodeId = null;
+    _applyDmUi();
+    if (key === 'all')  setText('chat-title', 'All conversations');
+    else setText('chat-title', `Channel ${key.slice(3)}`);
+  }
+
+  // Rebuild feed
+  feed.innerHTML = '';
+  lastMsgTs = 0;   // force re-fetch from beginning isn't ideal — filter existing
+  _renderAllMessages();
+
+  // Restore scroll
+  feed.scrollTop = convScrollPos[key] ?? feed.scrollHeight;
+  _updateConvBadges();
+}
+
+function _renderAllMessages() {
+  // Re-render all cached messages for active conv
+  // (we keep all messages in DOM via lastMsgTs trick — simpler: rebuild)
+  feed.innerHTML = '';
+  // Fetch fresh from server
+  lastMsgTs = 0;
+  fetchMessages();
+}
+
+function _updateConvBadges() {
+  document.querySelectorAll('.conv-item[data-conv]').forEach(el => {
+    const key = el.dataset.conv;
+    const cnt = unreadCounts[key] || 0;
+    let badge = el.querySelector('.conv-badge');
+    if (cnt > 0) {
+      if (!badge) { badge = document.createElement('span'); badge.className='conv-badge'; el.appendChild(badge); }
+      badge.textContent = cnt > 9 ? '9+' : cnt;
+    } else if (badge) {
+      badge.remove();
+    }
+  });
+}
+
+const BROADCAST_IDS = new Set(['ffffffff','4294967295','']);
+
+function msgConvKey(msg) {
+  const dest = String(msg.destination_id || '').toLowerCase();
+  const isBroadcastDest = !dest || BROADCAST_IDS.has(dest);
+
+  // DM sent by bot (TX/AI with specific destination)
+  if ((msg.type === 'tx' || msg.type === 'ai') && !isBroadcastDest)
+    return `dm:${msg.destination_id}`;
+
+  // Incoming DM to our bot (destination = our node ID, not broadcast)
+  if (msg.type === 'rx' && !isBroadcastDest && msg.sender_id)
+    return `dm:${msg.sender_id}`;
+
+  // Channel message (broadcast or no destination set)
+  if (msg.channel !== undefined && msg.channel !== null && msg.channel >= 0)
+    return `ch:${msg.channel}`;
+
+  return 'system';
 }
 
 function appendMessage(msg) {
+  // Always advance lastMsgTs so invisible messages aren't re-fetched every poll
+  if (msg.timestamp > lastMsgTs) lastMsgTs = msg.timestamp;
+
+  // Track unread counts for inactive conversations
+  const convKey = msgConvKey(msg);
+  if (activeConv !== 'all' && convKey !== activeConv && convKey !== 'system') {
+    unreadCounts[convKey] = (unreadCounts[convKey] || 0) + 1;
+    _updateConvBadges();
+  }
   if (!msgVisible(msg)) return;
-  const ch = msg.channel>=0 ? `[ch${msg.channel}]` : '';
+
+  const ch = msg.channel >= 0 ? `[ch${msg.channel}]` : '';
+  const ackHtml = msg.ack === 'pending' ? '<span class="msg-ack ack-pending" title="Waiting for ACK">⋯</span>'
+    : msg.ack === 'ok'   ? '<span class="msg-ack ack-ok" title="Delivered">✓</span>'
+    : msg.ack === 'fail' ? '<span class="msg-ack ack-fail" title="Delivery failed">✗</span>'
+    : '';
+  const dmTag = msg.destination_id ? `<span style="color:var(--muted);font-size:.7em">→${msg.destination_id.slice(-4)}</span>` : '';
+
   const d = document.createElement('div');
   d.className = `msg msg-${esc(msg.type)}`;
-  d.dataset.ts = msg.timestamp; d.dataset.ch = msg.channel;
+  d.dataset.ts = msg.timestamp;
+  d.dataset.ch = msg.channel;
+  d.dataset.msgid = msg.id;
   d.innerHTML =
     `<span class="msg-ts">${esc(msg.ts_str)}</span>`+
     `<span class="msg-ch">${ch}</span>`+
-    `<span class="msg-sender">${esc(msg.sender)}:</span>`+
-    `<span class="msg-text">${esc(msg.text)}</span>`;
+    `<span class="msg-sender">${esc(msg.sender)}:${dmTag}</span>`+
+    `<span class="msg-text">${esc(msg.text)}${ackHtml}</span>`;
   feed.appendChild(d);
-  if (msg.timestamp>lastMsgTs) lastMsgTs=msg.timestamp;
-  if (autoScroll) feed.scrollTop=feed.scrollHeight;
+  if (autoScroll) feed.scrollTop = feed.scrollHeight;
 }
 
 async function fetchMessages() {
   try {
     const r = await fetch(`/api/messages?since=${lastMsgTs}`);
     if (!r.ok) return;
-    (await r.json()).messages.forEach(appendMessage);
+    const msgs = (await r.json()).messages || [];
+    msgs.forEach(msg => {
+      // Update ACK indicator if message already in DOM
+      if (msg.ack === 'ok' || msg.ack === 'fail') {
+        const existing = feed.querySelector(`[data-msgid="${msg.id}"]`);
+        if (existing) {
+          const ackEl = existing.querySelector('.msg-ack');
+          if (ackEl) {
+            ackEl.className = `msg-ack ack-${msg.ack}`;
+            ackEl.title = msg.ack === 'ok' ? 'Delivered' : 'Delivery failed';
+            ackEl.textContent = msg.ack === 'ok' ? '✓' : '✗';
+          }
+          return; // Already rendered, just updated ACK
+        }
+      }
+      appendMessage(msg);
+    });
   } catch(e) {}
 }
 
 function rebuildFeed() { lastMsgTs=0; feed.innerHTML=''; fetchMessages(); }
-
-function filterChannel(el) {
-  document.querySelectorAll('.ch-item').forEach(e=>e.classList.remove('active'));
-  el.classList.add('active');
-  chFilter = el.dataset.ch;
-  setText('chat-title', chFilter==='all' ? 'All channels' : `Channel ${chFilter}`);
-  rebuildFeed();
-}
 
 function setTimeFilter(btn, secs) {
   deactivateGroup(btn, ['1h','6h','24h','All']);
@@ -1407,19 +1569,72 @@ async function clearError() {
 // ── CHANNELS ───────────────────────────────────────────────────────────────
 async function fetchChannels() {
   try {
-    const r=await fetch('/api/channels'); if(!r.ok) return;
-    const d=await r.json();
-    const list=document.getElementById('channel-list');
-    const sel=document.getElementById('sel-channel');
-    list.innerHTML='<div class="ch-item active" data-ch="all" onclick="filterChannel(this)"># All</div>';
-    sel.innerHTML='';
-    (d.channels||[]).forEach(ch => {
-      const name=ch.name||`Channel ${ch.index}`;
-      list.innerHTML+=`<div class="ch-item" data-ch="${ch.index}" onclick="filterChannel(this)"># ${esc(name)}<span class="ch-badge" id="ubadge-ch${ch.index}"></span></div>`;
-      sel.innerHTML+=`<option value="${ch.index}">${esc(name)}</option>`;
+    const r = await fetch('/api/channels'); if (!r.ok) return;
+    const d = await r.json();
+    const convCh = document.getElementById('conv-channels');
+    const sel    = document.getElementById('sel-channel');
+    convCh.innerHTML = '';
+    sel.innerHTML    = '';
+    const channels = d.channels || [];
+    if (!channels.length) {
+      convCh.innerHTML = `<div class="conv-item" data-conv="ch:0" onclick="switchConv('ch:0')"># Channel 0</div>`;
+      sel.innerHTML = '<option value="0">Channel 0</option>';
+      return;
+    }
+    channels.forEach(ch => {
+      const name = ch.name || `Channel ${ch.index}`;
+      const key  = `ch:${ch.index}`;
+      const el   = document.createElement('div');
+      el.className = 'conv-item' + (activeConv === key ? ' active' : '');
+      el.dataset.conv = key;
+      el.onclick = () => switchConv(key);
+      el.innerHTML = `# ${esc(name)}`;
+      convCh.appendChild(el);
+      sel.innerHTML += `<option value="${ch.index}">${esc(name)}</option>`;
     });
-    if (!d.channels||!d.channels.length) sel.innerHTML='<option value="0">Channel 0</option>';
   } catch(e) {}
+}
+
+function renderDmList(nodes) {
+  const convNodes = document.getElementById('conv-nodes');
+  if (!convNodes) return;
+  const now = Date.now() / 1000;
+  const filtered = nodes.filter(n => {
+    if (n.is_mine) return false;
+    if (chatHopFilter === 'direct' && n.hops_away !== 0)  return false;
+    if (chatHopFilter === '1'      && n.hops_away !== 1)  return false;
+    if (chatHopFilter === '3+'     && (n.hops_away === null || n.hops_away < 3)) return false;
+    if (chatHopFilter === 'mqtt'   && !n.via_mqtt)        return false;
+    if (chatSeenFilter > 0 && n.last_heard && (now - n.last_heard) > chatSeenFilter) return false;
+    if (chatSeenFilter > 0 && !n.last_heard) return false;
+    return true;
+  });
+  // Sort: online first, then by last heard descending
+  filtered.sort((a,b) => {
+    if (a.is_online !== b.is_online) return a.is_online ? -1 : 1;
+    return (b.last_heard||0) - (a.last_heard||0);
+  });
+  convNodes.innerHTML = '';
+  filtered.forEach(n => {
+    const key  = `dm:${n.id}`;
+    const el   = document.createElement('div');
+    el.className = 'conv-item' + (activeConv === key ? ' active' : '');
+    el.dataset.conv = key;
+    el.onclick = () => switchConv(key);
+    const dot  = n.is_online ? '🟢' : (n.via_mqtt ? '☁' : '📡');
+    const hop  = hopLabel(n);
+    const age  = n.age_s !== null && n.age_s !== undefined ? fmtAge(n.age_s) : '?';
+    el.innerHTML =
+      `<span>${dot} ${esc(n.short_name || n.long_name || n.id)}</span>`+
+      `<span style="margin-left:auto;font-size:.65em;color:var(--muted);white-space:nowrap;">${hop.text} · ${age}</span>`;
+    if (unreadCounts[key]) {
+      const badge = document.createElement('span');
+      badge.className = 'conv-badge';
+      badge.textContent = unreadCounts[key] > 9 ? '9+' : unreadCounts[key];
+      el.appendChild(badge);
+    }
+    convNodes.appendChild(el);
+  });
 }
 
 // ── NODES ──────────────────────────────────────────────────────────────────
@@ -1758,33 +1973,13 @@ function clearPackets() {
 
 // ── CHAT SIDEBAR FILTERS ──────────────────────────────────────
 let chatHopFilter  = 'all';
-let chatSeenFilter = 21600;
+let chatSeenFilter = 0;     // default: show all nodes regardless of last seen
 let chatSenderFilter = null;  // null = show all, string = node id
 
 function setChatHopFilter(val)  { chatHopFilter = val;  renderDmList(nodesCache); }
 function setChatSeenFilter(secs){ chatSeenFilter = secs; renderDmList(nodesCache); }
 
-function renderDmList(nodes) {
-  const now = Date.now()/1000;
-  const filtered = nodes.filter(n => {
-    if (n.is_mine) return false;
-    if (chatHopFilter === 'direct' && n.hops_away !== 0) return false;
-    if (chatHopFilter === '1'      && n.hops_away !== 1) return false;
-    if (chatHopFilter === '2'      && n.hops_away !== 2) return false;
-    if (chatHopFilter === '3+'     && (n.hops_away === null || n.hops_away < 3)) return false;
-    if (chatHopFilter === 'mqtt'   && !n.via_mqtt) return false;
-    if (chatSeenFilter > 0 && n.last_heard && (now - n.last_heard) > chatSeenFilter) return false;
-    if (chatSeenFilter > 0 && !n.last_heard) return false;
-    return true;
-  });
-  document.getElementById('dm-list').innerHTML = filtered.map(n => {
-    const h = hopLabel(n);
-    const isActive = chatSenderFilter === n.id;
-    return `<div class="dm-item ${isActive?'active':''}" title="!${esc(n.id)}" onclick="filterBySender('${esc(n.id)}','${esc(n.long_name)}')">`+
-      `${n.via_mqtt?'☁':'📡'} ${esc(n.long_name||n.id)}`+
-      `<span class="dm-hops">${h.text}</span></div>`;
-  }).join('');
-}
+// renderDmList is defined earlier (fills conv-nodes)
 
 let dmNodeId = null;   // hex id of DM target, null = channel mode
 
@@ -2300,13 +2495,36 @@ async function loadPanelTab(tabId) {
 }
 
 async function loadPanelOverview() {
+  const row = (k, v, cls='') =>
+    v != null && v !== '' ? `<div class="pov-row"><span class="pov-key">${k}</span><span class="pov-val ${cls}">${v}</span></div>` : '';
+  const fmtDate = ts => ts ? new Date(ts*1000).toLocaleString('en-GB') : '--';
   try {
-    const r=await fetch(`/api/node/${panelNodeId}`); if(!r.ok) return;
+    const pov = document.getElementById('pov-content');
+    // Show live data from nodes cache immediately (no wait)
+    const liveNode = nodesCache.find(n => n.id === panelNodeId);
+    if (liveNode) {
+      const hop = hopLabel(liveNode);
+      pov.innerHTML = `<div class="pov-block">
+        <div class="pov-title">Live Info</div>
+        ${row('Long name', esc(liveNode.long_name))}
+        ${row('Short name', esc(liveNode.short_name))}
+        ${row('ID', '!'+esc(liveNode.id))}
+        ${row('Hops', hop.text)}
+        ${row('Last seen', liveNode.age_s!==null ? fmtAge(liveNode.age_s)+' ago' : '--')}
+        ${liveNode.snr!==null?row('SNR', liveNode.snr+' dB'):''}
+        ${liveNode.rssi!==null?row('RSSI', liveNode.rssi+' dBm'):''}
+        ${liveNode.battery!==null?row('Battery', liveNode.battery+'%'):''}
+        ${row('Model', esc(liveNode.hw_model))}
+        ${liveNode.lat?row('GPS', liveNode.lat.toFixed(5)+', '+liveNode.lon.toFixed(5)):''}
+      </div><div style="color:var(--muted);font-size:.75em">Loading DB stats…</div>`;
+    }
+    const r=await fetch(`/api/node/${panelNodeId}`); if(!r.ok) {
+      if (liveNode) pov.innerHTML = pov.innerHTML.replace('Loading DB stats…','DB: no data');
+      return;
+    }
     const {node,stats}=await r.json();
-    if (!node&&!stats) { document.getElementById('pov-content').innerHTML='<div class="panel-empty">No data in database</div>'; return; }
+    if (!node&&!stats) { if(!liveNode) document.getElementById('pov-content').innerHTML='<div class="panel-empty">No data in database</div>'; return; }
     const n=node||{}; const s=stats||{};
-    const row=(k,v,cls='')=>v!=null?`<div class="pov-row"><span class="pov-key">${k}</span><span class="pov-val ${cls}">${v}</span></div>`:'';
-    const fmtDate=ts=>ts?new Date(ts*1000).toLocaleString('en-GB'):'--';
     let html=`<div class="pov-block">
       <div class="pov-title">Node Info</div>
       ${row('Long name',  esc(n.long_name))}
@@ -2460,6 +2678,127 @@ async function loadPanelMessages() {
   } catch(e) {}
 }
 
+// ── TRACEROUTE / ROUTES ───────────────────────────────────────────────────
+let lastRouteTs   = 0;
+let routesVisible = false;
+let mapRouteLines = [];   // Leaflet polylines for routes
+
+function toggleRoutesView(btn) {
+  routesVisible = !routesVisible;
+  btn.classList.toggle('active', routesVisible);
+  document.getElementById('pkt-feed').classList.toggle('routes-hidden', routesVisible);
+  document.getElementById('route-feed').classList.toggle('active', routesVisible);
+  if (routesVisible) { lastRouteTs = 0; fetchTraceroutes(); }
+}
+
+function _hopColor(hops) {
+  return hops === 0 ? '#00ff88' : hops === 1 ? '#88ff44' : hops === 2 ? '#ffaa00' : hops === 3 ? '#ff6600' : '#ff4444';
+}
+
+function renderRouteRow(tr, onClick) {
+  const el = document.createElement('div');
+  el.className = 'route-row';
+  el.onclick = onClick;
+
+  const snrParts = tr.snr_towards.map((s,i) => s ? `${(s/4).toFixed(1)}dB` : '--');
+  const snrStr = snrParts.length ? snrParts.join(' / ') : '';
+
+  let pathHtml = '';
+  tr.route.forEach((node, i) => {
+    const cls = ['route-node', node.lat ? 'has-gps' : '',
+                 i === 0 ? 'origin' : i === tr.route.length-1 ? 'dest' : ''].join(' ');
+    pathHtml += `<span class="${cls}" title="!${esc(node.id)}" onclick="event.stopPropagation();focusNodeOnMap('${esc(node.id)}')">
+      ${esc(node.name)}${node.lat?'📍':''}
+    </span>`;
+    if (i < tr.route.length - 1) pathHtml += `<span class="route-arrow">→</span>`;
+  });
+
+  el.innerHTML =
+    `<span class="route-ts">${esc(tr.ts_str)}</span>`+
+    `<div class="route-path">${pathHtml}</div>`+
+    `<span class="route-hop-badge">${tr.hops} hop${tr.hops!==1?'s':''}</span>`+
+    (snrStr ? `<span class="route-snr">${snrStr}</span>` : '');
+  return el;
+}
+
+async function fetchTraceroutes() {
+  try {
+    const r = await fetch(`/api/traceroutes?since=${lastRouteTs}`); if (!r.ok) return;
+    const {traceroutes} = await r.json();
+    if (!traceroutes || !traceroutes.length) return;
+
+    const feed = document.getElementById('route-feed');
+    const statEl = document.getElementById('stat-routes');
+
+    traceroutes.forEach(tr => {
+      if (tr.ts > lastRouteTs) lastRouteTs = tr.ts;
+
+      // Route feed (if visible)
+      if (routesVisible) {
+        const row = renderRouteRow(tr, () => drawRouteOnMap(tr));
+        feed.insertBefore(row, feed.firstChild);
+        while (feed.children.length > 200) feed.removeChild(feed.lastChild);
+      }
+
+      // Stats panel — recent routes summary
+      if (statEl) {
+        const color = _hopColor(tr.hops);
+        const summary = document.createElement('div');
+        summary.className = 'nb-row';
+        summary.style.cursor = 'pointer';
+        summary.onclick = () => drawRouteOnMap(tr);
+        summary.innerHTML =
+          `<span class="nb-node" style="color:${color}">${esc(tr.from_name)}→${esc(tr.to_name)}</span>`+
+          `<span class="nb-snr">${tr.hops}h</span>`;
+        statEl.insertBefore(summary, statEl.firstChild);
+        while (statEl.children.length > 8) statEl.removeChild(statEl.lastChild);
+      }
+
+      // Draw on map if map is open
+      if (mapInited && leafMap) drawRouteOnMap(tr);
+    });
+  } catch(e) {}
+}
+
+function drawRouteOnMap(tr) {
+  if (!mapInited || !leafMap) { switchTab('map'); initMap(); }
+  // Remove old route highlight after 30s
+  const latlngs = tr.route.filter(n => n.lat && n.lon).map(n => [n.lat, n.lon]);
+  if (latlngs.length < 2) return;
+
+  const color  = _hopColor(tr.hops);
+  const line   = L.polyline(latlngs, {
+    color, weight: 3, opacity: .85,
+    dashArray: tr.hops > 0 ? '8,6' : null,
+  }).addTo(leafMap);
+
+  // Label with hop info
+  const mid = latlngs[Math.floor(latlngs.length / 2)];
+  const label = L.marker(mid, {
+    icon: L.divIcon({
+      className: 'route-line-label',
+      html: `${tr.from_name}→${tr.to_name} (${tr.hops}h)`,
+      iconAnchor: [0, 0],
+    }),
+  }).addTo(leafMap);
+
+  // Auto-fit and auto-remove after 60s
+  leafMap.fitBounds(latlngs, {padding: [30, 30]});
+  mapRouteLines.push(line, label);
+  setTimeout(() => {
+    try { line.remove(); label.remove(); } catch(e) {}
+  }, 60000);
+}
+
+function focusNodeOnMap(nodeId) {
+  const node = nodesCache.find(n => n.id === nodeId);
+  if (!node || !node.lat) return;
+  switchTab('map');
+  initMap();
+  leafMap.setView([node.lat, node.lon], 13);
+  if (mapMarkers[nodeId]) mapMarkers[nodeId].openPopup();
+}
+
 // ── BOOTSTRAP ─────────────────────────────────────────────────────────────
 (async function init(){
   await fetchStatus();
@@ -2469,12 +2808,13 @@ async function loadPanelMessages() {
   await fetchPackets();
   await fetchPacketStats();
 
-  setInterval(fetchMessages,    2000);
-  setInterval(fetchStatus,      5000);
-  setInterval(fetchNodes,      10000);
-  setInterval(fetchPackets,     2000);
-  setInterval(fetchPacketStats, 5000);
-  setInterval(fetchChannels,   30000);
+  setInterval(fetchMessages,     2000);
+  setInterval(fetchStatus,       5000);
+  setInterval(fetchNodes,       10000);
+  setInterval(fetchPackets,      2000);
+  setInterval(fetchPacketStats,  5000);
+  setInterval(fetchChannels,    30000);
+  setInterval(fetchTraceroutes, 10000);
 })();
 </script>
 </body>

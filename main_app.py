@@ -33,6 +33,14 @@ try:
 except ImportError:
     _HAS_NODE_DB = False
 
+try:
+    from matrix_bridge import MatrixBridge
+    _HAS_MATRIX_BRIDGE = True
+except ImportError:
+    _HAS_MATRIX_BRIDGE = False
+
+_matrix_bridge = None   # global instance, set in __main__
+
 # --- Initial Setup & Debug Function ---
 print_debug = True 
 
@@ -205,6 +213,10 @@ class MeshtasticAIAppConsole:
                     ai_service=getattr(self.ai_bridge, 'current_ai_service', 'openai'),
                 )
                 web_ui.add_message("Connected to Meshtastic device", "system", -1, "system")
+            if _matrix_bridge and not _matrix_bridge._running:
+                _matrix_bridge.meshtastic_handler = self.meshtastic_handler
+                _matrix_bridge.start()
+                log_info("Matrix bridge started")
 
         except KeyboardInterrupt:
             if self.meshtastic_handler:
@@ -220,9 +232,21 @@ class MeshtasticAIAppConsole:
         print(f"\n[RX CONSOLE] From: {sender_name} ({sender_id}) | To: {destination_id} | Ch: {channel_id} | Msg: \"{text[:100]}\"")
 
         if _HAS_WEB_UI:
-            web_ui.add_message(text, sender_name or sender_id, channel_id, "rx", sender_id=sender_id)
+            web_ui.add_message(text, sender_name or sender_id, channel_id, "rx",
+                               sender_id=sender_id, destination_id=destination_id)
         if _HAS_NODE_DB:
             node_db.add_message(sender_id, text, direction="rx", channel=channel_id)
+        if _matrix_bridge:
+            try:
+                import meshtastic as _m
+                is_dm = destination_id and destination_id.lower() not in (
+                    'ffffffff', f"{_m.BROADCAST_NUM:x}")
+                _matrix_bridge.send_to_matrix(
+                    text, sender_name or sender_id, sender_id,
+                    channel_index=channel_id or 0, is_dm=bool(is_dm),
+                )
+            except Exception as _me:
+                dprint(f"Matrix forward error: {_me}")
 
         result = self.router.on_message(
             text, sender_id, sender_name, destination_id,
@@ -253,6 +277,14 @@ class MeshtasticAIAppConsole:
                 success, reason = self.meshtastic_handler.send_message(
                     result.reply_text, channel_index=result.reply_channel
                 )
+            if success and _HAS_WEB_UI:
+                web_ui.add_message(
+                    result.reply_text, web_ui.get_bot_name(),
+                    result.reply_channel if not result.reply_as_dm else 0,
+                    "tx",
+                    sender_id=self.ai_node_id_hex,
+                    destination_id=result.reply_destination if result.reply_as_dm else None,
+                )
             if not success:
                 print(f"ERROR: Failed to send reply: {reason}")
             return
@@ -269,10 +301,6 @@ class MeshtasticAIAppConsole:
                 self.router.record_response(result.conversation_id, ai_response)
                 log_info(f"AI sent reply to {sender_name}")
                 print(f"[AI CONSOLE -> {sender_name}] {ai_response[:100]}")
-                if _HAS_WEB_UI:
-                    web_ui.add_message(ai_response, web_ui.get_bot_name(), result.reply_channel, "ai")
-                if _HAS_NODE_DB:
-                    node_db.add_message(sender_id, ai_response, direction="ai", channel=result.reply_channel)
                 if result.reply_as_dm:
                     success, reason = self.meshtastic_handler.send_message(
                         ai_response, destination_id_hex=result.reply_destination, channel_index=0
@@ -281,6 +309,16 @@ class MeshtasticAIAppConsole:
                     success, reason = self.meshtastic_handler.send_message(
                         ai_response, channel_index=result.reply_channel
                     )
+                if _HAS_WEB_UI:
+                    web_ui.add_message(
+                        ai_response, web_ui.get_bot_name(),
+                        result.reply_channel if not result.reply_as_dm else 0,
+                        "ai",
+                        sender_id=self.ai_node_id_hex,
+                        destination_id=result.reply_destination if result.reply_as_dm else None,
+                    )
+                if _HAS_NODE_DB:
+                    node_db.add_message(sender_id, ai_response, direction="ai", channel=result.reply_channel)
                 if not success:
                     print(f"ERROR: Failed to send AI reply: {reason}")
             else:
@@ -534,6 +572,24 @@ if __name__ == "__main__":
     if _HAS_NODE_DB:
         node_db.init()
         dprint("node_db initialized")
+
+    # --- Matrix Bridge ---
+    if _HAS_MATRIX_BRIDGE and getattr(config, 'MATRIX_ENABLED', False):
+        try:
+            _invite = [u.strip() for u in str(getattr(config, 'MATRIX_INVITE_USERS', '')).split(',') if u.strip()]
+            _matrix_bridge = MatrixBridge(
+                homeserver=config.MATRIX_HOMESERVER,
+                username=config.MATRIX_USERNAME,
+                password=config.MATRIX_PASSWORD,
+                room_prefix=getattr(config, 'MATRIX_ROOM_PREFIX', 'mesh'),
+                bot_name=getattr(config, 'MATRIX_DISPLAY_NAME', 'MeshBot'),
+                invite_users=_invite,
+                display_name=getattr(config, 'MATRIX_DISPLAY_NAME', ''),
+            )
+            dprint("MatrixBridge created (will start after Meshtastic connects)")
+        except Exception as _mb_exc:
+            print(f"WARNING: Matrix bridge init failed: {_mb_exc}")
+            _matrix_bridge = None
 
     # --- Global exception hook ---
     def _global_exception_hook(exc_type, exc_value, exc_tb):

@@ -59,9 +59,11 @@ _status: dict = {
     "last_error": None,
 }
 _lock = threading.Lock()
-_send_callback  = None   # (text, channel) -> (bool, str)
+_send_callback  = None
 _meshtastic_handler = None
 _bot_name: str = "AI"
+_pending_acks: dict = {}       # mesh_packet_id(int) → web_message_id(int)
+_traceroutes: deque = deque(maxlen=200)  # parsed traceroute records
 
 
 def set_bot_name(name: str) -> None:
@@ -79,23 +81,28 @@ def get_bot_name() -> str:
 
 def add_message(text: str, sender: str, channel: int,
                 msg_type: str = "rx", timestamp: float | None = None,
-                sender_id: str | None = None):
+                sender_id: str | None = None, ack: str = "none",
+                destination_id: str | None = None):
     ts = timestamp or time.time()
+    web_id = int(ts * 1000)
     with _lock:
         _messages.append({
-            "id":        int(ts * 1000),
-            "text":      text,
-            "sender":    sender,
-            "sender_id": sender_id or "",
-            "channel":   channel,
-            "type":      msg_type,
-            "timestamp": ts,
-            "ts_str":    datetime.fromtimestamp(ts).strftime("%H:%M:%S"),
+            "id":             web_id,
+            "text":           text,
+            "sender":         sender,
+            "sender_id":      sender_id or "",
+            "destination_id": destination_id or "",
+            "channel":        channel,
+            "type":           msg_type,
+            "ack":            ack,        # 'none'|'pending'|'ok'|'fail'
+            "timestamp":      ts,
+            "ts_str":         datetime.fromtimestamp(ts).strftime("%H:%M:%S"),
         })
         if msg_type == "rx":
             _status["messages_received"] += 1
         elif msg_type == "ai":
             _status["ai_responses"] += 1
+    return web_id
 
 
 def update_status(**kwargs):
@@ -121,8 +128,94 @@ def on_packet(packet, interface):
             _packets.append(pkt)
         if _HAS_NODE_DB:
             _persist_packet(packet, pkt, interface)
+        _handle_ack(packet)
+        tr = _parse_traceroute(packet, interface)
+        if tr:
+            with _lock:
+                _traceroutes.append(tr)
     except Exception:
         pass
+
+
+def _node_name(node_id_hex: str, interface) -> str:
+    if not interface or not hasattr(interface, 'nodes'):
+        return node_id_hex
+    for nd in (interface.nodes or {}).values():
+        num = nd.get('num')
+        if num and f"{num:x}" == node_id_hex:
+            u = nd.get('user', {})
+            return u.get('shortName') or u.get('longName') or node_id_hex
+    return node_id_hex
+
+
+def _node_pos(node_id_hex: str, interface):
+    if not interface or not hasattr(interface, 'nodes'):
+        return None
+    for nd in (interface.nodes or {}).values():
+        num = nd.get('num')
+        if num and f"{num:x}" == node_id_hex:
+            pos = nd.get('position') or {}
+            lat, lon = pos.get('latitude'), pos.get('longitude')
+            if lat is not None and lon is not None:
+                return float(lat), float(lon)
+    return None
+
+
+def _parse_traceroute(packet: dict, interface) -> dict | None:
+    decoded = packet.get('decoded') or {}
+    if decoded.get('portnum') != 'TRACEROUTE_APP':
+        return None
+    tr       = decoded.get('traceroute') or {}
+    from_num = packet.get('from')
+    to_num   = packet.get('to')
+    from_id  = f"{from_num:x}" if from_num else "?"
+    to_id    = f"{to_num:x}"   if to_num   else "?"
+    inter_ids = [f"{n:x}" for n in (tr.get('route') or [])]
+    full_ids  = [from_id] + inter_ids + [to_id]
+    nodes = []
+    for nid in full_ids:
+        pos = _node_pos(nid, interface)
+        nodes.append({
+            'id':   nid,
+            'name': _node_name(nid, interface),
+            'lat':  pos[0] if pos else None,
+            'lon':  pos[1] if pos else None,
+        })
+    ts = time.time()
+    return {
+        'ts':          ts,
+        'ts_str':      datetime.fromtimestamp(ts).strftime("%H:%M:%S"),
+        'from_id':     from_id,
+        'from_name':   _node_name(from_id, interface),
+        'to_id':       to_id,
+        'to_name':     _node_name(to_id, interface),
+        'hops':        len(inter_ids),
+        'route':       nodes,
+        'snr_towards': tr.get('snr_towards') or tr.get('snrTowards') or [],
+        'snr_back':    tr.get('snr_back')    or tr.get('snrBack')    or [],
+        'channel':     packet.get('channel', 0),
+        'rssi':        packet.get('rxRssi') or packet.get('rssi'),
+        'snr':         packet.get('rxSnr')  or packet.get('snr'),
+    }
+
+
+def _handle_ack(packet: dict) -> None:
+    decoded = packet.get("decoded") or {}
+    if decoded.get("portnum") != "ROUTING_APP":
+        return
+    request_id = decoded.get("request_id") or decoded.get("requestId")
+    if not request_id:
+        return
+    routing = decoded.get("routing") or {}
+    error = routing.get("error_reason") or routing.get("errorReason") or 0
+    ack_status = "ok" if error == 0 else "fail"
+    with _lock:
+        web_id = _pending_acks.pop(int(request_id), None)
+        if web_id is not None:
+            for msg in _messages:
+                if msg.get("id") == web_id:
+                    msg["ack"] = ack_status
+                    break
 
 
 def _persist_packet(raw: dict, parsed: dict, interface) -> None:
@@ -532,9 +625,18 @@ if _HAS_FLASK:
         except Exception as e:
             return jsonify({"ok": False, "error": str(e)}), 500
         if ok:
-            sender = f"DM→{destination}" if destination else get_bot_name()
-            add_message(text, sender, channel, "tx",
-                        sender_id=_status.get("node_id", ""))
+            sender  = get_bot_name()
+            is_dm   = bool(destination)
+            ack_val = "pending" if is_dm else "none"
+            web_id  = add_message(text, sender, channel, "tx",
+                                  sender_id=_status.get("node_id", ""),
+                                  destination_id=destination,
+                                  ack=ack_val)
+            # Register ACK tracking for DMs
+            if is_dm and _meshtastic_handler:
+                pkt_id = _meshtastic_handler._last_tx_packet_id
+                if pkt_id:
+                    _pending_acks[int(pkt_id)] = web_id
         return jsonify({"ok": ok, "reason": reason})
 
     @app.route("/api/nodes")
@@ -681,6 +783,14 @@ if _HAS_FLASK:
         if not _meshtastic_handler:
             return jsonify({"_error": "Not connected"}), 503
         return jsonify(_meshtastic_handler.get_device_config())
+
+    @app.route("/api/traceroutes")
+    @login_required
+    def api_traceroutes():
+        since = float(request.args.get("since", 0))
+        with _lock:
+            rows = [t for t in _traceroutes if t["ts"] > since]
+        return jsonify({"traceroutes": rows, "ts": time.time()})
 
     @app.route("/api/device/reboot", methods=["POST"])
     @login_required
