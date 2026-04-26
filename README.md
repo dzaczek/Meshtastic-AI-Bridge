@@ -1,35 +1,48 @@
 # Meshtastic AI Bridge
 
-An AI-powered service that bridges Meshtastic LoRa mesh networks with AI assistants, a web dashboard, and Matrix messenger. Runs as a Docker container with automatic restart — no terminal required.
+> AI-powered gateway between Meshtastic LoRa mesh networks, AI assistants, a web dashboard, and Matrix messenger — runs as a Docker container, no terminal required.
 
-> **TUI removed** — the Textual terminal interface was impractical for server deployments and has been replaced with a full web-based dashboard accessible from any browser on the local network.
+![OPS Dashboard](./mdfiles/screen_ops.svg)
 
-![Web Dashboard](./mdfiles/i-mode.jpg)
+---
+
+## Tabs at a glance
+
+| | |
+|---|---|
+| ![Chat](./mdfiles/screen_chat.svg) | ![Nodes](./mdfiles/screen_nodes.svg) |
+| **Chat** — per-channel & DM threads, ACK indicators, clickable sender names | **Nodes** — live node cards with signal, battery, GPS, detail panel |
+| ![Packets](./mdfiles/screen_packets.svg) | ![Config](./mdfiles/screen_config.svg) |
+| **Packets** — Wireshark-style feed with stats panel | **Config** — full hardware configuration via Meshtastic API |
+
+---
 
 ## Features
 
 ### Web Dashboard (port 8080)
-- **Chat** — per-channel and per-node (DM) conversation threads, ACK indicators, hop/seen filters
-- **Nodes** — node cards with SNR/RSSI, battery, GPS, hops, freshness colours; clickable detail panel with signal charts, position trail on mini-map, telemetry and message history
-- **Map** — Leaflet.js interactive map, node markers, live traceroute route overlay
-- **Packets** — live packet feed (Wireshark-style), click to expand raw JSON, top-node stats, route tracing table
-- **Radar** — canvas sweep animation, GPS or SNR-based node positioning, filters by age/hops/SNR
-- **Config** — full hardware configuration (LoRa region/preset, Device role, Position, Power, Network/WiFi, Display, Bluetooth, Channels, MQTT, Telemetry) read and written directly via the Meshtastic Python API
+- **OPS** — SOC-style overview: live map, activity feed, top-nodes leaderboard, connection status bar
+- **Chat** — per-channel and per-node (DM) conversation threads; clickable sender names open node details; unread badges; ACK indicators (⋯ pending / ✓ delivered / ✗ failed); system-message hide toggle; history persists across restarts
+- **Nodes** — node cards with SNR/RSSI, battery, GPS, hops, freshness colours; detail panel with signal/telemetry charts, position trail on mini-map, message history, traceroute history
+- **Map** — Leaflet.js interactive map, node markers colour-coded by type, traceroute polyline through all intermediate hops
+- **Packets** — stats panel (left) + live feed (right); per-channel/type breakdown; route tracing; auto-scroll toggle
+- **Radar** — canvas sweep animation, GPS or SNR-based positioning, age/hops/SNR filters
+- **Config** — read and write full device configuration: LoRa region/preset, Device role, Position (including fixed/virtual GPS), Power, Network/WiFi, Display, Bluetooth, Channels, MQTT, Telemetry intervals; one-click device reboot
 
 ### AI & Bot
 - **OpenAI GPT / Google Gemini** — context-aware responses, configurable persona, smart triage
-- **SOS detection** — multilingual emergency keywords, broadcasts on all channels
-- **HAL bot** — ping/pong, traceroute, remote `!admin` commands over the mesh
-- **Web search** — AI can look up live data from the internet
+- **SOS detection** — multilingual emergency keyword detection, broadcasts on all channels
+- **HAL bot** — auto-responds to ping and traceroute requests; remote `!admin` commands
+- **Web search** — AI can fetch live data from the internet during a conversation
+- **Traceroute** — trigger from node detail panel; result visualised as map polyline + hop diagram + SNR table; history stored per device in SQLite
 
 ### Matrix Bridge
-- **Bidirectional** — mesh messages forwarded to Matrix rooms; Matrix replies go back to the mesh
+- **Bidirectional** — mesh messages forwarded to Matrix rooms; Matrix replies delivered to the mesh
 - **Per-channel rooms** — each Meshtastic channel gets its own Matrix room (auto-created)
-- **Per-node DM rooms** — direct messages get separate rooms
-- **Error notifications** — crashes and disconnects reported to a dedicated Matrix room
+- **Per-node DM rooms** — direct messages get dedicated rooms
+- **Error notifications** — crashes and reconnect events reported to a dedicated Matrix room
 
 ### Persistent Storage
-- **SQLite node database** — signal history, GPS tracks, telemetry, message history per node — survives device restarts
+- **SQLite WAL** — signal history, GPS tracks, telemetry, messages and traceroutes per node; survives device reboots and bridge restarts
 
 ---
 
@@ -49,34 +62,35 @@ cp config_template.py config.py
 cp .env.template .env
 ```
 
-Edit `config.py`:
+Edit `config.py` — minimal required settings:
 
 ```python
 MESHTASTIC_CONNECTION_TYPE  = "tcp"
-MESHTASTIC_DEVICE_SPECIFIER = "192.168.1.x"   # Meshtastic node IP
+MESHTASTIC_DEVICE_SPECIFIER = "192.168.1.x"   # your Meshtastic node IP
 DEFAULT_AI_SERVICE          = "openai"
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-
-# Optional Matrix bridge
-MATRIX_ENABLED    = True
-MATRIX_HOMESERVER = "https://matrix.example.org"
-MATRIX_USERNAME   = "@meshbot:example.org"
-MATRIX_PASSWORD   = os.environ.get("MATRIX_PASSWORD", "")
 ```
 
 Edit `.env`:
 
 ```env
 OPENAI_API_KEY=sk-...
+WEB_UI_USERNAME=admin
 WEB_UI_PASSWORD=your_dashboard_password
-WEB_UI_SECRET_KEY=change_me_random_string
+WEB_UI_SECRET_KEY=<64 random hex chars>   # generate: openssl rand -hex 32
 
-# Matrix (same account for bridge and error notifications)
+# Matrix bridge (optional)
+MATRIX_ENABLED=false
+MATRIX_HOMESERVER=https://matrix.example.org
+MATRIX_USERNAME=@meshbot:example.org
 MATRIX_PASSWORD=your_matrix_bot_password
-ERROR_MATRIX_PASSWORD=your_matrix_bot_password
+MATRIX_INVITE_USERS=@you:example.org
+
+# Error reporter (optional — can be same bot as above)
 ERROR_MATRIX_HOMESERVER=https://matrix.example.org
 ERROR_MATRIX_USERNAME=@meshbot:example.org
-ERROR_MATRIX_ROOM_ID=!roomid:example.org    # room for crash alerts
+ERROR_MATRIX_PASSWORD=your_matrix_bot_password
+ERROR_MATRIX_ROOM_ID=!roomid:example.org
 ```
 
 ### 2 — Start
@@ -87,7 +101,7 @@ docker compose up -d
 
 Dashboard → `http://<server-ip>:8080`
 
-The container restarts automatically after server reboots (`restart: unless-stopped`).
+The container restarts automatically on server reboot (`restart: unless-stopped`).
 
 ### 3 — Update
 
@@ -101,19 +115,19 @@ docker compose up -d --build
 ## Architecture
 
 ```
-Meshtastic device  (TCP or serial)
+Meshtastic device  (TCP / USB serial)
         │
-MeshtasticHandler
+MeshtasticHandler  (pubsub events, config r/w, traceroute, fixed GPS)
         │
-    ┌───┴──────────────────────────┐
-    │                              │
-main_app.py                 MatrixBridge
- ├─ MessageRouter               (matrix-nio)
- │   ├─ HalBot
- │   └─ AIBridge (OpenAI/Gemini)
- ├─ web_ui.py  (Flask REST + Jinja2)
- ├─ node_db.py (SQLite WAL)
- └─ error_reporter.py (Matrix HTTP)
+    ┌───┴──────────────────────────────┐
+    │                                  │
+main_app.py                      MatrixBridge
+ ├─ MessageRouter                    (matrix-nio, bidirectional)
+ │   ├─ HalBot  (ping / traceroute)
+ │   └─ AIBridge  (OpenAI / Gemini)
+ ├─ web_ui.py  (Flask REST + Jinja2 dashboard)
+ ├─ node_db.py  (SQLite WAL — signal/GPS/telemetry/messages/traceroutes)
+ └─ error_reporter.py  (Matrix HTTP crash alerts)
 ```
 
 ---
@@ -124,13 +138,13 @@ main_app.py                 MatrixBridge
 |---|---|---|
 | `./config.py` | `/app/config.py` (ro) | Bot configuration |
 | `./.env` | env_file | Secrets / API keys |
-| `./data/` | `/app/data/` | SQLite node database |
-| `./conversations/` | `/app/conversations/` | Message history |
+| `./data/` | `/app/data/` | SQLite node database + chat history |
+| `./conversations/` | `/app/conversations/` | Legacy message store |
 | `./logs/` | `/app/logs/` | Application logs |
 
 ---
 
-## Config Reference
+## Key Config Variables
 
 | Variable | Default | Description |
 |---|---|---|
@@ -142,6 +156,9 @@ main_app.py                 MatrixBridge
 | `MATRIX_ROOM_PREFIX` | `mesh` | Room alias prefix (`#mesh-ch0:server`) |
 | `MATRIX_INVITE_USERS` | — | Comma-separated Matrix IDs to auto-invite |
 | `WEB_UI_PORT` | `8080` | Dashboard listen port |
+| `WEB_UI_SECRET_KEY` | — | Flask session secret (set a long random string) |
+
+Full reference: [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
 
 ---
 
@@ -152,10 +169,10 @@ Send from any authorised mesh node:
 | Command | Description |
 |---|---|
 | `!admin status` | Bot status (node ID, AI service, uptime) |
-| `!admin nodes` | List mesh nodes |
-| `!admin channels` | List channels |
+| `!admin nodes` | List visible mesh nodes |
+| `!admin channels` | List configured channels |
 | `!admin persona <text>` | Change AI personality |
-| `!admin switch_ai openai\|gemini` | Switch AI service |
+| `!admin switch_ai openai\|gemini` | Switch AI service live |
 
 ---
 
@@ -166,4 +183,5 @@ Send from any authorised mesh node:
 - `flask >= 3.0`, `werkzeug >= 3.0`
 - `matrix-nio` (Matrix bridge)
 - `requests` (error reporter)
-- Full list: `requirements.txt`
+
+Full list: [`requirements.txt`](requirements.txt)
