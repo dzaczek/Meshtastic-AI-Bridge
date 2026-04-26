@@ -169,6 +169,149 @@
       border-radius: var(--r-lg);
     }
 
+    /* ── OPS DASHBOARD ── */
+    #tab-ops { flex-direction:column; gap:0; }
+    .ops-grid {
+      flex:1; display:grid; min-height:0;
+      grid-template-columns: minmax(0,1.6fr) minmax(0,1fr) minmax(0,0.9fr);
+      grid-template-rows: minmax(0,1.1fr) minmax(0,0.9fr);
+      gap:8px; padding:8px;
+    }
+    @media (max-width:1200px){
+      .ops-grid { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr 180px; }
+      .ops-main-map { grid-column:1 / -1; }
+      .ops-side { grid-column:1 / -1; flex-direction:row; }
+    }
+    .ops-card {
+      background: var(--surf); border:1px solid var(--border);
+      border-radius: var(--r-lg);
+      backdrop-filter: blur(18px) saturate(140%);
+      -webkit-backdrop-filter: blur(18px) saturate(140%);
+      box-shadow: var(--shadow);
+      display:flex; flex-direction:column; min-height:0; overflow:hidden;
+    }
+    .ops-head {
+      padding:8px 12px; border-bottom:1px solid var(--border);
+      display:flex; align-items:center; gap:8px; flex-shrink:0;
+    }
+    .ops-head h3 {
+      font-family:var(--font-mono); font-size:.65em; font-weight:600;
+      letter-spacing:.18em; text-transform:uppercase; color:var(--muted);
+    }
+    .ops-head .corner { margin-left:auto; font-family:var(--font-mono); font-size:.65em; color:var(--muted2); display:flex; gap:8px; }
+    .ops-head .corner b { color:var(--primary); }
+    .ops-body { flex:1; min-height:0; overflow:hidden; position:relative; }
+    /* Main map spans col1, both rows */
+    .ops-main-map { grid-column:1; grid-row:1 / span 2; }
+    .ops-main-map .ops-body { display:block; }
+    #ops-map { width:100%; height:100%; background:#07090c; }
+    /* Stats grid */
+    .ops-stats { grid-column:2; grid-row:1; }
+    .ops-stats .ops-body { padding:8px; display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; gap:8px; }
+    .stat-tile {
+      background:rgba(255,255,255,.02); border:1px solid var(--border);
+      border-radius:var(--r); padding:10px 12px;
+      display:flex; flex-direction:column; justify-content:space-between;
+    }
+    .stat-tile .lbl { font-family:var(--font-mono); font-size:.6em; color:var(--muted2); letter-spacing:.15em; text-transform:uppercase; }
+    .stat-tile .val { font-family:var(--font-mono); font-size:1.8em; font-weight:600; color:var(--text); line-height:1; margin-top:4px; }
+    .stat-tile .val small { font-size:.5em; color:var(--muted); margin-left:4px; }
+    .stat-tile .delta { font-family:var(--font-mono); font-size:.7em; margin-top:4px; color:var(--primary); }
+    /* Activity feed */
+    .ops-activity { grid-column:2; grid-row:2; }
+    .ops-activity .ops-body { overflow-y:auto; }
+    .feed-row {
+      display:grid; grid-template-columns:52px 72px 1fr;
+      gap:0 8px; padding:5px 12px; border-bottom:1px solid rgba(255,255,255,.03);
+      font-size:.72em; align-items:baseline;
+    }
+    .feed-row .ft { font-family:var(--font-mono); color:var(--muted2); font-size:.9em; white-space:nowrap; }
+    .feed-row .fk { font-family:var(--font-mono); font-size:.9em; font-weight:600; letter-spacing:.05em; white-space:nowrap; }
+    .fk.TEXT_MESSAGE { color:var(--rx); }
+    .fk.POSITION { color:var(--primary); }
+    .fk.TELEMETRY { color:var(--ai); }
+    .fk.NODEINFO { color:var(--accent-3); }
+    .fk.TRACEROUTE { color:#ff88aa; }
+    .fk.ROUTING { color:var(--muted2); }
+    .feed-row .fb { color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .feed-row .fb b { color:var(--text); font-weight:500; }
+    /* Side column */
+    .ops-side { grid-column:3; grid-row:1 / span 2; display:flex; flex-direction:column; gap:8px; min-height:0; }
+    .ops-side .ops-card { flex:1; }
+    /* Mini radar in ops */
+    #ops-radar { display:block; width:100%; height:100%; }
+    /* Top nodes */
+    .ops-topnodes .ops-body { overflow-y:auto; }
+    .topnode-row {
+      display:grid; grid-template-columns:22px 1fr auto;
+      gap:0 8px; padding:6px 12px; border-bottom:1px solid rgba(255,255,255,.03);
+      align-items:center; min-width:0;
+    }
+    .topnode-rank { font-family:var(--font-mono); font-size:.65em; color:var(--muted2); text-align:center; }
+    .topnode-info { min-width:0; }
+    .topnode-name { font-family:var(--font-mono); font-size:.78em; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .topnode-id   { font-size:.65em; color:var(--muted2); }
+    .topnode-meta { font-family:var(--font-mono); font-size:.65em; color:var(--muted); white-space:nowrap; text-align:right; }
+    .topnode-bar  { width:32px; height:3px; background:rgba(255,255,255,.06); border-radius:2px; overflow:hidden; margin-top:3px; }
+    .topnode-bar i { display:block; height:100%; background:linear-gradient(90deg,var(--primary),var(--accent-2)); }
+    /* Traceroute button on node card */
+    .nc-trace-btn {
+      width:100%; margin-top:6px; background:rgba(77,255,209,.06);
+      color:var(--primary); border:1px solid rgba(77,255,209,.25);
+      font-family:var(--font-mono); font-size:.68em; padding:4px;
+      cursor:pointer; border-radius:4px; text-transform:uppercase; letter-spacing:.05em;
+      transition:all .15s;
+    }
+    .nc-trace-btn:hover { background:rgba(77,255,209,.14); }
+    /* Traceroute result modal */
+    #tr-modal {
+      position:fixed; inset:0; z-index:3000; display:none;
+      align-items:center; justify-content:center;
+      background:rgba(0,0,0,.7); backdrop-filter:blur(6px);
+    }
+    #tr-modal.open { display:flex; }
+    #tr-box {
+      background:var(--surf); border:1px solid var(--border-s);
+      border-radius:var(--r-lg); box-shadow:var(--shadow);
+      width:min(900px,95vw); max-height:90vh;
+      display:flex; flex-direction:column; overflow:hidden;
+    }
+    #tr-header {
+      padding:12px 16px; border-bottom:1px solid var(--border);
+      display:flex; align-items:center; gap:10px; flex-shrink:0;
+    }
+    #tr-title { font-family:var(--font-mono); font-size:.78em; color:var(--primary); letter-spacing:.1em; flex:1; }
+    #tr-close  { background:none; border:1px solid #333; color:var(--muted); font-family:inherit; font-size:.8em; padding:2px 8px; cursor:pointer; border-radius:4px; }
+    #tr-close:hover { color:var(--err); border-color:var(--err); }
+    #tr-body { flex:1; overflow-y:auto; padding:12px 16px; display:flex; flex-direction:column; gap:12px; }
+    /* Traceroute map */
+    #tr-map { height:220px; background:#07090c; border-radius:var(--r); border:1px solid var(--border); }
+    /* Traceroute diagram */
+    #tr-diagram { display:flex; align-items:center; gap:0; flex-wrap:wrap; padding:12px; background:rgba(0,0,0,.3); border-radius:var(--r); border:1px solid var(--border); }
+    .tr-node-box {
+      background:rgba(77,255,209,.07); border:1px solid rgba(77,255,209,.25);
+      border-radius:6px; padding:6px 10px; text-align:center; min-width:80px;
+    }
+    .tr-node-box.origin { border-color:rgba(255,136,170,.5); background:rgba(255,136,170,.07); }
+    .tr-node-box.dest   { border-color:rgba(255,181,71,.5);  background:rgba(255,181,71,.08); }
+    .tr-node-name { font-family:var(--font-mono); font-size:.72em; color:var(--text); }
+    .tr-node-id   { font-size:.62em; color:var(--muted2); }
+    .tr-node-gps  { font-size:.6em; color:var(--primary); }
+    .tr-arrow { display:flex; flex-direction:column; align-items:center; padding:0 6px; color:var(--muted2); font-size:.7em; }
+    .tr-arrow-line { width:24px; height:2px; background:var(--muted2); position:relative; }
+    .tr-arrow-line::after { content:'▶'; position:absolute; right:-6px; top:-6px; font-size:.7em; color:var(--muted2); }
+    .tr-arrow-snr { font-family:var(--font-mono); font-size:.62em; color:var(--muted); margin-top:2px; }
+    /* Traceroute table */
+    .tr-table { width:100%; border-collapse:collapse; font-size:.78em; }
+    .tr-table th { text-align:left; padding:5px 8px; border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:.9em; color:var(--muted); text-transform:uppercase; letter-spacing:.1em; font-weight:normal; }
+    .tr-table td { padding:5px 8px; border-bottom:1px solid rgba(255,255,255,.04); }
+    .tr-table tr:last-child td { border:none; }
+    .tr-hop-n { font-family:var(--font-mono); color:var(--primary); font-weight:600; }
+    .tr-hop-name { color:var(--text); }
+    .tr-hop-id   { font-family:var(--font-mono); font-size:.85em; color:var(--muted2); }
+    .tr-hop-snr  { font-family:var(--font-mono); color:var(--ai); }
+    .tr-hop-gps  { font-size:.85em; color:var(--muted); }
+
     /* ── SHADER DOCK ── */
     #shader-dock {
       position:fixed; bottom:16px; right:16px; z-index:10;
@@ -737,7 +880,8 @@
 
 <!-- ── TAB BAR ── -->
 <div id="tabbar">
-  <button class="tab-btn active" onclick="switchTab('chat')">Chat</button>
+  <button class="tab-btn active"  onclick="switchTab('ops')">Ops</button>
+  <button class="tab-btn"        onclick="switchTab('chat')">Chat</button>
   <button class="tab-btn"        onclick="switchTab('nodes')">Nodes <span id="badge-nc" style="color:var(--muted);font-size:.8em"></span></button>
   <button class="tab-btn"        onclick="switchTab('map')">Map</button>
   <button class="tab-btn"        onclick="switchTab('packets')">Packets <span id="badge-pkt" style="color:var(--muted);font-size:.8em"></span></button>
@@ -747,6 +891,89 @@
     <span id="hdr-rx" style="color:var(--rx)">RX: 0</span>
     <span id="hdr-ai-cnt" style="color:var(--ai)">AI: 0</span>
     <span id="hdr-uptime2" style="color:var(--muted)"></span>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     OPS DASHBOARD TAB
+════════════════════════════════════════════════════════════════ -->
+<div id="tab-ops" class="tab-pane active">
+  <div class="ops-grid">
+
+    <!-- Main map (col 1, rows 1-2) -->
+    <div class="ops-card ops-main-map">
+      <div class="ops-head">
+        <h3>Network Map</h3>
+        <div class="corner"><span>Nodes: </span><b id="ops-node-count">--</b><span style="margin-left:8px;">Routes: </span><b id="ops-route-count">--</b></div>
+      </div>
+      <div class="ops-body"><div id="ops-map"></div></div>
+    </div>
+
+    <!-- Stats (col 2, row 1) -->
+    <div class="ops-card ops-stats">
+      <div class="ops-head"><h3>Mesh Status</h3></div>
+      <div class="ops-body">
+        <div class="stat-tile">
+          <div class="lbl">Active Nodes</div>
+          <div class="val" id="ops-stat-nodes">--</div>
+          <div class="delta" id="ops-stat-nodes-d"></div>
+        </div>
+        <div class="stat-tile">
+          <div class="lbl">Messages</div>
+          <div class="val" id="ops-stat-msgs">--</div>
+          <div class="delta"></div>
+        </div>
+        <div class="stat-tile">
+          <div class="lbl">Packets / min</div>
+          <div class="val" id="ops-stat-ppm">--</div>
+          <div class="delta"></div>
+        </div>
+        <div class="stat-tile">
+          <div class="lbl">Avg SNR</div>
+          <div class="val" id="ops-stat-snr">-- <small>dB</small></div>
+          <div class="delta"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Activity feed (col 2, row 2) -->
+    <div class="ops-card ops-activity">
+      <div class="ops-head"><h3>Activity Feed</h3><div class="corner"><span id="ops-feed-count">0</span>&nbsp;events</div></div>
+      <div class="ops-body"><div id="ops-feed"></div></div>
+    </div>
+
+    <!-- Side column (col 3, rows 1-2) -->
+    <div class="ops-side">
+      <!-- Mini radar -->
+      <div class="ops-card" style="flex:1.2;">
+        <div class="ops-head"><h3>Signal Radar</h3><div class="corner"><span id="ops-radar-mode">--</span></div></div>
+        <div class="ops-body" style="display:flex;align-items:center;justify-content:center;padding:6px;">
+          <canvas id="ops-radar" style="max-width:100%;max-height:100%;display:block;"></canvas>
+        </div>
+      </div>
+      <!-- Top nodes -->
+      <div class="ops-card ops-topnodes" style="flex:1.6;">
+        <div class="ops-head"><h3>Top Nodes</h3><div class="corner">by packet count</div></div>
+        <div class="ops-body"><div id="ops-topnodes"></div></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Traceroute result modal -->
+<div id="tr-modal">
+  <div id="tr-box">
+    <div id="tr-header">
+      <span id="tr-title">Traceroute</span>
+      <span id="tr-status" style="font-size:.72em;color:var(--muted);font-family:var(--font-mono);"></span>
+      <button id="tr-close" onclick="closeTrModal()">✕ Close</button>
+    </div>
+    <div id="tr-body">
+      <div id="tr-map"></div>
+      <div id="tr-diagram"></div>
+      <table class="tr-table"><thead><tr><th>#</th><th>Node</th><th>ID</th><th>SNR</th><th>GPS</th></tr></thead><tbody id="tr-tbody"></tbody></table>
+    </div>
   </div>
 </div>
 
@@ -1360,6 +1587,7 @@
       <div id="panel-title">Node</div>
       <div id="panel-sub"></div>
     </div>
+    <button onclick="startTraceroute(panelNodeId, document.getElementById('panel-title').textContent)" style="background:rgba(77,255,209,.08);color:var(--primary);border:1px solid rgba(77,255,209,.3);font-family:var(--font-mono);font-size:.7em;padding:4px 10px;cursor:pointer;border-radius:4px;">⚡ Trace</button>
     <button id="panel-close" onclick="closeNodeDetail()">✕ Close</button>
   </div>
   <div id="panel-tabs">
@@ -1476,11 +1704,12 @@ function deactivateGroup(el, labels) {
 }
 
 // ── Tab switching ──────────────────────────────────────────────────────────
-const TABS = ['chat','nodes','map','packets','radar','config'];
+const TABS = ['ops','chat','nodes','map','packets','radar','config'];
 function switchTab(name) {
   document.querySelectorAll('.tab-btn').forEach((b,i) => b.classList.toggle('active', TABS[i]===name));
   document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id===`tab-${name}`));
-  if (name==='map')    initMap();
+  if (name==='ops')    initOps();
+  if (name==='map')    { initMap(); setTimeout(()=>leafMap&&leafMap.invalidateSize(),100); }
   if (name==='radar')  initRadar();
   if (name==='config') { cfgData = {}; initConfig(); _fillFixPosFromCache(); }
 }
@@ -1730,6 +1959,7 @@ async function fetchStatus() {
     setText('hdr-uptime2', st.uptime_str||'');
     setText('hdr-rx',      `RX: ${st.messages_received||0}`);
     setText('hdr-ai-cnt',  `AI: ${st.ai_responses||0}`);
+    window._lastStatus = st;
 
     const banner=document.getElementById('error-banner');
     if (st.last_error) {
@@ -1868,6 +2098,8 @@ function renderNodeCard(n) {
     batHtml=`<div class="bat-bar"><div class="bat-fill ${batCls(n.battery)}" style="width:${n.battery}%"></div></div>`;
   }
   const mineTag=n.is_mine?'<span class="nc-mine">← mine</span>':'';
+  const traceBtn = n.is_mine ? '' :
+    `<button class="nc-trace-btn" onclick="event.stopPropagation();startTraceroute('${esc(n.id)}','${esc(n.long_name||n.id)}')">⚡ Traceroute</button>`;
   return `<div class="node-card ${ageCls} ${n.via_mqtt?'via-mqtt':'via-radio'} ${n.is_online?'':'offline'} ${n.is_mine?'is-mine':''}" data-id="${esc(n.id)}" onclick="openNodeDetail('${esc(n.id)}','${esc(n.long_name)}','${esc(n.short_name)}',${n.via_mqtt?1:0})">
     <div class="nc-header">
       <span>${n.via_mqtt?'☁':'📡'}</span>
@@ -1876,7 +2108,7 @@ function renderNodeCard(n) {
     </div>
     <div class="nc-long">${esc(n.long_name)}${mineTag}</div>
     <div class="nc-short">${esc(n.short_name)} · !${esc(n.id)}</div>
-    <div class="nc-meta">${rows}</div>${batHtml}
+    <div class="nc-meta">${rows}</div>${batHtml}${traceBtn}
   </div>`;
 }
 
@@ -1932,6 +2164,7 @@ async function fetchNodes() {
     renderDmList(nodesCache);
     updateMap(nodesCache);
     if (radarInited) setRadarNodes(nodesCache);
+    opsOnNodesUpdate(nodesCache);
   } catch(e) {}
 }
 
@@ -2049,6 +2282,7 @@ function appendPacket(p) {
   pktNodeCounts[nid].count++;
   if (p.snr!==null&&p.snr!==undefined) { pktNodeCounts[nid].snr_sum+=p.snr; pktNodeCounts[nid].snr_n++; }
 
+  opsOnPacket(p);
   // Insert at top (newest first)
   pktFeed.insertBefore(row, pktFeed.firstChild);
   if (p.ts>lastPktTs) lastPktTs=p.ts;
@@ -2075,6 +2309,7 @@ async function fetchPacketStats() {
 
     setText('stat-total', d.total||0);
     setText('stat-rate', `${d.last_min||0}/min · ${d.last_5min||0}/5min`);
+    window._lastPktRate = d.last_min || 0;
 
     // By channel
     const byCh=document.getElementById('stat-by-ch');
@@ -2983,6 +3218,289 @@ function focusNodeOnMap(nodeId) {
   if (mapMarkers[nodeId]) mapMarkers[nodeId].openPopup();
 }
 
+// ── OPS DASHBOARD ─────────────────────────────────────────────
+let opsMapInited = false, opsLeafMap = null, opsMapMarkers = {};
+let opsRadarAngle = 0, opsRadarFrame = null;
+
+function initOps() {
+  if (!opsMapInited) {
+    opsMapInited = true;
+    opsLeafMap = L.map('ops-map', {zoomControl:false, attributionControl:false})
+      .setView([47.37, 8.54], 7);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:18}).addTo(opsLeafMap);
+    L.control.zoom({position:'bottomright'}).addTo(opsLeafMap);
+    if (nodesCache.length) updateOpsMap();
+    initOpsRadar();
+  }
+  updateOpsStats();
+  updateOpsTopNodes();
+  updateOpsFeed();
+}
+
+function updateOpsMap() {
+  if (!opsLeafMap) return;
+  Object.values(opsMapMarkers).forEach(m => m.remove());
+  opsMapMarkers = {};
+  const gps = nodesCache.filter(n => n.lat && n.lon);
+  setText('ops-node-count', nodesCache.length);
+  if (!gps.length) return;
+  const bounds = [];
+  gps.forEach(n => {
+    const c = markerColor(n);
+    const icon = L.divIcon({
+      className:'',
+      html:`<div style="width:11px;height:11px;border-radius:50%;background:${c};border:2px solid rgba(0,0,0,.6);box-shadow:0 0 6px ${c}"></div>`,
+      iconSize:[11,11], iconAnchor:[5,5],
+    });
+    opsMapMarkers[n.id] = L.marker([n.lat, n.lon], {icon}).addTo(opsLeafMap)
+      .bindPopup(`<b>${esc(n.long_name)}</b><br>!${n.id}<br>SNR: ${n.snr??'--'} dB`);
+    bounds.push([n.lat, n.lon]);
+  });
+  if (bounds.length > 1) opsLeafMap.fitBounds(bounds, {padding:[20,20]});
+  // Draw recent traceroutes on ops map
+  setText('ops-route-count', Object.keys(pktNodeCounts).length);
+}
+
+function updateOpsStats() {
+  const online = nodesCache.filter(n => n.is_online).length;
+  setText('ops-stat-nodes', online);
+  setText('ops-stat-nodes-d', `${nodesCache.length} total`);
+  const {messages_received, ai_responses} = window._lastStatus || {};
+  setText('ops-stat-msgs', (messages_received||0) + (ai_responses||0));
+  // pkt rate from last stat fetch
+  const ppm = window._lastPktRate || 0;
+  setText('ops-stat-ppm', ppm);
+  // avg SNR from nodes
+  const snrs = nodesCache.filter(n => n.snr !== null && n.snr !== undefined).map(n => n.snr);
+  const avgSnr = snrs.length ? (snrs.reduce((a,b)=>a+b,0)/snrs.length).toFixed(1) : '--';
+  const snrEl = document.getElementById('ops-stat-snr');
+  if (snrEl) snrEl.innerHTML = `${avgSnr} <small>dB</small>`;
+}
+
+function updateOpsTopNodes() {
+  const el = document.getElementById('ops-topnodes');
+  if (!el) return;
+  const sorted = Object.entries(pktNodeCounts).sort((a,b)=>b[1].count-a[1].count).slice(0,10);
+  const maxC = sorted[0]?.[1]?.count || 1;
+  el.innerHTML = sorted.map(([id,s], i) => {
+    const pct = Math.round(s.count/maxC*100);
+    const avgSnr = s.snr_n > 0 ? (s.snr_sum/s.snr_n).toFixed(1) : '--';
+    return `<div class="topnode-row">
+      <div class="topnode-rank">${i+1}</div>
+      <div class="topnode-info">
+        <div class="topnode-name">${esc(s.name||id)}</div>
+        <div class="topnode-bar"><i style="width:${pct}%"></i></div>
+      </div>
+      <div class="topnode-meta">${s.count}pkt<br><span style="color:var(--primary)">${avgSnr}dB</span></div>
+    </div>`;
+  }).join('') || '<div style="padding:16px;text-align:center;color:var(--muted2);font-size:.75em;">No packet data yet</div>';
+}
+
+function updateOpsFeed() {
+  const el = document.getElementById('ops-feed');
+  if (!el) return;
+  // Use recent packets from _packets equivalent: pull from pkt feed DOM
+  const rows = Array.from(document.querySelectorAll('#pkt-feed .pkt')).slice(0, 30);
+  setText('ops-feed-count', rows.length);
+  // Re-render from existing packet data is tricky; use _packets-style rendering
+  // Instead subscribe to fresh data from the cached deque via fetchPackets already running
+}
+
+// Hook fetchPackets to also update ops feed
+const _origFetchPackets = window.fetchPackets;
+
+function initOpsRadar() {
+  const canvas = document.getElementById('ops-radar');
+  if (!canvas) return;
+  const wrap = canvas.parentElement;
+  const resize = () => {
+    canvas.width  = wrap.clientWidth  - 12;
+    canvas.height = wrap.clientHeight - 12;
+  };
+  resize();
+  new ResizeObserver(resize).observe(wrap);
+  animateOpsRadar(canvas);
+}
+
+function animateOpsRadar(canvas) {
+  const ctx = canvas.getContext('2d');
+  const blips = () => nodesCache.filter(n => !n.is_mine).map(n => nodeToBlip(n, nodesCache.find(x=>x.is_mine)||null));
+  function draw() {
+    opsRadarFrame = requestAnimationFrame(draw);
+    const W=canvas.width, H=canvas.height;
+    if (!W||!H) return;
+    const cx=W/2, cy=H/2, R=Math.min(cx,cy)*.82;
+    ctx.fillStyle='rgba(5,15,5,.3)'; ctx.fillRect(0,0,W,H);
+    [.25,.5,.75,1].forEach(f=>{
+      ctx.beginPath(); ctx.arc(cx,cy,R*f,0,Math.PI*2);
+      ctx.strokeStyle=f===1?'#0d3a0d':'#071507'; ctx.lineWidth=1; ctx.stroke();
+    });
+    const sweepRad = opsRadarAngle*Math.PI/180;
+    ctx.save(); ctx.translate(cx,cy); ctx.rotate(sweepRad);
+    for(let a=0;a<50;a+=3){
+      ctx.beginPath(); ctx.moveTo(0,0); ctx.arc(0,0,R,(-a-3)*Math.PI/180,(-a)*Math.PI/180);
+      ctx.closePath(); ctx.fillStyle=`rgba(77,255,209,${(50-a)/50*.22})`; ctx.fill();
+    }
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(R,0);
+    ctx.strokeStyle='#4dffd1'; ctx.lineWidth=1.2; ctx.stroke();
+    ctx.restore();
+    blips().forEach(b => {
+      const px=cx+b.nx*R, py=cy+b.ny*R;
+      const blipDeg=(Math.atan2(b.ny,b.nx)*180/Math.PI+360)%360;
+      const behind=(opsRadarAngle-90+360-blipDeg+360)%360;
+      const alpha=behind>180?.06:Math.max(.1,1-behind/150);
+      const color=b.node.via_mqtt?'#f0883e':b.node.hops_away===0?'#4dffd1':'#6aa9ff';
+      ctx.globalAlpha=alpha; ctx.beginPath(); ctx.arc(px,py,3,0,Math.PI*2);
+      ctx.fillStyle=color; ctx.fill();
+      ctx.globalAlpha=1;
+    });
+    ctx.beginPath(); ctx.arc(cx,cy,5,0,Math.PI*2); ctx.fillStyle='#ffff00'; ctx.fill();
+    opsRadarAngle=(opsRadarAngle+1.2)%360;
+  }
+  draw();
+}
+
+// Update ops when data changes
+function opsOnNodesUpdate(nodes) {
+  if (document.getElementById('tab-ops')?.classList.contains('active')) {
+    updateOpsMap();
+    updateOpsStats();
+    updateOpsTopNodes();
+  }
+}
+function opsOnPacket(p) {
+  if (!document.getElementById('tab-ops')?.classList.contains('active')) return;
+  const el = document.getElementById('ops-feed');
+  if (!el) return;
+  const typeKey = p.portnum.replace(' ','_').replace(' MESSAGE','').toUpperCase();
+  const row = document.createElement('div');
+  row.className = 'feed-row';
+  row.innerHTML =
+    `<span class="ft">${esc(p.ts_str)}</span>`+
+    `<span class="fk ${typeKey}">${esc(p.portnum)}</span>`+
+    `<span class="fb"><b>${esc(p.from_name)}</b> ${esc(p.summary)}</span>`;
+  el.insertBefore(row, el.firstChild);
+  while (el.children.length > 80) el.removeChild(el.lastChild);
+  setText('ops-feed-count', el.children.length);
+}
+
+// ── TRACEROUTE TRIGGER & VISUALIZATION ────────────────────────
+let trMap = null, trMapLines = [];
+
+async function startTraceroute(nodeId, nodeName) {
+  // Open modal in loading state
+  document.getElementById('tr-title').textContent = `Traceroute → ${nodeName||nodeId}`;
+  document.getElementById('tr-status').textContent = 'Sending… waiting up to 30s';
+  document.getElementById('tr-diagram').innerHTML = '<div style="padding:16px;color:var(--muted);font-size:.8em;">Waiting for response…</div>';
+  document.getElementById('tr-tbody').innerHTML = '';
+  document.getElementById('tr-modal').classList.add('open');
+
+  // Init traceroute map
+  if (!trMap) {
+    trMap = L.map('tr-map', {zoomControl:false, attributionControl:false})
+      .setView([47.37, 8.54], 8);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:18}).addTo(trMap);
+  }
+  trMapLines.forEach(l => l.remove()); trMapLines = [];
+
+  const sentAt = Date.now() / 1000;
+  try {
+    const r = await fetch(`/api/traceroute/${nodeId}`, {method:'POST'});
+    const d = await r.json();
+    if (!d.ok) {
+      document.getElementById('tr-status').textContent = `Error: ${d.message}`;
+      return;
+    }
+  } catch(e) {
+    document.getElementById('tr-status').textContent = `Network error: ${e.message}`;
+    return;
+  }
+
+  // Poll for result for up to 30 seconds
+  document.getElementById('tr-status').textContent = 'Request sent — waiting for reply…';
+  const deadline = Date.now() + 30000;
+  const poll = setInterval(async () => {
+    const r = await fetch(`/api/traceroutes?since=${sentAt - 1}`).catch(()=>null);
+    if (!r || !r.ok) return;
+    const {traceroutes} = await r.json();
+    const match = traceroutes.find(t =>
+      t.from_id === nodeId || t.to_id === nodeId ||
+      t.route.some(n => n.id === nodeId)
+    );
+    if (match) {
+      clearInterval(poll);
+      document.getElementById('tr-status').textContent =
+        `Done — ${match.hops} hop${match.hops!==1?'s':''} · ${match.ts_str}`;
+      renderTraceroute(match);
+    }
+    if (Date.now() > deadline) {
+      clearInterval(poll);
+      document.getElementById('tr-status').textContent = 'Timeout — no response received';
+    }
+  }, 1500);
+}
+
+function renderTraceroute(tr) {
+  // ── Diagram
+  const diag = document.getElementById('tr-diagram');
+  let html = '';
+  tr.route.forEach((node, i) => {
+    const cls = i === 0 ? 'origin' : i === tr.route.length-1 ? 'dest' : '';
+    const gpsTag = node.lat ? `<div class="tr-node-gps">📍 ${node.lat.toFixed(4)},${node.lon.toFixed(4)}</div>` : '';
+    html += `<div class="tr-node-box ${cls}">
+      <div class="tr-node-name">${esc(node.name)}</div>
+      <div class="tr-node-id">!${esc(node.id)}</div>${gpsTag}
+    </div>`;
+    if (i < tr.route.length - 1) {
+      const snr = tr.snr_towards[i] ? `${(tr.snr_towards[i]/4).toFixed(1)}dB` : '';
+      html += `<div class="tr-arrow">
+        <div class="tr-arrow-line"></div>
+        <div class="tr-arrow-snr">${snr}</div>
+      </div>`;
+    }
+  });
+  diag.innerHTML = html;
+
+  // ── Table
+  const tbody = document.getElementById('tr-tbody');
+  tbody.innerHTML = tr.route.map((n, i) => {
+    const snr = tr.snr_towards[i] ? `${(tr.snr_towards[i]/4).toFixed(1)} dB` : '--';
+    const gps = n.lat ? `${n.lat.toFixed(5)}, ${n.lon.toFixed(5)}` : '--';
+    const label = i === 0 ? 'Origin' : i === tr.route.length-1 ? 'Dest' : `Hop ${i}`;
+    return `<tr>
+      <td class="tr-hop-n">${label}</td>
+      <td class="tr-hop-name">${esc(n.name)}</td>
+      <td class="tr-hop-id">!${esc(n.id)}</td>
+      <td class="tr-hop-snr">${snr}</td>
+      <td class="tr-hop-gps">${gps}</td>
+    </tr>`;
+  }).join('');
+
+  // ── Map
+  trMapLines.forEach(l => l.remove()); trMapLines = [];
+  const gpsNodes = tr.route.filter(n => n.lat && n.lon);
+  if (gpsNodes.length >= 2 && trMap) {
+    const coords = gpsNodes.map(n => [n.lat, n.lon]);
+    const line = L.polyline(coords, {color:'#ff88aa', weight:3, dashArray:'8,5'}).addTo(trMap);
+    trMapLines.push(line);
+    gpsNodes.forEach((n, i) => {
+      const c = i===0 ? '#ff88aa' : i===gpsNodes.length-1 ? '#ffb547' : '#4dffd1';
+      const m = L.circleMarker([n.lat,n.lon],{radius:6,color:c,fillColor:c,fillOpacity:1})
+        .addTo(trMap).bindPopup(`${n.name} (!${n.id})`);
+      trMapLines.push(m);
+    });
+    trMap.fitBounds(coords, {padding:[20,20]});
+    setTimeout(() => trMap.invalidateSize(), 100);
+  } else if (trMap) {
+    document.getElementById('tr-map').innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:.8em;">No GPS coordinates for route nodes</div>';
+  }
+}
+
+function closeTrModal() {
+  document.getElementById('tr-modal').classList.remove('open');
+}
+document.addEventListener('keydown', e => { if (e.key==='Escape') closeTrModal(); });
+
 // ── FIXED POSITION ────────────────────────────────────────────────────────
 function _fixPosMsg(text, ok) {
   const el = document.getElementById('cfgmsg-fixed-pos');
@@ -3091,8 +3609,14 @@ function pickFromMap() {
       document.querySelectorAll('.dock-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       const key = btn.dataset.shader;
-      if (key === 'off') wp.stop ? wp.stop() : wp.use('off');
-      else wp.use(key);
+      if (key === 'off') {
+        canvas.style.display = 'none';
+        document.getElementById('wallpaper-vignette').style.display = 'none';
+      } else {
+        canvas.style.display = 'block';
+        document.getElementById('wallpaper-vignette').style.display = 'block';
+        wp.use(key);
+      }
     });
   });
 
@@ -3116,6 +3640,7 @@ function pickFromMap() {
   await fetchNodes();
   await fetchPackets();
   await fetchPacketStats();
+  initOps();   // show ops dashboard on load
 
   setInterval(fetchMessages,     2000);
   setInterval(fetchStatus,       5000);

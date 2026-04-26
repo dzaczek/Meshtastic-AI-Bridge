@@ -859,6 +859,15 @@ if _HAS_FLASK:
             rows = [t for t in _traceroutes if t["ts"] > since]
         return jsonify({"traceroutes": rows, "ts": time.time()})
 
+    @app.route("/api/traceroute/<dest_id>", methods=["POST"])
+    @login_required
+    def api_send_traceroute(dest_id):
+        if not _meshtastic_handler:
+            return jsonify({"ok": False, "error": "Not connected"}), 503
+        hops = int(request.args.get("hops", 7))
+        ok, msg = _meshtastic_handler.send_traceroute(dest_id, hop_limit=hops)
+        return jsonify({"ok": ok, "message": msg, "sent_at": time.time()})
+
     @app.route("/api/config/fixed_position", methods=["POST"])
     @login_required
     def api_set_fixed_position():

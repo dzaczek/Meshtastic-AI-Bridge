@@ -733,6 +733,26 @@ class MeshtasticHandler:
             traceback.print_exc()
             return False, str(e)
 
+    def send_traceroute(self, dest_id_hex: str, hop_limit: int = 7) -> tuple:
+        """Send a TRACEROUTE_APP packet to a destination node."""
+        if not self.interface or not self.is_connected:
+            return False, "Not connected"
+        try:
+            dest_num = int(dest_id_hex, 16)
+            if hasattr(self.interface, 'sendTraceroute'):
+                self.interface.sendTraceroute(dest_num, hop_limit)
+            else:
+                from meshtastic import mesh_pb2
+                p = mesh_pb2.MeshPacket()
+                p.decoded.portnum = mesh_pb2.PortNum.TRACEROUTE_APP
+                p.want_ack  = False
+                p.hop_limit = hop_limit
+                self.interface.sendPacket(p, destinationId=dest_num, wantAck=False)
+            return True, f"Traceroute sent to !{dest_id_hex}"
+        except Exception as e:
+            traceback.print_exc()
+            return False, str(e)
+
     def set_fixed_position(self, lat: float, lon: float, alt: int = 0) -> tuple:
         """Set a fixed GPS position that the node broadcasts when GPS is disabled."""
         if not self.interface or not self.is_connected:
