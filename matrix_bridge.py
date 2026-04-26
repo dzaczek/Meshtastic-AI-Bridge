@@ -181,6 +181,38 @@ class MatrixBridge:
     # Room management
     # ------------------------------------------------------------------
 
+    def _get_channels(self) -> list:
+        """Get channel list, trying node.channels (list) then interface.channels (dict)."""
+        if not self.meshtastic_handler:
+            return []
+        # Try list_channels() first (uses interface.channels)
+        chs = self.meshtastic_handler.list_channels()
+        if chs:
+            return chs
+        # Fallback: read directly from node.channels (list of Channel protos)
+        try:
+            iface = self.meshtastic_handler.interface
+            node  = iface.getNode('^local')
+            node_chs = getattr(node, 'channels', None) or []
+            result = []
+            for ch_obj in node_chs:
+                role = getattr(ch_obj, 'role', 0)
+                # 0=DISABLED, 1=PRIMARY, 2=SECONDARY
+                if role == 0:
+                    continue
+                idx  = getattr(ch_obj, 'index', None)
+                name = getattr(ch_obj.settings, 'name', '') or (
+                    'PRIMARY' if role == 1 else f'Ch-{idx}'
+                )
+                result.append({'index': idx, 'name': name, 'role': role})
+            if result:
+                log_info(f"Got {len(result)} channels from node.channels: "
+                         f"{[(c['index'], c['name']) for c in result]}")
+            return result
+        except Exception as e:
+            log_error(f"_get_channels node fallback failed: {e}")
+            return []
+
     async def _setup_rooms(self):
         """Create or join Matrix rooms for each Meshtastic channel."""
         if not self.meshtastic_handler:
@@ -188,17 +220,16 @@ class MatrixBridge:
             await self._ensure_channel_room(0, "PRIMARY")
             return
 
-        channels = self.meshtastic_handler.list_channels()
+        channels = self._get_channels()
         if not channels:
             log_info("No channels from device, creating default ch0 room")
             await self._ensure_channel_room(0, "PRIMARY")
             return
 
         for ch in channels:
-            idx = ch["index"]
+            idx  = ch["index"]
             name = ch["name"]
             role = ch.get("role", "")
-            # Skip disabled channels
             if "DISABLED" in str(role).upper():
                 continue
             await self._ensure_channel_room(idx, name)
@@ -398,8 +429,11 @@ class MatrixBridge:
         body = event.body
         sender = event.sender
 
-        # Extract display name (use configured override if set)
-        display_name = self.display_name or room.user_name(event.sender) or sender.split(":")[0].lstrip("@")
+        # Use sender's Matrix display name, NOT the bot's own name
+        display_name = (
+            room.user_name(event.sender)
+            or sender.split(":")[0].lstrip("@")
+        )
 
         # Find which channel/DM this room maps to
         channel_index = self.room_channels.get(room.room_id)
@@ -416,14 +450,18 @@ class MatrixBridge:
 
             if dm_node_id:
                 log_info(f"Matrix -> Mesh DM to !{dm_node_id}: [{display_name}]: {body[:80]}")
-                self.meshtastic_handler.send_message(
+                ok, reason = self.meshtastic_handler.send_message(
                     mesh_text, destination_id_hex=dm_node_id
                 )
             else:
                 log_info(f"Matrix -> Mesh ch{channel_index}: [{display_name}]: {body[:80]}")
-                self.meshtastic_handler.send_message(
+                ok, reason = self.meshtastic_handler.send_message(
                     mesh_text, channel_index=channel_index
                 )
+            if ok:
+                log_info(f"Mesh send OK: {reason}")
+            else:
+                log_error(f"Mesh send FAILED: {reason}")
 
         if self.on_matrix_message:
             try:
