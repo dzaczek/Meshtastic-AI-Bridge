@@ -155,15 +155,23 @@
       backdrop-filter: blur(18px) saturate(140%);
       -webkit-backdrop-filter: blur(18px) saturate(140%);
     }
-    #chat-sidebar, #pkt-stats, #cfg-sidebar {
+    #chat-sidebar, #cfg-sidebar {
       background: var(--surf); border: 1px solid var(--border);
       border-radius: var(--r-lg) 0 0 var(--r-lg);
     }
-    #chat-main, #pkt-feed-wrap, #cfg-main {
+    #chat-main, #cfg-main {
       background: var(--surf3); border: 1px solid var(--border);
       border-left:none; border-radius: 0 var(--r-lg) var(--r-lg) 0;
     }
-    #pkt-stats { border-radius:0 var(--r-lg) var(--r-lg) 0; border-left:none; }
+    /* Packets: stats LEFT, feed RIGHT */
+    #pkt-stats {
+      background: var(--surf); border: 1px solid var(--border);
+      border-radius: var(--r-lg) 0 0 var(--r-lg); border-right:none;
+    }
+    #pkt-feed-wrap {
+      background: var(--surf3); border: 1px solid var(--border);
+      border-left:none; border-radius: 0 var(--r-lg) var(--r-lg) 0;
+    }
     #tab-map, #tab-radar {
       background: rgba(7,9,12,.85); border: 1px solid var(--border);
       border-radius: var(--r-lg);
@@ -595,7 +603,7 @@
 
     /* ── PACKETS TAB ── */
     #tab-packets{flex-direction:column;}
-    #packets-body{flex:1;display:flex;overflow:hidden;}
+    #packets-body{flex:1;display:flex;overflow:hidden;flex-direction:row-reverse;} /* stats LEFT, feed RIGHT */
 
     /* Packet feed */
     #pkt-feed-wrap{flex:1;display:flex;flex-direction:column;overflow:hidden;}
@@ -3615,23 +3623,74 @@ function renderTraceroute(tr) {
     </tr>`;
   }).join('');
 
-  // ── Map
+  // ── Map — draw route through ALL nodes in order, mark GPS-less ones specially
   trMapLines.forEach(l => l.remove()); trMapLines = [];
-  const gpsNodes = tr.route.filter(n => n.lat && n.lon);
-  if (gpsNodes.length >= 2 && trMap) {
-    const coords = gpsNodes.map(n => [n.lat, n.lon]);
-    const line = L.polyline(coords, {color:'#ff88aa', weight:3, dashArray:'8,5'}).addTo(trMap);
-    trMapLines.push(line);
-    gpsNodes.forEach((n, i) => {
-      const c = i===0 ? '#ff88aa' : i===gpsNodes.length-1 ? '#ffb547' : '#4dffd1';
-      const m = L.circleMarker([n.lat,n.lon],{radius:6,color:c,fillColor:c,fillOpacity:1})
-        .addTo(trMap).bindPopup(`${n.name} (!${n.id})`);
+  if (!trMap) {
+    trMap = L.map('tr-map', {zoomControl:true, attributionControl:false}).setView([47.37,8.54],8);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18}).addTo(trMap);
+  }
+  const allNodes  = tr.route;
+  const gpsNodes  = allNodes.filter(n => n.lat && n.lon);
+  const bounds    = [];
+
+  // Draw segments between consecutive GPS nodes, skipping unknown-position hops
+  // but labelling them on the line with a dashed segment
+  let prevGps = null;
+  allNodes.forEach((n, i) => {
+    const isFirst = i === 0, isLast = i === allNodes.length - 1;
+    const color = isFirst ? '#ff88aa' : isLast ? '#ffb547' : '#4dffd1';
+
+    if (n.lat && n.lon) {
+      // Solid marker
+      const sz = isFirst || isLast ? 8 : 6;
+      const m = L.circleMarker([n.lat, n.lon], {
+        radius:sz, color:color, fillColor:color, fillOpacity:1,
+        weight:2,
+      }).addTo(trMap)
+        .bindPopup(`<b>${esc(n.name)}</b><br>!${esc(n.id)}<br>Hop ${i}`);
       trMapLines.push(m);
-    });
-    trMap.fitBounds(coords, {padding:[20,20]});
-    setTimeout(() => trMap.invalidateSize(), 100);
-  } else if (trMap) {
-    document.getElementById('tr-map').innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:.8em;">No GPS coordinates for route nodes</div>';
+      bounds.push([n.lat, n.lon]);
+
+      // Draw segment from previous GPS node
+      if (prevGps) {
+        const seg = L.polyline([prevGps, [n.lat, n.lon]], {
+          color: '#ff88aa', weight:2.5,
+          dashArray: prevGps._hadGap ? '6,4' : null,
+        }).addTo(trMap);
+        trMapLines.push(seg);
+      }
+      prevGps = [n.lat, n.lon];
+      prevGps._hadGap = false;
+    } else {
+      // No GPS: show a label on the map at midpoint between prev and next GPS nodes
+      const nextGps = allNodes.slice(i+1).find(x => x.lat && x.lon);
+      if (prevGps && nextGps) {
+        const midLat = (prevGps[0] + nextGps.lat) / 2;
+        const midLon = (prevGps[1] + nextGps.lon) / 2;
+        const lbl = L.marker([midLat, midLon], {
+          icon: L.divIcon({
+            className: '',
+            html: `<div style="background:rgba(10,14,20,.85);border:1px solid #ff88aa;
+              color:#ff88aa;font-family:monospace;font-size:10px;padding:2px 5px;
+              border-radius:3px;white-space:nowrap;">↕ ${esc(n.name||n.id)}</div>`,
+            iconAnchor: [30, 10],
+          })
+        }).addTo(trMap);
+        trMapLines.push(lbl);
+        if (prevGps) prevGps._hadGap = true;
+      }
+    }
+  });
+
+  if (bounds.length >= 2) {
+    trMap.fitBounds(bounds, {padding:[30,30]});
+    setTimeout(() => trMap.invalidateSize(), 150);
+  } else if (bounds.length === 1) {
+    trMap.setView(bounds[0], 13);
+    setTimeout(() => trMap.invalidateSize(), 150);
+  } else {
+    const mapEl = document.getElementById('tr-map');
+    if (mapEl) mapEl.style.display = 'none';
   }
 }
 

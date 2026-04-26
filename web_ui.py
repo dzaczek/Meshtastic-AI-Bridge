@@ -200,15 +200,28 @@ def _node_name(node_id_hex: str, interface) -> str:
 
 
 def _node_pos(node_id_hex: str, interface):
-    if not interface or not hasattr(interface, 'nodes'):
-        return None
-    for nd in (interface.nodes or {}).values():
-        num = nd.get('num')
-        if num and f"{num:x}" == node_id_hex:
-            pos = nd.get('position') or {}
-            lat, lon = pos.get('latitude'), pos.get('longitude')
-            if lat is not None and lon is not None:
-                return float(lat), float(lon)
+    """Return (lat, lon) for a node — tries interface.nodes then node_db."""
+    # 1. Live interface node cache
+    if interface and hasattr(interface, 'nodes'):
+        for nd in (interface.nodes or {}).values():
+            num = nd.get('num')
+            if num and f"{num:x}" == node_id_hex:
+                pos = nd.get('position') or {}
+                # Coordinates may be stored as float or as integer × 1e-7
+                lat = pos.get('latitude') or (pos.get('latitudeI', 0) / 1e7 or None)
+                lon = pos.get('longitude') or (pos.get('longitudeI', 0) / 1e7 or None)
+                if lat and lon:
+                    return float(lat), float(lon)
+    # 2. node_db — last known GPS position
+    if _HAS_NODE_DB:
+        try:
+            rows = _node_db.get_position_history(node_id_hex, limit=1)
+            if rows:
+                r = rows[0]
+                if r.get('lat') and r.get('lon'):
+                    return float(r['lat']), float(r['lon'])
+        except Exception:
+            pass
     return None
 
 
