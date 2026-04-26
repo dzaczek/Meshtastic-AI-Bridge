@@ -86,6 +86,19 @@ CREATE TABLE IF NOT EXISTS message_history (
     text      TEXT    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_msg ON message_history(node_id, ts);
+
+CREATE TABLE IF NOT EXISTS traceroutes (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts         REAL    NOT NULL,
+    from_id    TEXT    NOT NULL,
+    to_id      TEXT    NOT NULL,
+    hops       INTEGER DEFAULT 0,
+    route_json TEXT    NOT NULL DEFAULT '[]',
+    snr_json   TEXT    NOT NULL DEFAULT '[]',
+    channel    INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_tr_from ON traceroutes(from_id, ts);
+CREATE INDEX IF NOT EXISTS idx_tr_to   ON traceroutes(to_id,   ts);
 """
 
 
@@ -267,6 +280,60 @@ def get_message_history(node_id: str, limit: int = 300) -> list[dict]:
             (node_id, limit),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+import json as _json
+
+
+def add_traceroute(from_id: str, to_id: str, hops: int,
+                   route: list, snr_towards: list,
+                   channel: int = 0, ts: float | None = None) -> None:
+    if not _conn:
+        return
+    ts = ts or time.time()
+    with _lock, _conn:
+        _conn.execute(
+            """INSERT INTO traceroutes (ts,from_id,to_id,hops,route_json,snr_json,channel)
+               VALUES (?,?,?,?,?,?,?)""",
+            (ts, from_id, to_id, hops,
+             _json.dumps(route, ensure_ascii=False),
+             _json.dumps(snr_towards),
+             channel),
+        )
+
+
+def get_traceroutes(node_id: str, limit: int = 50) -> list[dict]:
+    """Return recent traceroutes where node_id is origin, destination, or a hop."""
+    if not _conn:
+        return []
+    with _lock:
+        # Simple search: node is from or to
+        rows = _conn.execute(
+            """SELECT ts, from_id, to_id, hops, route_json, snr_json, channel
+               FROM traceroutes
+               WHERE from_id=? OR to_id=?
+                  OR route_json LIKE ?
+               ORDER BY ts DESC LIMIT ?""",
+            (node_id, node_id, f'%"{node_id}"%', limit),
+        ).fetchall()
+    result = []
+    for r in rows:
+        try:
+            route = _json.loads(r["route_json"])
+            snr   = _json.loads(r["snr_json"])
+        except Exception:
+            route, snr = [], []
+        result.append({
+            "ts":      r["ts"],
+            "ts_str":  time.strftime("%Y-%m-%d %H:%M", time.localtime(r["ts"])),
+            "from_id": r["from_id"],
+            "to_id":   r["to_id"],
+            "hops":    r["hops"],
+            "route":   route,
+            "snr_towards": snr,
+            "channel": r["channel"],
+        })
+    return result
 
 
 def get_node_stats(node_id: str) -> dict:

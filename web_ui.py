@@ -184,6 +184,19 @@ def on_packet(packet, interface):
         if tr:
             with _lock:
                 _traceroutes.append(tr)
+            if _HAS_NODE_DB:
+                try:
+                    _node_db.add_traceroute(
+                        from_id=tr['from_id'],
+                        to_id=tr['to_id'],
+                        hops=tr['hops'],
+                        route=tr['route'],
+                        snr_towards=tr['snr_towards'],
+                        channel=tr.get('channel', 0),
+                        ts=tr['ts'],
+                    )
+                except Exception:
+                    pass
     except Exception:
         pass
 
@@ -852,6 +865,14 @@ if _HAS_FLASK:
             return jsonify({"messages": []})
         limit = min(int(request.args.get("limit", 200)), 500)
         return jsonify({"messages": _node_db.get_message_history(node_id, limit=limit)})
+
+    @app.route("/api/node/<node_id>/traces")
+    @login_required
+    def api_node_traces(node_id):
+        if not _HAS_NODE_DB:
+            return jsonify({"traces": []})
+        limit = min(int(request.args.get("limit", 50)), 200)
+        return jsonify({"traces": _node_db.get_traceroutes(node_id, limit=limit)})
 
     # ------------------------------------------------------------------
     # Device configuration

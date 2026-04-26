@@ -1153,6 +1153,7 @@
       <button class="tb-btn" onclick="setTimeFilter(this,0)">All</button>
       <div class="tb-sep"></div>
       <button class="tb-btn active" id="btn-as" onclick="toggleAutoScroll()">Auto-scroll</button>
+      <button class="tb-btn active" id="btn-sys" onclick="toggleSystemMsgs()" title="Show/hide system messages">System</button>
       <button class="tb-btn" onclick="clearFeed()">Clear</button>
       <div class="legend">
         <div class="leg"><div class="leg-dot" style="background:var(--rx)"></div>RX</div>
@@ -1727,6 +1728,7 @@
     <button class="ptab"        onclick="switchPTab(this,'ppos')">Positions</button>
     <button class="ptab"        onclick="switchPTab(this,'ptel')">Telemetry</button>
     <button class="ptab"        onclick="switchPTab(this,'pmsg')">Messages</button>
+    <button class="ptab"        onclick="switchPTab(this,'ptraces')">Traces</button>
   </div>
   <div id="panel-body">
     <!-- Overview -->
@@ -1774,6 +1776,10 @@
     <div id="pmsg" class="ppane">
       <div id="pmsg-list"><div class="panel-empty">Loading…</div></div>
     </div>
+    <!-- Traceroute history -->
+    <div id="ptraces" class="ppane">
+      <div id="ptraces-list"><div class="panel-empty">Loading…</div></div>
+    </div>
   </div>
 </div>
 
@@ -1788,8 +1794,9 @@
 // ── State ──────────────────────────────────────────────────────────────────
 let lastMsgTs  = 0;
 let lastPktTs  = 0;
-let autoScroll = true;
-let pktScroll  = true;
+let autoScroll  = true;
+let pktScroll   = true;
+let showSystem  = true;   // toggle for system messages in chat
 let timeFilter = 86400;
 let chFilter   = 'all';
 let nodeFilter = 'all';
@@ -1853,9 +1860,16 @@ let convScrollPos = {};      // convKey → scrollTop
 function msgVisible(msg) {
   const now = Date.now()/1000;
   if (timeFilter > 0 && (now - msg.timestamp) > timeFilter) return false;
-  if (msg.type === 'system') return activeConv === 'all';
+  if ((msg.type === 'system' || msg.type === 'error') && !showSystem) return false;
+  if (msg.type === 'system' || msg.type === 'error') return activeConv === 'all';
   if (activeConv === 'all') return true;
   return msgConvKey(msg) === activeConv;
+}
+
+function toggleSystemMsgs() {
+  showSystem = !showSystem;
+  document.getElementById('btn-sys').classList.toggle('active', showSystem);
+  rebuildFeed();
 }
 
 function switchConv(key) {
@@ -3037,11 +3051,12 @@ function switchPTab(btn, tabId) {
 async function loadPanelTab(tabId) {
   if (!panelNodeId || panelLoadedTabs[tabId]) return;
   panelLoadedTabs[tabId] = true;
-  if (tabId==='pov')  await loadPanelOverview();
-  if (tabId==='psig') await loadPanelSignal();
-  if (tabId==='ppos') await loadPanelPositions();
-  if (tabId==='ptel') await loadPanelTelemetry();
-  if (tabId==='pmsg') await loadPanelMessages();
+  if (tabId==='pov')      await loadPanelOverview();
+  if (tabId==='psig')     await loadPanelSignal();
+  if (tabId==='ppos')     await loadPanelPositions();
+  if (tabId==='ptel')     await loadPanelTelemetry();
+  if (tabId==='pmsg')     await loadPanelMessages();
+  if (tabId==='ptraces')  await loadPanelTraces();
 }
 
 async function loadPanelOverview() {
@@ -3205,6 +3220,55 @@ async function loadPanelTelemetry() {
     if (hasTemp) chartTemp  =mkChart(document.getElementById('chart-temp'),   labels,[{label:'Temperature',data:tempData, borderColor:'#ff88aa',backgroundColor:'rgba(255,136,170,.1)',borderWidth:1.5,pointRadius:1,tension:.3,fill:true}]);
     if (hasCh)   chartChutil=mkChart(document.getElementById('chart-chutil'), labels,[{label:'Ch Util',    data:chData,   borderColor:'#ffaa00',backgroundColor:'rgba(255,170,0,.1)',  borderWidth:1.5,pointRadius:1,tension:.3,fill:true}]);
   } catch(e) {}
+}
+
+async function loadPanelTraces() {
+  const list = document.getElementById('ptraces-list');
+  if (!list) return;
+  try {
+    const r = await fetch(`/api/node/${panelNodeId}/traces`);
+    if (!r.ok) { list.innerHTML='<div class="panel-empty">No trace data</div>'; return; }
+    const {traces} = await r.json();
+    if (!traces || !traces.length) {
+      list.innerHTML='<div class="panel-empty">No traceroutes stored for this node</div>';
+      return;
+    }
+    list.innerHTML = traces.map(t => {
+      const role = t.from_id === panelNodeId ? '← Origin'
+                 : t.to_id   === panelNodeId ? '→ Destination'
+                 : '⟷ Relay';
+      const roleColor = role.startsWith('←') ? 'var(--err)'
+                      : role.startsWith('→') ? 'var(--ai)' : 'var(--primary)';
+      // Route summary
+      const routeNames = (t.route || []).map(n => esc(n.name || ('!'+n.id))).join(' → ');
+      // SNR values
+      const snrStr = (t.snr_towards || []).map((s,i) =>
+        s ? `${(s/4).toFixed(1)}dB` : '--'
+      ).join(' / ');
+      return `<div class="pmsg" style="cursor:pointer;" onclick="showHistoricTrace(${JSON.stringify(t).replace(/"/g,'&quot;')})">
+        <div class="pmsg-header" style="justify-content:space-between;">
+          <span style="color:${roleColor};font-weight:600;">${role}</span>
+          <span>${esc(t.ts_str)}</span>
+          <span style="color:var(--primary);">${t.hops} hop${t.hops!==1?'s':''}</span>
+          <span style="color:var(--muted);">ch${t.channel}</span>
+        </div>
+        <div class="pmsg-text" style="font-family:var(--font-mono);font-size:.75em;color:var(--muted);">${routeNames||'--'}</div>
+        ${snrStr ? `<div style="font-family:var(--font-mono);font-size:.68em;color:var(--ai);">SNR: ${snrStr}</div>` : ''}
+      </div>`;
+    }).join('');
+  } catch(e) {
+    list.innerHTML=`<div class="panel-empty">Error: ${e.message}</div>`;
+  }
+}
+
+function showHistoricTrace(t) {
+  // Re-use the traceroute modal to show a historical trace
+  document.getElementById('tr-title').textContent =
+    `Trace: ${t.from_id} → ${t.to_id} (${t.ts_str})`;
+  document.getElementById('tr-status').textContent =
+    `${t.hops} hop${t.hops!==1?'s':''} · historical`;
+  document.getElementById('tr-modal').classList.add('open');
+  renderTraceroute(t);
 }
 
 async function loadPanelMessages() {
