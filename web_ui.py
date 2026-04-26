@@ -843,6 +843,29 @@ if _HAS_FLASK:
             rows = [t for t in _traceroutes if t["ts"] > since]
         return jsonify({"traceroutes": rows, "ts": time.time()})
 
+    @app.route("/api/config/fixed_position", methods=["POST"])
+    @login_required
+    def api_set_fixed_position():
+        if not _meshtastic_handler:
+            return jsonify({"ok": False, "error": "Not connected"}), 503
+        data = request.get_json(silent=True) or {}
+        try:
+            lat = float(data["lat"])
+            lon = float(data["lon"])
+            alt = int(data.get("alt", 0))
+        except (KeyError, ValueError) as e:
+            return jsonify({"ok": False, "error": f"Bad parameters: {e}"}), 400
+        ok, msg = _meshtastic_handler.set_fixed_position(lat, lon, alt)
+        return jsonify({"ok": ok, "message": msg})
+
+    @app.route("/api/config/fixed_position", methods=["DELETE"])
+    @login_required
+    def api_remove_fixed_position():
+        if not _meshtastic_handler:
+            return jsonify({"ok": False, "error": "Not connected"}), 503
+        ok, msg = _meshtastic_handler.remove_fixed_position()
+        return jsonify({"ok": ok, "message": msg})
+
     @app.route("/api/device/reboot", methods=["POST"])
     @login_required
     def api_device_reboot():

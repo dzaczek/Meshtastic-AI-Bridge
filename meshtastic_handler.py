@@ -733,6 +733,30 @@ class MeshtasticHandler:
             traceback.print_exc()
             return False, str(e)
 
+    def set_fixed_position(self, lat: float, lon: float, alt: int = 0) -> tuple:
+        """Set a fixed GPS position that the node broadcasts when GPS is disabled."""
+        if not self.interface or not self.is_connected:
+            return False, "Not connected"
+        try:
+            node = self.interface.getNode('^local')
+            node.setFixedPosition(lat, lon, alt)
+            return True, f"Fixed position set: {lat:.6f}, {lon:.6f} alt={alt}m"
+        except Exception as e:
+            traceback.print_exc()
+            return False, str(e)
+
+    def remove_fixed_position(self) -> tuple:
+        """Remove the fixed position from the device."""
+        if not self.interface or not self.is_connected:
+            return False, "Not connected"
+        try:
+            node = self.interface.getNode('^local')
+            node.removeFixedPosition()
+            return True, "Fixed position removed"
+        except Exception as e:
+            traceback.print_exc()
+            return False, str(e)
+
     def close(self):
         print("Closing Meshtastic interface...")
         # Shutdown state machine (stops monitor thread, timers)

@@ -985,6 +985,31 @@
         <input class="cfg-chk" type="checkbox" data-cfg="fixed_position"></div>
       <button class="cfg-save" onclick="saveCfg('position')">Save Position</button>
       <span class="cfg-msg" id="cfgmsg-position"></span>
+
+      <hr class="cfg-sep">
+      <div class="cfg-title" style="margin-top:10px;">Virtual GPS — Fixed Position</div>
+      <div class="cfg-note">Set a static position when GPS is disabled. The node broadcasts it as its location.</div>
+      <div id="fix-pos-current" style="font-size:.75em;color:var(--muted);margin-bottom:8px;"></div>
+      <div class="cfg-row">
+        <span class="cfg-label">Latitude<small>decimal degrees, e.g. 47.376892</small></span>
+        <input class="cfg-input" type="number" step="0.000001" min="-90" max="90" id="fix-lat" style="width:150px;flex:none;" placeholder="47.376892">
+      </div>
+      <div class="cfg-row">
+        <span class="cfg-label">Longitude<small>decimal degrees, e.g. 8.541694</small></span>
+        <input class="cfg-input" type="number" step="0.000001" min="-180" max="180" id="fix-lon" style="width:150px;flex:none;" placeholder="8.541694">
+      </div>
+      <div class="cfg-row">
+        <span class="cfg-label">Altitude (m)<small>optional</small></span>
+        <input class="cfg-input" type="number" id="fix-alt" style="width:90px;flex:none;" value="0">
+      </div>
+      <div class="cfg-row">
+        <span class="cfg-label"></span>
+        <button class="cfg-save" onclick="setFixedPos()">📍 Set Fixed Position</button>
+        <button onclick="pickFromMap()" style="background:none;color:var(--primary);border:1px solid var(--primary);font-family:inherit;font-size:.75em;padding:6px 10px;cursor:pointer;margin-left:6px;">🗺 Pick on map</button>
+        <button onclick="removeFixedPos()" style="background:#2e0a0a;color:var(--err);border:1px solid var(--err);font-family:inherit;font-size:.75em;padding:6px 10px;cursor:pointer;margin-left:6px;">✕ Remove</button>
+        <button onclick="copyPosLink()" style="background:none;color:var(--muted);border:1px solid #333;font-family:inherit;font-size:.75em;padding:6px 10px;cursor:pointer;margin-left:6px;">📋 Copy link</button>
+      </div>
+      <span class="cfg-msg" id="cfgmsg-fixed-pos"></span>
     </div>
 
     <div class="cfgs" id="cfgs-power">
@@ -1302,7 +1327,7 @@ function switchTab(name) {
   document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id===`tab-${name}`));
   if (name==='map')    initMap();
   if (name==='radar')  initRadar();
-  if (name==='config') { cfgData = {}; initConfig(); }  // always reload fresh from device
+  if (name==='config') { cfgData = {}; initConfig(); _fillFixPosFromCache(); }
 }
 
 // ── MESSAGES ──────────────────────────────────────────────────────────────
@@ -2797,6 +2822,102 @@ function focusNodeOnMap(nodeId) {
   initMap();
   leafMap.setView([node.lat, node.lon], 13);
   if (mapMarkers[nodeId]) mapMarkers[nodeId].openPopup();
+}
+
+// ── FIXED POSITION ────────────────────────────────────────────────────────
+function _fixPosMsg(text, ok) {
+  const el = document.getElementById('cfgmsg-fixed-pos');
+  if (!el) return;
+  el.textContent = text;
+  el.className = `cfg-msg ${ok ? 'ok' : 'err'}`;
+  el.style.display = 'inline';
+  setTimeout(() => { if (el) el.style.display = 'none'; }, 5000);
+}
+
+function _fillFixPosFromCache() {
+  const myNode = nodesCache.find(n => n.is_mine);
+  if (!myNode || !myNode.lat) return;
+  document.getElementById('fix-lat').value = myNode.lat.toFixed(6);
+  document.getElementById('fix-lon').value = myNode.lon.toFixed(6);
+  if (myNode.altitude) document.getElementById('fix-alt').value = myNode.altitude;
+  const info = document.getElementById('fix-pos-current');
+  if (info) info.textContent =
+    `Current: ${myNode.lat.toFixed(6)}, ${myNode.lon.toFixed(6)}` +
+    (myNode.altitude ? ` alt ${myNode.altitude}m` : '');
+}
+
+async function setFixedPos() {
+  const lat = parseFloat(document.getElementById('fix-lat').value);
+  const lon = parseFloat(document.getElementById('fix-lon').value);
+  const alt = parseInt(document.getElementById('fix-alt').value || '0');
+  if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+    _fixPosMsg('Enter valid lat/lon', false); return;
+  }
+  _fixPosMsg('Setting…', true);
+  try {
+    const r = await fetch('/api/config/fixed_position', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({lat, lon, alt}),
+    });
+    const d = await r.json();
+    _fixPosMsg(d.message || (d.ok ? 'Position set!' : 'Error'), d.ok);
+    if (d.ok) {
+      const info = document.getElementById('fix-pos-current');
+      if (info) info.textContent = `Set: ${lat.toFixed(6)}, ${lon.toFixed(6)} alt=${alt}m`;
+    }
+  } catch(e) { _fixPosMsg('Network error', false); }
+}
+
+async function removeFixedPos() {
+  if (!confirm('Remove fixed position from device?')) return;
+  try {
+    const r = await fetch('/api/config/fixed_position', {method: 'DELETE'});
+    const d = await r.json();
+    _fixPosMsg(d.message || (d.ok ? 'Removed' : 'Error'), d.ok);
+  } catch(e) { _fixPosMsg('Network error', false); }
+}
+
+function copyPosLink() {
+  const lat = document.getElementById('fix-lat').value;
+  const lon = document.getElementById('fix-lon').value;
+  if (!lat || !lon) { alert('Enter lat/lon first'); return; }
+  const osm = `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}&zoom=14`;
+  const gmaps = `https://maps.google.com/?q=${lat},${lon}`;
+  const text = `OSM: ${osm}\nGoogle: ${gmaps}`;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(() => _fixPosMsg('Links copied!', true));
+  } else {
+    prompt('Copy these links:', text);
+  }
+}
+
+let _mapPickCallback = null;
+function pickFromMap() {
+  switchTab('map');
+  initMap();
+  const hint = L.popup()
+    .setLatLng(leafMap.getCenter())
+    .setContent('<b>Click to set fixed position</b>')
+    .openOn(leafMap);
+  leafMap.getContainer().style.cursor = 'crosshair';
+  leafMap.once('click', e => {
+    leafMap.getContainer().style.cursor = '';
+    hint.remove();
+    const lat = e.latlng.lat.toFixed(6);
+    const lon = e.latlng.lng.toFixed(6);
+    document.getElementById('fix-lat').value = lat;
+    document.getElementById('fix-lon').value = lon;
+    // Show picked location marker
+    L.marker([lat, lon], {
+      icon: L.divIcon({
+        html: '<div style="width:12px;height:12px;background:#ffff00;border:2px solid #000;border-radius:50%;"></div>',
+        className: '', iconSize: [12,12], iconAnchor: [6,6],
+      })
+    }).addTo(leafMap).bindPopup(`Fixed: ${lat}, ${lon}`).openPopup();
+    switchTab('config');
+    showCfgSec('position');
+    _fixPosMsg(`Picked: ${lat}, ${lon} — click "Set Fixed Position" to apply`, true);
+  });
 }
 
 // ── BOOTSTRAP ─────────────────────────────────────────────────────────────
