@@ -739,16 +739,45 @@ class MeshtasticHandler:
             return False, "Not connected"
         try:
             dest_num = int(dest_id_hex, 16)
+
+            # Method 1: high-level interface API
             if hasattr(self.interface, 'sendTraceroute'):
                 self.interface.sendTraceroute(dest_num, hop_limit)
-            else:
-                from meshtastic import mesh_pb2
-                p = mesh_pb2.MeshPacket()
-                p.decoded.portnum = mesh_pb2.PortNum.TRACEROUTE_APP
+                return True, f"Traceroute sent to !{dest_id_hex}"
+
+            # Method 2: node-level API
+            try:
+                node = self.interface.getNode('^local')
+                if hasattr(node, 'sendTraceroute'):
+                    node.sendTraceroute(dest_num, hop_limit)
+                    return True, f"Traceroute sent to !{dest_id_hex}"
+            except Exception:
+                pass
+
+            # Method 3: raw packet — TRACEROUTE_APP = 70 in protobuf
+            TRACEROUTE_APP_PORTNUM = 70
+            MeshPacket = None
+            for mod_path in ('meshtastic.protobuf.mesh_pb2',
+                             'meshtastic.mesh_pb2',
+                             'meshtastic._generated.mesh_pb2'):
+                try:
+                    import importlib
+                    mod = importlib.import_module(mod_path)
+                    MeshPacket = mod.MeshPacket
+                    break
+                except (ImportError, AttributeError):
+                    continue
+
+            if MeshPacket:
+                p = MeshPacket()
+                p.decoded.portnum = TRACEROUTE_APP_PORTNUM
                 p.want_ack  = False
                 p.hop_limit = hop_limit
                 self.interface.sendPacket(p, destinationId=dest_num, wantAck=False)
-            return True, f"Traceroute sent to !{dest_id_hex}"
+                return True, f"Traceroute sent to !{dest_id_hex}"
+
+            return False, "No traceroute method available in this library version"
+
         except Exception as e:
             traceback.print_exc()
             return False, str(e)
