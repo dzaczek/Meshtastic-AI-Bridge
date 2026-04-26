@@ -312,6 +312,78 @@
     .tr-hop-snr  { font-family:var(--font-mono); color:var(--ai); }
     .tr-hop-gps  { font-size:.85em; color:var(--muted); }
 
+    /* ── tb-select ── */
+    .tb-select{
+      background:rgba(255,255,255,.08);
+      border:1px solid var(--border-s);
+      color:var(--text);
+      font-family:inherit;font-size:.72em;padding:3px 6px;cursor:pointer;
+      text-transform:uppercase; outline:none; border-radius:4px;
+    }
+    .tb-select:focus{border-color:var(--primary);}
+    .tb-select option { background:#0a0e14; color:var(--text); }
+
+    /* ── Conversation list – full names ── */
+    .conv-item {
+      padding:6px 10px; cursor:pointer;
+      display:flex; align-items:center; gap:6px;
+      font-size:.83em; border-left:3px solid transparent;
+      transition:background .1s; white-space:nowrap;
+      overflow:visible;          /* allow full names */
+    }
+    .conv-item > span:first-child { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+
+    /* OPS top-nodes full name */
+    .topnode-name {
+      font-family:var(--font-mono); font-size:.78em; color:var(--text);
+      overflow:visible; white-space:normal;    /* allow wrap instead of ellipsis */
+      word-break:break-all;
+    }
+
+    /* Panel backgrounds – more opaque so shader doesn't bleed through */
+    #chat-sidebar  { background:rgba(10,14,20,.88) !important; }
+    #chat-main     { background:rgba(7,9,12,.82)  !important; }
+    #pkt-stats     { background:rgba(10,14,20,.88) !important; }
+    #pkt-feed-wrap { background:rgba(7,9,12,.82)  !important; }
+    #cfg-sidebar   { background:rgba(10,14,20,.88) !important; }
+    #cfg-main      { background:rgba(7,9,12,.82)  !important; }
+    .ops-card      { background:rgba(10,14,20,.85) !important; }
+    #nodes-grid    { background:rgba(7,9,12,.72)  !important; }
+    .node-card     { background:rgba(14,20,28,.90) !important; }
+
+    /* ── BG chooser dropdown ── */
+    #bg-chooser-wrap { position:relative; }
+    #bg-chooser-btn  {
+      background:rgba(255,255,255,.06); border:1px solid var(--border-s);
+      color:var(--muted); font-family:var(--font-mono); font-size:.7em;
+      padding:3px 9px; cursor:pointer; border-radius:4px; white-space:nowrap;
+    }
+    #bg-chooser-btn:hover { color:var(--text); border-color:var(--border-s); }
+    #bg-chooser-drop {
+      display:none; position:absolute; top:calc(100% + 6px); right:0; z-index:100;
+      background:rgba(10,14,20,.97); border:1px solid var(--border-s);
+      border-radius:var(--r-lg); padding:10px 12px; min-width:200px;
+      box-shadow:var(--shadow);
+      backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px);
+    }
+    #bg-chooser-drop.open { display:block; }
+    #bg-chooser-drop h4   { font-family:var(--font-mono); font-size:.62em; color:var(--muted2); letter-spacing:.2em; text-transform:uppercase; margin-bottom:8px; }
+    .bg-opt-row { display:flex; flex-direction:column; gap:4px; }
+    .bg-opt {
+      display:flex; align-items:center; gap:10px; padding:7px 9px;
+      border-radius:6px; cursor:pointer; border:1px solid transparent;
+      transition:all .15s;
+    }
+    .bg-opt:hover { background:rgba(255,255,255,.05); border-color:var(--border); }
+    .bg-opt.active { background:rgba(77,255,209,.08); border-color:rgba(77,255,209,.35); }
+    .bg-opt-thumb { width:28px; height:28px; border-radius:6px; flex-shrink:0; }
+    .bg-opt-info  { flex:1; }
+    .bg-opt-name  { font-size:.78em; color:var(--text); font-weight:500; }
+    .bg-opt-desc  { font-size:.68em; color:var(--muted2); margin-top:1px; }
+    .bg-intensity { margin-top:10px; border-top:1px solid var(--border); padding-top:10px; }
+    .bg-intensity label { font-size:.68em; color:var(--muted2); display:flex; align-items:center; gap:8px; }
+    .bg-intensity input[type=range] { flex:1; accent-color:var(--primary); }
+
     /* ── SHADER DOCK ── */
     #shader-dock {
       position:fixed; bottom:16px; right:16px; z-index:10;
@@ -343,17 +415,29 @@
 
     /* ── SHARED TOOLBAR ── */
     .toolbar{
-      padding:5px 10px; background:var(--surf2); border-bottom:1px solid var(--border);
+      padding:6px 10px;
+      background: rgba(10,14,20,0.80);
+      border-bottom:1px solid var(--border-s);
       display:flex; align-items:center; gap:6px; flex-shrink:0; flex-wrap:wrap;
     }
-    .tb-sep{width:1px;height:16px;background:var(--border);margin:0 3px;}
-    .tb-lbl{color:var(--muted);font-size:.7em;text-transform:uppercase;}
+    .tb-sep{width:1px;height:16px;background:var(--border-s);margin:0 3px;}
+    .tb-lbl{color:var(--muted);font-size:.7em;text-transform:uppercase;letter-spacing:.08em;}
     .tb-btn{
-      background:none;border:1px solid var(--border);color:var(--muted);
-      font-family:inherit;font-size:.7em;padding:2px 8px;cursor:pointer;
-      text-transform:uppercase;transition:color .1s,border-color .1s;
+      background:rgba(255,255,255,.06);
+      border:1px solid var(--border-s);
+      color:var(--text);                  /* brighter default text */
+      font-family:inherit;font-size:.72em;padding:3px 9px;cursor:pointer;
+      text-transform:uppercase;letter-spacing:.04em;
+      border-radius:4px;
+      transition:color .1s,border-color .1s,background .1s;
     }
-    .tb-btn:hover,.tb-btn.active{color:var(--primary);border-color:var(--primary);}
+    .tb-btn:hover { background:rgba(255,255,255,.10); color:var(--text); }
+    .tb-btn.active {
+      background:rgba(77,255,209,.12);
+      border-color:rgba(77,255,209,.50);
+      color:var(--primary);
+      font-weight:600;
+    }
 
     /* ── CHAT TAB ── */
     #chat-sidebar{
@@ -843,15 +927,38 @@
 <canvas id="wallpaper"></canvas>
 <div id="wallpaper-vignette"></div>
 
-<!-- Shader dock -->
-<div id="shader-dock">
-  <span>BG</span>
-  <button class="dock-btn active" data-shader="plasma"    title="Plasma (1)"></button>
-  <button class="dock-btn"        data-shader="voronoi"   title="Voronoi (2)"></button>
-  <button class="dock-btn"        data-shader="ripple"    title="Ripple (3)"></button>
-  <button class="dock-btn"        data-shader="particles" title="Particles (4)"></button>
-  <button class="dock-btn"        data-shader="flow"      title="Flow (5)"></button>
-  <button class="dock-btn"        data-shader="off"       title="Off (0)">✕</button>
+<!-- BG Chooser dropdown (shown via header button) -->
+<div id="bg-chooser-drop">
+  <h4>Background Shader</h4>
+  <div class="bg-opt-row">
+    <div class="bg-opt active" data-shader="plasma" onclick="setBgShader('plasma')">
+      <div class="bg-opt-thumb" style="background:conic-gradient(from 90deg,#4dffd1,#6aa9ff,#c98aff,#4dffd1)"></div>
+      <div class="bg-opt-info"><div class="bg-opt-name">Plasma</div><div class="bg-opt-desc">Flowing colour field · mouse-reactive</div></div>
+    </div>
+    <div class="bg-opt" data-shader="voronoi" onclick="setBgShader('voronoi')">
+      <div class="bg-opt-thumb" style="background:conic-gradient(from 45deg,#07090c,#4dffd1,#07090c,#6aa9ff)"></div>
+      <div class="bg-opt-info"><div class="bg-opt-name">Voronoi</div><div class="bg-opt-desc">Crystal lattice · animated cells</div></div>
+    </div>
+    <div class="bg-opt" data-shader="ripple" onclick="setBgShader('ripple')">
+      <div class="bg-opt-thumb" style="background:radial-gradient(circle,#6aa9ff 10%,#07090c)"></div>
+      <div class="bg-opt-info"><div class="bg-opt-name">Ripple</div><div class="bg-opt-desc">Click anywhere to create waves</div></div>
+    </div>
+    <div class="bg-opt" data-shader="particles" onclick="setBgShader('particles')">
+      <div class="bg-opt-thumb" style="background:radial-gradient(circle,#c98aff 20%,#07090c)"></div>
+      <div class="bg-opt-info"><div class="bg-opt-name">Particles</div><div class="bg-opt-desc">Floating particle field</div></div>
+    </div>
+    <div class="bg-opt" data-shader="flow" onclick="setBgShader('flow')">
+      <div class="bg-opt-thumb" style="background:linear-gradient(135deg,#4dffd1,#c98aff)"></div>
+      <div class="bg-opt-info"><div class="bg-opt-name">Flow</div><div class="bg-opt-desc">Organic fluid motion</div></div>
+    </div>
+    <div class="bg-opt" data-shader="off" onclick="setBgShader('off')">
+      <div class="bg-opt-thumb" style="background:#111;border:1px solid #222;"></div>
+      <div class="bg-opt-info"><div class="bg-opt-name">Off</div><div class="bg-opt-desc">Solid dark background</div></div>
+    </div>
+  </div>
+  <div class="bg-intensity">
+    <label>Intensity <input type="range" id="bg-intensity" min="0" max="100" value="100" oninput="setBgIntensity(this.value)"> <span id="bg-intensity-val">100%</span></label>
+  </div>
 </div>
 
 <!-- ── HEADER ── -->
@@ -868,6 +975,9 @@
   <div id="badge-rx"   class="badge bg-gray" style="display:none" title="Time since last received packet"></div>
   <div id="hdr-right">
     <span id="hdr-uptime" style="font-family:var(--font-mono);font-size:.7em;"></span>
+    <div id="bg-chooser-wrap">
+      <button id="bg-chooser-btn" onclick="toggleBgChooser()">🎨 BG</button>
+    </div>
     <a href="/logout">logout</a>
   </div>
 </div>
@@ -3598,39 +3708,74 @@ function pickFromMap() {
 }
 
 // ── SHADER WALLPAPER ──────────────────────────────────────────────────────
+let _wp = null;
+let _currentShader = 'plasma';
+
 (function initShader() {
   const canvas = document.getElementById('wallpaper');
   if (!canvas || typeof ShaderWallpaper === 'undefined') return;
-  const wp = new ShaderWallpaper(canvas);
-  wp.use('plasma');
+  _wp = new ShaderWallpaper(canvas);
+  _wp.use('plasma');
 
-  document.querySelectorAll('.dock-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.dock-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      const key = btn.dataset.shader;
-      if (key === 'off') {
-        canvas.style.display = 'none';
-        document.getElementById('wallpaper-vignette').style.display = 'none';
-      } else {
-        canvas.style.display = 'block';
-        document.getElementById('wallpaper-vignette').style.display = 'block';
-        wp.use(key);
-      }
-    });
-  });
+  // Load persisted choice
+  const saved = localStorage.getItem('mesh_bg_shader') || 'plasma';
+  const savedInt = parseInt(localStorage.getItem('mesh_bg_intensity') || '100');
+  setBgShader(saved, false);
+  setBgIntensity(savedInt, false);
+  document.getElementById('bg-intensity').value = savedInt;
+  document.getElementById('bg-intensity-val').textContent = savedInt + '%';
 
-  // Number keys 0-5 to switch shaders
+  // Keyboard shortcuts 0-5
   const KEYS = {'0':'off','1':'plasma','2':'voronoi','3':'ripple','4':'particles','5':'flow'};
   window.addEventListener('keydown', e => {
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if (e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.tagName==='SELECT') return;
     const s = KEYS[e.key];
-    if (s) {
-      const btn = document.querySelector(`.dock-btn[data-shader="${s}"]`);
-      if (btn) btn.click();
+    if (s) setBgShader(s);
+  });
+
+  // Close dropdown on outside click
+  document.addEventListener('click', e => {
+    if (!e.target.closest('#bg-chooser-wrap') && !e.target.closest('#bg-chooser-drop')) {
+      document.getElementById('bg-chooser-drop').classList.remove('open');
     }
   });
 })();
+
+function toggleBgChooser() {
+  document.getElementById('bg-chooser-drop').classList.toggle('open');
+}
+
+function setBgShader(key, save=true) {
+  _currentShader = key;
+  const canvas = document.getElementById('wallpaper');
+  const vignette = document.getElementById('wallpaper-vignette');
+  const btn = document.getElementById('bg-chooser-btn');
+  document.querySelectorAll('.bg-opt').forEach(o =>
+    o.classList.toggle('active', o.dataset.shader === key));
+  if (key === 'off') {
+    if (canvas) canvas.style.display = 'none';
+    if (vignette) vignette.style.display = 'none';
+    if (btn) btn.textContent = '🎨 BG: Off';
+  } else {
+    if (canvas) canvas.style.display = 'block';
+    if (vignette) vignette.style.display = 'block';
+    if (_wp) _wp.use(key);
+    const names = {plasma:'Plasma',voronoi:'Voronoi',ripple:'Ripple',particles:'Particles',flow:'Flow'};
+    if (btn) btn.textContent = `🎨 ${names[key]||key}`;
+  }
+  if (save) localStorage.setItem('mesh_bg_shader', key);
+}
+
+function setBgIntensity(val, save=true) {
+  const v = parseInt(val);
+  const canvas = document.getElementById('wallpaper');
+  const vignette = document.getElementById('wallpaper-vignette');
+  if (canvas) canvas.style.opacity = v / 100;
+  // Intensify vignette when intensity is low (to keep readability)
+  if (vignette) vignette.style.opacity = 1;
+  document.getElementById('bg-intensity-val').textContent = v + '%';
+  if (save) localStorage.setItem('mesh_bg_intensity', v);
+}
 
 // ── BOOTSTRAP ─────────────────────────────────────────────────────────────
 (async function init(){
