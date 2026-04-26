@@ -15,6 +15,7 @@ Environment variables:
   WEB_UI_SECRET_KEY  - Flask session secret (auto-generated if missing)
 """
 
+import json
 import logging
 import os
 import threading
@@ -48,6 +49,55 @@ except ImportError:
 
 _messages: deque = deque(maxlen=500)
 _packets:  deque = deque(maxlen=1000)
+
+_CHAT_HISTORY_PATH = os.path.join("data", "chat_history.json")
+_save_pending = False
+
+
+def _load_chat_history() -> None:
+    """Load persisted messages from disk into _messages on startup."""
+    try:
+        if not os.path.exists(_CHAT_HISTORY_PATH):
+            return
+        with open(_CHAT_HISTORY_PATH, "r", encoding="utf-8") as f:
+            saved = json.load(f)
+        count = 0
+        for msg in saved[-500:]:
+            if isinstance(msg, dict) and "text" in msg and "timestamp" in msg:
+                _messages.append(msg)
+                count += 1
+        logger.info(f"chat_history: loaded {count} messages from {_CHAT_HISTORY_PATH}")
+    except Exception as e:
+        logger.warning(f"chat_history: could not load: {e}")
+
+
+def _save_chat_history() -> None:
+    """Persist current _messages to disk."""
+    global _save_pending
+    _save_pending = False
+    try:
+        os.makedirs(os.path.dirname(_CHAT_HISTORY_PATH), exist_ok=True)
+        with _lock:
+            msgs = list(_messages)
+        with open(_CHAT_HISTORY_PATH, "w", encoding="utf-8") as f:
+            json.dump(msgs, f, ensure_ascii=False)
+    except Exception as e:
+        logger.warning(f"chat_history: could not save: {e}")
+
+
+def _schedule_save() -> None:
+    """Debounced save — waits 10s after last message before writing."""
+    global _save_pending
+    if _save_pending:
+        return
+    _save_pending = True
+    t = threading.Timer(10.0, _save_chat_history)
+    t.daemon = True
+    t.start()
+
+
+# Load persisted messages immediately at module import
+_load_chat_history()
 _status: dict = {
     "connected": False,
     "node_id": None,
@@ -102,6 +152,7 @@ def add_message(text: str, sender: str, channel: int,
             _status["messages_received"] += 1
         elif msg_type == "ai":
             _status["ai_responses"] += 1
+    _schedule_save()
     return web_id
 
 
@@ -840,6 +891,12 @@ def start_in_background(host: str = "0.0.0.0", port: int = 8080) -> threading.Th
 
     global _server_thread
 
+    def _periodic_save():
+        """Save chat history every 5 minutes regardless of activity."""
+        while True:
+            time.sleep(300)
+            _save_chat_history()
+
     def _run():
         logger.info(f"web_ui: listening on http://{host}:{port}")
         add_message(f"Web UI available on port {port}", "system", -1, "system")
@@ -849,6 +906,7 @@ def start_in_background(host: str = "0.0.0.0", port: int = 8080) -> threading.Th
         except Exception:
             app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)
 
+    threading.Thread(target=_periodic_save, daemon=True, name="ChatHistorySave").start()
     _server_thread = threading.Thread(target=_run, daemon=True, name="WebUI")
     _server_thread.start()
     return _server_thread
