@@ -1056,7 +1056,20 @@
     <div class="ops-side">
       <!-- Mini radar -->
       <div class="ops-card" style="flex:1.2;">
-        <div class="ops-head"><h3>Signal Radar</h3><div class="corner"><span id="ops-radar-mode">--</span></div></div>
+        <div class="ops-head">
+          <h3>Signal Radar</h3>
+          <div class="corner" style="gap:4px;">
+            <select id="ops-radar-age" onchange="opsRadarAgeFilter=parseInt(this.value);updateOpsRadarBlips()" style="background:rgba(0,0,0,.4);border:1px solid var(--border);color:var(--muted);font-family:var(--font-mono);font-size:.62em;padding:1px 4px;border-radius:4px;outline:none;">
+              <option value="300">5 min</option>
+              <option value="1800">30 min</option>
+              <option value="3600" selected>1 hour</option>
+              <option value="21600">6 hours</option>
+              <option value="86400">24 hours</option>
+              <option value="0">All</option>
+            </select>
+            <span id="ops-radar-mode" style="font-family:var(--font-mono);">--</span>
+          </div>
+        </div>
         <div class="ops-body" style="display:flex;align-items:center;justify-content:center;padding:6px;">
           <canvas id="ops-radar" style="max-width:100%;max-height:100%;display:block;"></canvas>
         </div>
@@ -3331,6 +3344,8 @@ function focusNodeOnMap(nodeId) {
 // ── OPS DASHBOARD ─────────────────────────────────────────────
 let opsMapInited = false, opsLeafMap = null, opsMapMarkers = {};
 let opsRadarAngle = 0, opsRadarFrame = null;
+let opsRadarAgeFilter = 3600;   // seconds; 0 = all
+let opsRadarBlips = [];
 
 function initOps() {
   if (!opsMapInited) {
@@ -3339,7 +3354,7 @@ function initOps() {
       .setView([47.37, 8.54], 7);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:18}).addTo(opsLeafMap);
     L.control.zoom({position:'bottomright'}).addTo(opsLeafMap);
-    if (nodesCache.length) updateOpsMap();
+    if (nodesCache.length) { updateOpsMap(); updateOpsRadarBlips(); }
     initOpsRadar();
   }
   updateOpsStats();
@@ -3432,9 +3447,22 @@ function initOpsRadar() {
   animateOpsRadar(canvas);
 }
 
+function updateOpsRadarBlips() {
+  const now = Date.now() / 1000;
+  const myNode = nodesCache.find(n => n.is_mine) || null;
+  const filtered = nodesCache.filter(n => {
+    if (n.is_mine) return false;
+    if (opsRadarAgeFilter > 0 && n.last_heard && (now - n.last_heard) > opsRadarAgeFilter) return false;
+    if (opsRadarAgeFilter > 0 && !n.last_heard) return false;
+    return true;
+  });
+  opsRadarBlips = filtered.map(n => nodeToBlip(n, myNode));
+  const modeLabel = (myNode?.lat && myNode?.lon) ? 'GPS' : 'SNR';
+  setText('ops-radar-mode', `${filtered.length} · ${modeLabel}`);
+}
+
 function animateOpsRadar(canvas) {
   const ctx = canvas.getContext('2d');
-  const blips = () => nodesCache.filter(n => !n.is_mine).map(n => nodeToBlip(n, nodesCache.find(x=>x.is_mine)||null));
   function draw() {
     opsRadarFrame = requestAnimationFrame(draw);
     const W=canvas.width, H=canvas.height;
@@ -3454,7 +3482,7 @@ function animateOpsRadar(canvas) {
     ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(R,0);
     ctx.strokeStyle='#4dffd1'; ctx.lineWidth=1.2; ctx.stroke();
     ctx.restore();
-    blips().forEach(b => {
+    opsRadarBlips.forEach(b => {
       const px=cx+b.nx*R, py=cy+b.ny*R;
       const blipDeg=(Math.atan2(b.ny,b.nx)*180/Math.PI+360)%360;
       const behind=(opsRadarAngle-90+360-blipDeg+360)%360;
@@ -3476,6 +3504,7 @@ function opsOnNodesUpdate(nodes) {
     updateOpsMap();
     updateOpsStats();
     updateOpsTopNodes();
+    updateOpsRadarBlips();
   }
 }
 function opsOnPacket(p) {
