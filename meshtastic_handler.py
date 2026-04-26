@@ -754,29 +754,30 @@ class MeshtasticHandler:
             except Exception:
                 pass
 
-            # Method 3: raw packet — TRACEROUTE_APP = 70 in protobuf
-            TRACEROUTE_APP_PORTNUM = 70
-            MeshPacket = None
-            for mod_path in ('meshtastic.protobuf.mesh_pb2',
-                             'meshtastic.mesh_pb2',
-                             'meshtastic._generated.mesh_pb2'):
+            # Method 3: sendData with TRACEROUTE_APP portnum = 70
+            # This works across all meshtastic library versions that have sendData
+            if hasattr(self.interface, 'sendData'):
                 try:
-                    import importlib
-                    mod = importlib.import_module(mod_path)
-                    MeshPacket = mod.MeshPacket
-                    break
-                except (ImportError, AttributeError):
-                    continue
-
-            if MeshPacket:
-                p = MeshPacket()
-                p.decoded.portnum = TRACEROUTE_APP_PORTNUM
-                p.want_ack  = False
-                p.hop_limit = hop_limit
-                self.interface.sendPacket(p, destinationId=dest_num, wantAck=False)
+                    self.interface.sendData(
+                        b'',
+                        destinationId=dest_num,
+                        portNum=70,   # TRACEROUTE_APP
+                        wantAck=False,
+                        wantResponse=True,
+                        hopLimit=hop_limit,
+                    )
+                except TypeError:
+                    # Older versions don't have hopLimit param
+                    self.interface.sendData(
+                        b'',
+                        destinationId=dest_num,
+                        portNum=70,
+                        wantAck=False,
+                        wantResponse=True,
+                    )
                 return True, f"Traceroute sent to !{dest_id_hex}"
 
-            return False, "No traceroute method available in this library version"
+            return False, "sendData not available — upgrade meshtastic library"
 
         except Exception as e:
             traceback.print_exc()
