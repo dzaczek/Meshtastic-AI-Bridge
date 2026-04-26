@@ -218,20 +218,34 @@ class MatrixBridge:
             await self._invite_users(room_id)
             return
 
-        # Create new room
-        display_name = f"Mesh: {channel_name}" if channel_name != f"Ch-{channel_index}" else f"Mesh: Channel {channel_index}"
-        resp = await self.client.room_create(
-            name=display_name,
-            alias=alias_local,
-            topic=f"Meshtastic channel {channel_index} ({channel_name}) - messages bridged from mesh network",
-            invite=self.invite_users,
+        display_name = (
+            f"Mesh: {channel_name}"
+            if channel_name not in (f"Ch-{channel_index}", f"Channel {channel_index}")
+            else f"Mesh: Channel {channel_index}"
         )
-        if isinstance(resp, RoomCreateResponse):
-            self.channel_rooms[channel_index] = resp.room_id
-            self.room_channels[resp.room_id] = channel_index
-            log_info(f"Channel {channel_index} ({channel_name}) -> created room {resp.room_id}")
-        else:
-            log_error(f"Failed to create room for channel {channel_index}: {resp}")
+        topic = f"Meshtastic channel {channel_index} ({channel_name}) - bridged from mesh"
+
+        # Try creating with invites, fall back to without if invites cause errors
+        for invite_list in (self.invite_users, []):
+            resp = await self.client.room_create(
+                name=display_name,
+                alias=alias_local,
+                topic=topic,
+                invite=invite_list,
+            )
+            if isinstance(resp, RoomCreateResponse):
+                self.channel_rooms[channel_index] = resp.room_id
+                self.room_channels[resp.room_id] = channel_index
+                log_info(f"Channel {channel_index} -> created room {resp.room_id}"
+                         f"{' (no invites)' if not invite_list else ''}")
+                if not invite_list:
+                    await self._invite_users(resp.room_id)
+                return
+            else:
+                log_error(f"Room create ch{channel_index} failed"
+                          f"{'(with invite)' if invite_list else '(without invite)'}: {resp}")
+                if not invite_list:
+                    return  # both attempts failed
 
     async def _ensure_dm_room(self, node_id: str, node_name: str = ""):
         """Ensure a Matrix room exists for DMs with a specific mesh node."""
@@ -251,20 +265,27 @@ class MatrixBridge:
             return room_id
 
         display = f"Mesh DM: {node_name}" if node_name else f"Mesh DM: !{node_id}"
-        resp = await self.client.room_create(
-            name=display,
-            alias=alias_local,
-            topic=f"Meshtastic DM with !{node_id} ({node_name})",
-            invite=self.invite_users,
-        )
-        if isinstance(resp, RoomCreateResponse):
-            self.dm_rooms[node_id] = resp.room_id
-            self.room_dm_nodes[resp.room_id] = node_id
-            log_info(f"DM room for !{node_id} ({node_name}) -> created {resp.room_id}")
-            return resp.room_id
-        else:
-            log_error(f"Failed to create DM room for !{node_id}: {resp}")
-            return None
+        topic  = f"Meshtastic DM with !{node_id} ({node_name})"
+
+        for invite_list in (self.invite_users, []):
+            resp = await self.client.room_create(
+                name=display,
+                alias=alias_local,
+                topic=topic,
+                invite=invite_list,
+            )
+            if isinstance(resp, RoomCreateResponse):
+                self.dm_rooms[node_id] = resp.room_id
+                self.room_dm_nodes[resp.room_id] = node_id
+                log_info(f"DM room !{node_id} -> created {resp.room_id}")
+                if not invite_list:
+                    await self._invite_users(resp.room_id)
+                return resp.room_id
+            else:
+                log_error(f"DM room create !{node_id} failed"
+                          f"{'(with invite)' if invite_list else '(without invite)'}: {resp}")
+                if not invite_list:
+                    return None
 
     async def _resolve_alias(self, alias: str) -> Optional[str]:
         """Try to resolve a room alias to a room ID."""
@@ -277,13 +298,16 @@ class MatrixBridge:
         return None
 
     async def _invite_users(self, room_id: str):
-        """Invite configured users to a room (ignores errors if already joined)."""
+        """Invite configured users to a room (silently ignores all errors)."""
         for user_id in self.invite_users:
             try:
-                await self.client.room_invite(room_id, user_id)
-                log_info(f"Invited {user_id} to {room_id}")
-            except Exception:
-                pass  # already joined or other non-critical error
+                resp = await self.client.room_invite(room_id, user_id)
+                if hasattr(resp, 'transport_response') or str(resp).startswith('Invite'):
+                    log_info(f"Invited {user_id} to {room_id}")
+                else:
+                    log_info(f"Invite {user_id} to {room_id}: {resp}")
+            except Exception as e:
+                log_info(f"Invite {user_id} to {room_id} skipped: {e}")
 
     def _get_domain(self) -> str:
         """Extract domain from homeserver URL."""
