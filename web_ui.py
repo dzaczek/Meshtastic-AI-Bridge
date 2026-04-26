@@ -552,7 +552,7 @@ def _fmt_age(s: int) -> str:
 # ---------------------------------------------------------------------------
 
 if _HAS_FLASK:
-    app = Flask(__name__, template_folder="templates")
+    app = Flask(__name__, template_folder="templates", static_folder="static")
     app.secret_key = os.environ.get("WEB_UI_SECRET_KEY") or os.urandom(32)
     app.permanent_session_lifetime = timedelta(days=30)
 
@@ -640,6 +640,22 @@ if _HAS_FLASK:
                 st["last_rx_ago_s"] = None
                 st["last_rx_str"]   = "no data"
 
+            # Firmware version
+            try:
+                my_num = _meshtastic_handler.node_id
+                nodes  = getattr(_meshtastic_handler.interface, 'nodes', None) or {}
+                for nd in nodes.values():
+                    if nd.get('num') == my_num:
+                        meta = nd.get('metadata', {}) or {}
+                        fw   = (meta.get('firmwareVersion')
+                                or meta.get('firmware_version')
+                                or getattr(_meshtastic_handler.interface, 'metadata', {})
+                                   .get('firmwareVersion', ''))
+                        if fw:
+                            st['firmware_version'] = fw
+                        break
+            except Exception:
+                pass
             # Expose radio preset from device so UI can show it
             try:
                 node = _meshtastic_handler.interface.getNode('^local')
