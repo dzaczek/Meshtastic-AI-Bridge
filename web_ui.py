@@ -439,8 +439,14 @@ def _sanitize(obj):
 
 
 def _parse_packet(packet: dict, interface) -> dict:
-    decoded = packet.get("decoded") or {}
-    portnum = decoded.get("portnum", "UNKNOWN_APP")
+    raw_decoded = packet.get("decoded")
+    # If decoded is absent or empty the packet is encrypted with a key we don't have
+    encrypted = not raw_decoded
+    decoded  = raw_decoded or {}
+    portnum  = decoded.get("portnum", "UNKNOWN_APP")
+    if isinstance(portnum, int):
+        # Some library versions return the enum as an integer
+        portnum = f"PORT_{portnum}"
 
     from_num = packet.get("from")
     to_num   = packet.get("to")
@@ -462,7 +468,12 @@ def _parse_packet(packet: dict, interface) -> dict:
     snr  = packet.get("rxSnr")  or packet.get("snr")
     rssi = packet.get("rxRssi") or packet.get("rssi")
 
-    type_label = portnum.replace("_APP", "").replace("_", " ")
+    if encrypted:
+        type_label = "ENCRYPTED"
+        summary    = f"ch{packet.get('channel',0)} · key mismatch — check channel PSK"
+    else:
+        type_label = portnum.replace("_APP", "").replace("_", " ")
+        summary    = _packet_summary(portnum, decoded)
 
     ts = time.time()
     return {
@@ -474,13 +485,14 @@ def _parse_packet(packet: dict, interface) -> dict:
         "channel":    packet.get("channel", 0),
         "portnum":    type_label,
         "portnum_raw": portnum,
+        "encrypted":  encrypted,
         "hop_limit":  packet.get("hopLimit"),
         "hop_start":  packet.get("hopStart"),
         "snr":        round(float(snr), 1)  if snr  is not None else None,
         "rssi":       int(rssi)             if rssi is not None else None,
         "via_mqtt":   packet.get("viaMqtt", False),
         "want_ack":   packet.get("wantAck", False),
-        "summary":    _packet_summary(portnum, decoded),
+        "summary":    summary,
         "decoded_raw": _sanitize(decoded),
     }
 
@@ -883,7 +895,17 @@ if _HAS_FLASK:
     def api_config():
         if not _meshtastic_handler:
             return jsonify({"_error": "Not connected"}), 503
-        return jsonify(_meshtastic_handler.get_device_config())
+        cfg = _meshtastic_handler.get_device_config()
+        # Annotate each channel with its computed hash (for PSK debugging)
+        try:
+            node = _meshtastic_handler.interface.getNode('^local')
+            if hasattr(node, 'get_channels_with_hash'):
+                hash_map = {c['index']: c['hash'] for c in node.get_channels_with_hash()}
+                for ch in cfg.get('channels', []):
+                    ch['_hash'] = hash_map.get(ch.get('index'), None)
+        except Exception:
+            pass
+        return jsonify(cfg)
 
     @app.route("/api/traceroutes")
     @login_required
@@ -936,6 +958,64 @@ if _HAS_FLASK:
             return jsonify({"ok": True, "message": "Reboot command sent to device"})
         except Exception as e:
             return jsonify({"ok": False, "error": str(e)}), 500
+
+    @app.route("/api/device/reconnect", methods=["POST"])
+    @login_required
+    def api_device_reconnect():
+        if not _meshtastic_handler:
+            return jsonify({"ok": False, "error": "No handler"}), 503
+        threading.Thread(target=_meshtastic_handler._do_reconnect, daemon=True).start()
+        return jsonify({"ok": True, "message": "Reconnect triggered"})
+
+    @app.route("/api/device/disconnect", methods=["POST"])
+    @login_required
+    def api_device_disconnect():
+        if not _meshtastic_handler or not _meshtastic_handler.interface:
+            return jsonify({"ok": False, "error": "Not connected"}), 503
+        try:
+            _meshtastic_handler.interface.close()
+            return jsonify({"ok": True, "message": "Disconnected"})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
+
+    @app.route("/api/device/info")
+    @login_required
+    def api_device_info():
+        if not _meshtastic_handler or not _meshtastic_handler.interface:
+            return jsonify({"error": "Not connected"}), 503
+        my_num = _meshtastic_handler.node_id
+        nodes = getattr(_meshtastic_handler.interface, 'nodes', None) or {}
+        own = None
+        for nd in nodes.values():
+            if nd.get('num') == my_num:
+                own = nd
+                break
+        base = {"id": f"{my_num:x}" if my_num else ""}
+        if not own:
+            base["error"] = "node_not_in_cache"
+            return jsonify(base)
+        user    = own.get('user', {})
+        metrics = own.get('deviceMetrics') or {}
+        pos     = own.get('position') or {}
+        lat     = pos.get('latitude')
+        lon     = pos.get('longitude')
+        voltage = metrics.get('voltage')
+        base.update({
+            "long_name":   user.get('longName', ''),
+            "short_name":  user.get('shortName', ''),
+            "hw_model":    user.get('hwModel', ''),
+            "battery":     metrics.get('batteryLevel') or own.get('batteryLevel'),
+            "voltage":     round(float(voltage), 2) if voltage else None,
+            "uptime_s":    metrics.get('uptimeSeconds') or own.get('uptimeSeconds'),
+            "channel_util": metrics.get('channelUtilization'),
+            "air_util_tx": metrics.get('airUtilTx'),
+            "lat":         float(lat) if lat else None,
+            "lon":         float(lon) if lon else None,
+            "altitude":    pos.get('altitude'),
+            "last_heard":  own.get('lastHeard'),
+            "is_licensed": bool(user.get('isLicensed', False)),
+        })
+        return jsonify(base)
 
     @app.route("/api/config/debug")
     @login_required

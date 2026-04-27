@@ -18,9 +18,8 @@ services:
       - ./logs:/app/logs
       - ./.map_cache:/app/.map_cache
       - ./data:/app/data
-      # Log files visible on host
+      # Log files visible on host (matrix_bridge.log now goes to logs/)
       - ./interactive.backend.log:/app/interactive.backend.log
-      - ./matrix_bridge.log:/app/matrix_bridge.log
 
     environment:
       - PYTHONUNBUFFERED=1

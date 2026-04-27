@@ -62,8 +62,11 @@
         linear-gradient(180deg, rgba(0,0,0,.08) 0%, rgba(0,0,0,.55) 100%);
     }
     /* Raise all app content above canvas */
-    #header, #error-banner, #tabbar, .tab-pane, #node-panel, #panel-overlay,
-    #wallpaper-vignette { position:relative; z-index:2; }
+    .tab-pane, #wallpaper-vignette { position:relative; z-index:2; }
+    /* Header and tabbar need higher z-index so dropdowns inside them
+       clear tab-pane content (backdrop-filter creates a stacking context) */
+    #header, #error-banner, #tabbar { position:relative; z-index:50; }
+    #node-panel, #panel-overlay     { position:relative; z-index:200; }
 
     /* ── HEADER (glassmorphism topbar) ── */
     #header {
@@ -250,6 +253,10 @@
     /* Side column */
     .ops-side { grid-column:3; grid-row:1 / span 2; display:flex; flex-direction:column; gap:8px; min-height:0; }
     .ops-side .ops-card { flex:1; }
+    /* My Device card */
+    .mydev-row { display:flex; justify-content:space-between; border-bottom:1px solid rgba(255,255,255,.04); padding:1px 0; }
+    .mydev-key { color:var(--muted); }
+    .mydev-val { color:var(--text); font-family:var(--font-mono); font-size:.95em; }
     /* Mini radar in ops */
     #ops-radar { display:block; width:100%; height:100%; }
     /* Top nodes */
@@ -562,6 +569,18 @@
     .conv-long{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.82em;}
     .conv-short{font-size:.65em;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 
+    /* ── ADMIN PANEL ── */
+    .adm-row{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;border:1px solid var(--border);margin-bottom:6px;background:var(--surf2);}
+    .adm-row:hover{border-color:var(--primary);background:rgba(0,255,136,.04);}
+    .adm-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+    .adm-names{flex:1;min-width:0;}
+    .adm-long{font-size:.88em;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .adm-meta{font-size:.68em;color:var(--muted);white-space:nowrap;}
+    .adm-dm-btn{font-size:.72em;padding:3px 10px;border-radius:5px;background:rgba(0,255,136,.1);border:1px solid rgba(0,255,136,.3);color:var(--primary);cursor:pointer;white-space:nowrap;flex-shrink:0;}
+    .adm-dm-btn:hover{background:rgba(0,255,136,.2);}
+    .adm-info-btn{font-size:.72em;padding:3px 8px;border-radius:5px;background:none;border:1px solid var(--border);color:var(--muted);cursor:pointer;flex-shrink:0;}
+    .adm-info-btn:hover{border-color:var(--blue,#1e90ff);color:#6af;}
+
     /* ── NODES TAB ── */
     #tab-nodes{flex-direction:column;}
     #nodes-grid{
@@ -628,7 +647,9 @@
     .pkt-NODEINFO{border-left-color:#aa88ff;}
     .pkt-ROUTING {border-left-color:#555;}
     .pkt-TRACEROUTE{border-left-color:#ff88aa;}
-    .pkt-UNKNOWN {border-left-color:#333;}
+    .pkt-UNKNOWN    {border-left-color:#333;}
+    .pkt-ENCRYPTED  {border-left-color:#ff6600; opacity:.7;}
+    .pkt-ENCRYPTED .pkt-type{color:#ff6600;}
 
     .pkt-ts   {color:var(--muted);white-space:nowrap;}
     .pkt-type {font-weight:bold;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -733,6 +754,10 @@
     .ch-cfg-hdr{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
     .ch-cfg-idx{font-size:.67em;color:var(--primary);border:1px solid var(--primary);padding:1px 5px;}
     .ch-cfg-role{font-size:.72em;color:var(--muted);}
+    .ch-cfg-hash{margin-left:auto;font-size:.65em;font-family:var(--font-mono);color:var(--muted2);}
+    .ch-prec-row{display:flex;align-items:center;gap:8px;flex:1;}
+    .ch-prec-row input[type=range]{flex:1;}
+    .ch-prec-val{font-size:.72em;color:var(--primary);font-family:var(--font-mono);min-width:70px;text-align:right;}
 
     /* ── RADAR TAB ── */
     #tab-radar{position:relative;background:#050f05;flex-direction:column;}
@@ -919,6 +944,124 @@
       font-family:inherit;font-size:.78em;padding:1px 6px;cursor:pointer;margin-left:auto;
     }
 
+    /* ══════════════════════════════════════════════════════════════
+       MOBILE / RESPONSIVE  (≤ 640 px)
+    ════════════════════════════════════════════════════════════════ */
+    @media (max-width:640px){
+      /* ── Header ── */
+      #header{margin:4px 4px 0;padding:0 8px;gap:5px;height:40px;}
+      .logo-mark{width:22px;height:22px;}
+      .logo>span{display:none;}
+      #badge-radio,#badge-fw,#badge-rx,#badge-ai{display:none!important;}
+      #hdr-uptime{display:none;}
+      #badge-conn{font-size:.65em;}
+      #badge-node{font-size:.65em;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+      /* ── Tabbar ── */
+      #tabbar{margin:4px 4px 0;overflow-x:auto;-webkit-overflow-scrolling:touch;
+        scrollbar-width:none;padding:0 2px;gap:0;border-radius:6px;}
+      #tabbar::-webkit-scrollbar{display:none;}
+      .tab-btn{padding:0 12px;font-size:.7em;letter-spacing:0;flex-shrink:0;}
+
+      /* ── Generic pane ── */
+      .tab-pane{margin:4px;}
+
+      /* ── CHAT: slide navigation (sidebar ↔ feed) ── */
+      #tab-chat{position:relative;overflow:hidden;}
+      #chat-sidebar{
+        position:absolute;inset:0;z-index:5;width:100%;max-width:100%;
+        border-right:none;border-bottom:none;
+        transform:translateX(0);transition:transform .22s ease;
+        border-radius:var(--r-lg);
+      }
+      #chat-main{
+        position:absolute;inset:0;z-index:4;width:100%;
+        transform:translateX(100%);transition:transform .22s ease;
+        border-radius:var(--r-lg);
+      }
+      #tab-chat.mob-conv #chat-sidebar{transform:translateX(-110%);}
+      #tab-chat.mob-conv #chat-main   {transform:translateX(0);}
+      #mob-back{display:flex!important;}
+      .conv-item{padding:10px 14px;}
+      .conv-section{padding:8px 14px 4px;}
+
+      /* ── NODES: single column ── */
+      #nodes-grid{grid-template-columns:1fr!important;gap:8px!important;}
+
+      /* ── PACKETS: stack vertically ── */
+      #tab-packets{flex-direction:column!important;}
+      #pkt-stats{
+        width:100%!important;max-height:170px;
+        border-radius:var(--r-lg) var(--r-lg) 0 0!important;
+        border-right:1px solid var(--border-s)!important;border-bottom:none!important;
+      }
+      #pkt-feed-wrap{
+        border-radius:0 0 var(--r-lg) var(--r-lg)!important;
+        border-left:1px solid var(--border-s)!important;border-top:none!important;
+      }
+      .pkt-header{display:none;}  /* too wide for mobile */
+      .pkt{grid-template-columns:50px 1fr 50px;grid-template-rows:auto auto;}
+      .pkt>span:nth-child(3),.pkt>span:nth-child(4){display:none;}
+
+      /* ── CONFIG: sidebar → horizontal scroll strip ── */
+      #tab-config{flex-direction:column!important;}
+      #cfg-sidebar{
+        width:100%!important;max-height:44px;min-height:44px;
+        flex-direction:row!important;flex-wrap:nowrap;
+        overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;
+        padding:0;border-right:none;
+        border-radius:var(--r-lg) var(--r-lg) 0 0!important;
+        border-bottom:1px solid var(--border)!important;
+      }
+      #cfg-sidebar::-webkit-scrollbar{display:none;}
+      .cfg-sec{
+        white-space:nowrap;flex-shrink:0;
+        border-left:none!important;border-bottom:2px solid transparent;
+        border-radius:0!important;padding:0 14px;
+        display:flex;align-items:center;height:44px;
+      }
+      .cfg-sec.active{border-bottom-color:var(--primary)!important;background:rgba(77,255,209,.08);}
+      .cfg-sec-group{display:none;}
+      #cfg-main{
+        border-radius:0 0 var(--r-lg) var(--r-lg)!important;
+        border-left:1px solid var(--border)!important;border-top:none!important;
+      }
+
+      /* ── OPS: single column ── */
+      .ops-grid{
+        grid-template-columns:1fr!important;
+        grid-template-rows:auto!important;
+        gap:6px!important;
+      }
+      .ops-main-map,.ops-bottom,.ops-side{
+        grid-column:1!important;grid-row:auto!important;
+      }
+      .ops-main-map{min-height:220px!important;}
+      .ops-side{max-height:180px!important;flex-direction:row!important;overflow:hidden;}
+      .ops-stat-row{display:none!important;}
+
+      /* ── Node panel: full width overlay ── */
+      #node-panel{width:100%!important;border-radius:0!important;}
+
+      /* ── Send bar ── */
+      #msg-text{font-size:16px!important;}  /* prevent iOS zoom on focus */
+      #send-bar{padding:6px 8px;}
+      #send-btn{padding:0 14px;min-width:54px;}
+      #sel-channel{font-size:13px;}
+
+      /* ── Toolbar scroll ── */
+      .toolbar{overflow-x:auto;-webkit-overflow-scrolling:touch;
+        scrollbar-width:none;flex-wrap:nowrap;gap:2px;}
+      .toolbar::-webkit-scrollbar{display:none;}
+      .tb-btn{white-space:nowrap;flex-shrink:0;padding:3px 8px;}
+
+      /* ── Map & Radar full height ── */
+      #tab-map,#tab-radar{min-height:calc(100vh - 120px);}
+
+      /* ── Traceroute modal ── */
+      #tr-box{width:98vw!important;max-height:90vh!important;}
+    }
+
     /* Packet feed header */
     .pkt-header{
       display:grid;
@@ -936,40 +1079,6 @@
 <canvas id="wallpaper"></canvas>
 <div id="wallpaper-vignette"></div>
 
-<!-- BG Chooser dropdown (shown via header button) -->
-<div id="bg-chooser-drop">
-  <h4>Background Shader</h4>
-  <div class="bg-opt-row">
-    <div class="bg-opt active" data-shader="plasma" onclick="setBgShader('plasma')">
-      <div class="bg-opt-thumb" style="background:conic-gradient(from 90deg,#4dffd1,#6aa9ff,#c98aff,#4dffd1)"></div>
-      <div class="bg-opt-info"><div class="bg-opt-name">Plasma</div><div class="bg-opt-desc">Flowing colour field · mouse-reactive</div></div>
-    </div>
-    <div class="bg-opt" data-shader="voronoi" onclick="setBgShader('voronoi')">
-      <div class="bg-opt-thumb" style="background:conic-gradient(from 45deg,#07090c,#4dffd1,#07090c,#6aa9ff)"></div>
-      <div class="bg-opt-info"><div class="bg-opt-name">Voronoi</div><div class="bg-opt-desc">Crystal lattice · animated cells</div></div>
-    </div>
-    <div class="bg-opt" data-shader="ripple" onclick="setBgShader('ripple')">
-      <div class="bg-opt-thumb" style="background:radial-gradient(circle,#6aa9ff 10%,#07090c)"></div>
-      <div class="bg-opt-info"><div class="bg-opt-name">Ripple</div><div class="bg-opt-desc">Click anywhere to create waves</div></div>
-    </div>
-    <div class="bg-opt" data-shader="particles" onclick="setBgShader('particles')">
-      <div class="bg-opt-thumb" style="background:radial-gradient(circle,#c98aff 20%,#07090c)"></div>
-      <div class="bg-opt-info"><div class="bg-opt-name">Particles</div><div class="bg-opt-desc">Floating particle field</div></div>
-    </div>
-    <div class="bg-opt" data-shader="flow" onclick="setBgShader('flow')">
-      <div class="bg-opt-thumb" style="background:linear-gradient(135deg,#4dffd1,#c98aff)"></div>
-      <div class="bg-opt-info"><div class="bg-opt-name">Flow</div><div class="bg-opt-desc">Organic fluid motion</div></div>
-    </div>
-    <div class="bg-opt" data-shader="off" onclick="setBgShader('off')">
-      <div class="bg-opt-thumb" style="background:#111;border:1px solid #222;"></div>
-      <div class="bg-opt-info"><div class="bg-opt-name">Off</div><div class="bg-opt-desc">Solid dark background</div></div>
-    </div>
-  </div>
-  <div class="bg-intensity">
-    <label>Intensity <input type="range" id="bg-intensity" min="0" max="100" value="100" oninput="setBgIntensity(this.value)"> <span id="bg-intensity-val">100%</span></label>
-  </div>
-</div>
-
 <!-- ── HEADER ── -->
 <div id="header">
   <div class="logo">
@@ -986,8 +1095,83 @@
     <span id="hdr-uptime" style="font-family:var(--font-mono);font-size:.7em;"></span>
     <div id="bg-chooser-wrap">
       <button id="bg-chooser-btn" onclick="toggleBgChooser()">🎨 BG</button>
+      <div id="bg-chooser-drop">
+        <h4>Background Shader</h4>
+        <div class="bg-opt-row">
+          <div class="bg-opt active" data-shader="plasma" onclick="setBgShader('plasma')">
+            <div class="bg-opt-thumb" style="background:conic-gradient(from 90deg,#4dffd1,#6aa9ff,#c98aff,#4dffd1)"></div>
+            <div class="bg-opt-info"><div class="bg-opt-name">Plasma</div><div class="bg-opt-desc">Flowing colour field · mouse-reactive</div></div>
+          </div>
+          <div class="bg-opt" data-shader="voronoi" onclick="setBgShader('voronoi')">
+            <div class="bg-opt-thumb" style="background:conic-gradient(from 45deg,#07090c,#4dffd1,#07090c,#6aa9ff)"></div>
+            <div class="bg-opt-info"><div class="bg-opt-name">Voronoi</div><div class="bg-opt-desc">Crystal lattice · animated cells</div></div>
+          </div>
+          <div class="bg-opt" data-shader="ripple" onclick="setBgShader('ripple')">
+            <div class="bg-opt-thumb" style="background:radial-gradient(circle,#6aa9ff 10%,#07090c)"></div>
+            <div class="bg-opt-info"><div class="bg-opt-name">Ripple</div><div class="bg-opt-desc">Click anywhere to create waves</div></div>
+          </div>
+          <div class="bg-opt" data-shader="particles" onclick="setBgShader('particles')">
+            <div class="bg-opt-thumb" style="background:radial-gradient(circle,#c98aff 20%,#07090c)"></div>
+            <div class="bg-opt-info"><div class="bg-opt-name">Particles</div><div class="bg-opt-desc">Floating particle field</div></div>
+          </div>
+          <div class="bg-opt" data-shader="flow" onclick="setBgShader('flow')">
+            <div class="bg-opt-thumb" style="background:linear-gradient(135deg,#4dffd1,#c98aff)"></div>
+            <div class="bg-opt-info"><div class="bg-opt-name">Flow</div><div class="bg-opt-desc">Organic fluid motion</div></div>
+          </div>
+          <div class="bg-opt" data-shader="off" onclick="setBgShader('off')">
+            <div class="bg-opt-thumb" style="background:#111;border:1px solid #222;"></div>
+            <div class="bg-opt-info"><div class="bg-opt-name">Off</div><div class="bg-opt-desc">Solid dark background</div></div>
+          </div>
+        </div>
+        <div class="bg-intensity">
+          <label>Intensity <input type="range" id="bg-intensity" min="0" max="100" value="100" oninput="setBgIntensity(this.value)"> <span id="bg-intensity-val">100%</span></label>
+        </div>
+      </div>
     </div>
+    <button onclick="toggleAbout()" title="About" style="background:none;border:1px solid var(--border-s);color:var(--muted);font-family:var(--font-mono);font-size:.7em;padding:3px 9px;cursor:pointer;border-radius:4px;">ℹ</button>
     <a href="/logout">logout</a>
+  </div>
+</div>
+
+<!-- ── ABOUT MODAL ── -->
+<div id="about-overlay" onclick="toggleAbout()" style="display:none;position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);align-items:center;justify-content:center;"></div>
+<div id="about-modal" style="display:none;position:fixed;z-index:9001;top:50%;left:50%;transform:translate(-50%,-50%);
+  width:min(480px,92vw);background:rgba(8,12,20,.97);border:1px solid var(--border-s);border-radius:16px;
+  padding:28px 28px 22px;box-shadow:0 20px 60px rgba(0,0,0,.7);font-family:var(--font-sans);">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;">
+    <div style="width:42px;height:42px;border-radius:10px;background:linear-gradient(135deg,#00ff88,#1e90ff);display:grid;place-items:center;font-size:1.4em;flex-shrink:0;">⬡</div>
+    <div>
+      <div style="font-size:1.05em;font-weight:700;color:var(--text);letter-spacing:.02em;">Meshtastic AI Bridge</div>
+      <div style="font-size:.72em;color:var(--muted);font-family:var(--font-mono);">v5.8 · open source</div>
+    </div>
+    <button onclick="toggleAbout()" style="margin-left:auto;background:none;border:none;color:var(--muted);font-size:1.2em;cursor:pointer;padding:4px;">✕</button>
+  </div>
+  <p style="font-size:.82em;color:var(--muted2);line-height:1.6;margin:0 0 16px;">
+    AI-powered gateway between Meshtastic LoRa mesh networks, AI assistants (OpenAI / Gemini),
+    a glassmorphism web dashboard, and Matrix messenger. Runs as a Docker container.
+  </p>
+  <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px;">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <span style="background:rgba(0,255,136,.1);border:1px solid rgba(0,255,136,.25);color:#00ff88;border-radius:20px;padding:2px 10px;font-size:.72em;">LoRa mesh</span>
+      <span style="background:rgba(30,144,255,.1);border:1px solid rgba(30,144,255,.25);color:#6af;border-radius:20px;padding:2px 10px;font-size:.72em;">OpenAI · Gemini</span>
+      <span style="background:rgba(255,160,64,.1);border:1px solid rgba(255,160,64,.25);color:#ffa040;border-radius:20px;padding:2px 10px;font-size:.72em;">Matrix bridge</span>
+      <span style="background:rgba(180,130,255,.1);border:1px solid rgba(180,130,255,.25);color:#c98aff;border-radius:20px;padding:2px 10px;font-size:.72em;">Docker</span>
+      <span style="background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--muted);border-radius:20px;padding:2px 10px;font-size:.72em;">SQLite</span>
+    </div>
+  </div>
+  <div style="border-top:1px solid var(--border);padding-top:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+    <a href="https://github.com/dzaczek/Meshtastic-AI-Bridge" target="_blank" rel="noopener"
+       style="display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.07);border:1px solid var(--border-s);
+              color:var(--text);text-decoration:none;border-radius:8px;padding:7px 14px;font-size:.8em;font-weight:500;transition:background .15s;">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.44 9.8 8.2 11.38.6.11.82-.26.82-.58v-2.03c-3.34.72-4.04-1.61-4.04-1.61-.55-1.39-1.34-1.76-1.34-1.76-1.09-.74.08-.73.08-.73 1.2.08 1.84 1.24 1.84 1.24 1.07 1.83 2.8 1.3 3.49 1 .11-.78.42-1.3.76-1.6-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.12-.3-.54-1.52.12-3.18 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 3-.4c1.02 0 2.04.14 3 .4 2.28-1.55 3.29-1.23 3.29-1.23.66 1.66.24 2.88.12 3.18.77.84 1.24 1.91 1.24 3.22 0 4.61-2.81 5.63-5.48 5.92.43.37.81 1.1.81 2.22v3.29c0 .32.22.69.83.57C20.57 21.8 24 17.3 24 12c0-6.63-5.37-12-12-12z"/></svg>
+      GitHub
+    </a>
+    <a href="https://github.com/dzaczek/Meshtastic-AI-Bridge/blob/main/README.md" target="_blank" rel="noopener"
+       style="display:inline-flex;align-items:center;gap:7px;background:none;border:1px solid var(--border);
+              color:var(--muted);text-decoration:none;border-radius:8px;padding:7px 14px;font-size:.8em;transition:color .15s;">
+      📖 Docs
+    </a>
+    <span style="margin-left:auto;font-size:.7em;color:var(--muted2);font-family:var(--font-mono);">by dzaczek</span>
   </div>
 </div>
 
@@ -1052,6 +1236,12 @@
           <div class="val" id="ops-stat-snr">-- <small>dB</small></div>
           <div class="delta"></div>
         </div>
+        <div style="grid-column:1/-1;display:flex;gap:5px;padding-top:4px;">
+          <button class="tb-btn" id="btn-reconnect" onclick="deviceReconnect()"
+            style="flex:1;color:var(--ai);border-color:rgba(77,255,209,.3);">↺ Reconnect</button>
+          <button class="tb-btn" id="btn-disconnect" onclick="deviceDisconnect()"
+            style="flex:1;color:var(--err);border-color:rgba(255,80,80,.3);">⏏ Disconnect</button>
+        </div>
       </div>
     </div>
 
@@ -1088,6 +1278,11 @@
         <div class="ops-head"><h3>Top Nodes</h3><div class="corner">by packet count</div></div>
         <div class="ops-body"><div id="ops-topnodes"></div></div>
       </div>
+      <!-- My Device -->
+      <div class="ops-card" style="flex-shrink:0;">
+        <div class="ops-head"><h3>My Device</h3><div class="corner" id="mydev-hw" style="font-family:var(--font-mono);"></div></div>
+        <div class="ops-body" id="mydev-body" style="padding:6px 10px;font-size:.74em;line-height:1.7;"></div>
+      </div>
     </div>
 
   </div>
@@ -1119,6 +1314,9 @@
       <div class="conv-item active" data-conv="all" onclick="switchConv('all')">
         💬 All conversations
       </div>
+      <div class="conv-item" data-conv="admin" onclick="switchConv('admin')">
+        ⚙ Admin
+      </div>
       <div class="conv-section">Channels</div>
       <div id="conv-channels"></div>
       <div class="conv-section" style="display:flex;align-items:center;justify-content:space-between;">
@@ -1145,6 +1343,8 @@
 
   <div id="chat-main">
     <div class="toolbar">
+      <button id="mob-back" onclick="mobChatBack()"
+        style="display:none;background:none;border:none;color:var(--primary);font-size:1.1em;cursor:pointer;padding:0 6px 0 0;flex-shrink:0;">←</button>
       <span id="chat-title">All channels</span>
       <div class="tb-sep"></div>
       <span class="tb-lbl">Time:</span>
@@ -1163,6 +1363,10 @@
       </div>
     </div>
     <div id="feed"></div>
+    <div id="admin-panel" style="display:none;flex:1;overflow-y:auto;padding:12px 16px;">
+      <div style="color:var(--primary);font-size:.7em;font-family:var(--font-mono);letter-spacing:.15em;text-transform:uppercase;margin-bottom:10px;">Node List — click to start DM</div>
+      <div id="admin-node-list"></div>
+    </div>
     <div id="send-bar">
       <div id="dm-indicator">
         <span>📨 DM → </span><span id="dm-name"></span>
@@ -1801,7 +2005,13 @@ let hopFilter  = 'all';
 let seenFilter = 86400;
 let sortBy     = 'last_seen';
 let pktFilter  = 'all';
-let nodesCache = [];
+let nodesCache    = [];
+let channelsCache = [];   // [{index, name}] from /api/channels
+
+function chName(idx) {
+  const ch = channelsCache.find(c => c.index === Number(idx));
+  return ch ? (ch.name || `ch${idx}`) : `ch${idx}`;
+}
 
 function getNodeById(id) {
   return nodesCache.find(n => n.id === id) || null;
@@ -1849,13 +2059,21 @@ function deactivateGroup(el, labels) {
 
 // ── Tab switching ──────────────────────────────────────────────────────────
 const TABS = ['ops','chat','nodes','map','packets','radar','config'];
+const isMobile = () => window.innerWidth <= 640;
+
 function switchTab(name) {
   document.querySelectorAll('.tab-btn').forEach((b,i) => b.classList.toggle('active', TABS[i]===name));
   document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id===`tab-${name}`));
-  if (name==='ops')    initOps();
+  // On mobile: when switching away from chat, reset slide state
+  if (name !== 'chat') document.getElementById('tab-chat').classList.remove('mob-conv');
+  if (name==='ops')    { initOps(); setTimeout(()=>opsLeafMap&&opsLeafMap.invalidateSize(),150); }
   if (name==='map')    { initMap(); setTimeout(()=>leafMap&&leafMap.invalidateSize(),100); }
   if (name==='radar')  initRadar();
   if (name==='config') { cfgData = {}; initConfig(); _fillFixPosFromCache(); }
+}
+
+function mobChatBack() {
+  document.getElementById('tab-chat').classList.remove('mob-conv');
 }
 
 // ── MESSAGES ──────────────────────────────────────────────────────────────
@@ -1889,6 +2107,30 @@ function switchConv(key) {
   document.querySelectorAll('.conv-item').forEach(el =>
     el.classList.toggle('active', el.dataset.conv === key));
 
+  // Mobile: any conversation tap → slide to feed; ← button returns to sidebar
+  const chatTab = document.getElementById('tab-chat');
+  if (isMobile()) chatTab.classList.add('mob-conv');
+
+  const adminPanel = document.getElementById('admin-panel');
+  const sendBar    = document.getElementById('send-bar');
+
+  if (key === 'admin') {
+    // Show admin panel instead of feed
+    feed.style.display = 'none';
+    if (adminPanel) adminPanel.style.display = 'block';
+    if (sendBar)    sendBar.style.display    = 'none';
+    setText('chat-title', '⚙ Admin');
+    dmNodeId = null;
+    _applyDmUi();
+    renderAdminPanel();
+    return;
+  }
+
+  // Restore normal chat view
+  feed.style.display = '';
+  if (adminPanel) adminPanel.style.display = 'none';
+  if (sendBar)    sendBar.style.display    = '';
+
   // Update send bar / DM mode
   if (key.startsWith('dm:')) {
     const nodeId = key.slice(3);
@@ -1899,13 +2141,22 @@ function switchConv(key) {
   } else {
     dmNodeId = null;
     _applyDmUi();
-    if (key === 'all')  setText('chat-title', 'All conversations');
-    else setText('chat-title', `Channel ${key.slice(3)}`);
+    if (key === 'all') {
+      setText('chat-title', 'All conversations');
+    } else {
+      const chNum = key.slice(3);
+      setText('chat-title', chName(chNum));
+      // Sync send-bar channel selector to the active conversation
+      const selCh = document.getElementById('sel-channel');
+      if (selCh && selCh.querySelector(`option[value="${chNum}"]`)) {
+        selCh.value = chNum;
+      }
+    }
   }
 
   // Rebuild feed
   feed.innerHTML = '';
-  lastMsgTs = 0;   // force re-fetch from beginning isn't ideal — filter existing
+  lastMsgTs = 0;
   _renderAllMessages();
 
   // Restore scroll
@@ -1913,13 +2164,56 @@ function switchConv(key) {
   _updateConvBadges();
 }
 
+function renderAdminPanel() {
+  const list = document.getElementById('admin-node-list');
+  if (!list) return;
+  if (!nodesCache.length) {
+    list.innerHTML = '<div style="color:var(--muted);font-size:.82em;padding:8px;">No nodes seen yet.</div>';
+    return;
+  }
+  const sorted = [...nodesCache].sort((a,b) => {
+    if (a.is_mine !== b.is_mine) return a.is_mine ? -1 : 1;
+    if (a.is_online !== b.is_online) return a.is_online ? -1 : 1;
+    return (b.last_heard||0) - (a.last_heard||0);
+  });
+  list.innerHTML = '';
+  sorted.forEach(n => {
+    const dot  = n.is_online ? '#00ff88' : (n.via_mqtt ? '#f0883e' : '#555');
+    const hop  = n.via_mqtt ? 'MQTT' : (n.hops_away===0 ? 'Direct' : n.hops_away!=null ? `${n.hops_away} hop` : '?');
+    const age  = n.age_s != null ? fmtAge(n.age_s) : '?';
+    const bat  = n.battery != null ? ` · 🔋${n.battery}%` : '';
+    const mine = n.is_mine ? ' <span style="color:var(--primary);font-size:.65em">[ME]</span>' : '';
+    const row  = document.createElement('div');
+    row.className = 'adm-row';
+    row.innerHTML =
+      `<div class="adm-dot" style="background:${dot}"></div>`+
+      `<div class="adm-names">`+
+        `<div class="adm-long">${esc(n.long_name || n.id)}${mine}</div>`+
+        `<div class="adm-meta">[${esc(n.short_name||'?')}] · !${esc(n.id)} · ${hop} · ${age}${bat}</div>`+
+      `</div>`+
+      `<button class="adm-info-btn" onclick="event.stopPropagation();openNodeDetail('${esc(n.id)}','${esc(n.long_name)}','${esc(n.short_name)}',${n.via_mqtt?1:0})" title="Node details">ℹ</button>`+
+      (!n.is_mine
+        ? `<button class="adm-dm-btn" onclick="event.stopPropagation();adminStartDm('${esc(n.id)}')" title="Open DM chat">💬 DM</button>`
+        : '');
+    list.appendChild(row);
+  });
+}
+
+function adminStartDm(nodeId) {
+  switchConv(`dm:${nodeId}`);
+  // Switch to chat tab if not already there
+  if (!document.getElementById('tab-chat').classList.contains('active')) {
+    switchTab('chat');
+  }
+}
+
+let _feedGen = 0;   // generation counter — guards against stale async responses
+
 function _renderAllMessages() {
-  // Re-render all cached messages for active conv
-  // (we keep all messages in DOM via lastMsgTs trick — simpler: rebuild)
+  const gen = ++_feedGen;
   feed.innerHTML = '';
-  // Fetch fresh from server
   lastMsgTs = 0;
-  fetchMessages();
+  fetchMessages(gen);
 }
 
 function _updateConvBadges() {
@@ -1937,22 +2231,25 @@ function _updateConvBadges() {
 }
 
 const BROADCAST_IDS = new Set(['ffffffff','4294967295','']);
+let myNodeId = '';   // bot's own hex node ID — set from /api/status
 
 function msgConvKey(msg) {
   const dest = String(msg.destination_id || '').toLowerCase();
   const isBroadcastDest = !dest || BROADCAST_IDS.has(dest);
+  const hasChannel = msg.channel !== undefined && msg.channel !== null && Number(msg.channel) >= 0;
 
-  // DM sent by bot (TX/AI with specific destination)
+  // Bot sent a DM (tx/ai) to a specific node — belongs to that DM thread
   if ((msg.type === 'tx' || msg.type === 'ai') && !isBroadcastDest)
     return `dm:${msg.destination_id}`;
 
-  // Incoming DM to our bot (destination = our node ID, not broadcast)
-  if (msg.type === 'rx' && !isBroadcastDest && msg.sender_id)
+  // Incoming private message addressed specifically to our bot — DM thread
+  if (msg.type === 'rx' && !isBroadcastDest && msg.sender_id
+      && myNodeId && dest === myNodeId)
     return `dm:${msg.sender_id}`;
 
-  // Channel message (broadcast or no destination set)
-  if (msg.channel !== undefined && msg.channel !== null && msg.channel >= 0)
-    return `ch:${msg.channel}`;
+  // Any message on a known channel (broadcast or addressed to someone else)
+  if (hasChannel)
+    return `ch:${Number(msg.channel)}`;
 
   return 'system';
 }
@@ -1969,12 +2266,20 @@ function appendMessage(msg) {
   }
   if (!msgVisible(msg)) return;
 
-  const ch = msg.channel >= 0 ? `[ch${msg.channel}]` : '';
+  const isDm = convKey.startsWith('dm:');
+  let chLabel = '';
+  if (isDm) {
+    const peer = isDm && (msg.destination_id || msg.sender_id || '');
+    chLabel = `<span style="color:#c98aff;font-size:.68em" title="Direct message">[DM]</span>`;
+  } else if (Number(msg.channel) >= 0) {
+    chLabel = `[${chName(msg.channel)}]`;
+  }
   const ackHtml = msg.ack === 'pending' ? '<span class="msg-ack ack-pending" title="Waiting for ACK">⋯</span>'
     : msg.ack === 'ok'   ? '<span class="msg-ack ack-ok" title="Delivered">✓</span>'
     : msg.ack === 'fail' ? '<span class="msg-ack ack-fail" title="Delivery failed">✗</span>'
     : '';
-  const dmTag = msg.destination_id ? `<span style="color:var(--muted);font-size:.7em">→${msg.destination_id.slice(-4)}</span>` : '';
+  const dmTag = isDm && msg.destination_id
+    ? `<span style="color:var(--muted);font-size:.7em">→${msg.destination_id.slice(-4)}</span>` : '';
 
   const d = document.createElement('div');
   d.className = `msg msg-${esc(msg.type)}`;
@@ -1984,7 +2289,7 @@ function appendMessage(msg) {
   const senderClickable = msg.sender_id && msg.type === 'rx';
   d.innerHTML =
     `<span class="msg-ts">${esc(msg.ts_str)}</span>`+
-    `<span class="msg-ch">${ch}</span>`+
+    `<span class="msg-ch">${chLabel}</span>`+
     `<span class="msg-sender${senderClickable?' clickable':''}" ${senderClickable?`onclick="clickMsgSender('${esc(msg.sender_id)}')" title="Open node details"`:''}>` +
       `${esc(msg.sender)}:${dmTag}</span>`+
     `<span class="msg-text">${esc(msg.text)}${ackHtml}</span>`;
@@ -1992,10 +2297,15 @@ function appendMessage(msg) {
   if (autoScroll) feed.scrollTop = feed.scrollHeight;
 }
 
-async function fetchMessages() {
+async function fetchMessages(gen) {
+  // If called from interval (no gen arg), use current generation
+  const myGen = gen ?? _feedGen;
   try {
-    const r = await fetch(`/api/messages?since=${lastMsgTs}`);
+    const since = lastMsgTs;
+    const r = await fetch(`/api/messages?since=${since}`);
     if (!r.ok) return;
+    // Discard if a newer render was triggered while we were waiting
+    if (myGen !== _feedGen && since === 0) return;
     const msgs = (await r.json()).messages || [];
     msgs.forEach(msg => {
       // Update ACK indicator if message already in DOM
@@ -2008,7 +2318,7 @@ async function fetchMessages() {
             ackEl.title = msg.ack === 'ok' ? 'Delivered' : 'Delivery failed';
             ackEl.textContent = msg.ack === 'ok' ? '✓' : '✗';
           }
-          return; // Already rendered, just updated ACK
+          return;
         }
       }
       appendMessage(msg);
@@ -2016,7 +2326,7 @@ async function fetchMessages() {
   } catch(e) {}
 }
 
-function rebuildFeed() { lastMsgTs=0; feed.innerHTML=''; fetchMessages(); }
+function rebuildFeed() { _renderAllMessages(); }
 
 function setTimeFilter(btn, secs) {
   deactivateGroup(btn, ['1h','6h','24h','All']);
@@ -2077,6 +2387,7 @@ async function fetchStatus() {
     document.getElementById('badge-ai').textContent=`AI: ${st.ai_service||'--'}`;
 
     // ── Node badge ────────────────────────────────────────────────────
+    if (st.node_id) myNodeId = st.node_id.toLowerCase();
     const ne=document.getElementById('badge-node');
     if (st.node_id) {
       ne.textContent = st.bot_name ? `${st.bot_name} (!${st.node_id})` : `!${st.node_id}`;
@@ -2143,13 +2454,15 @@ async function fetchChannels() {
     convCh.innerHTML = '';
     sel.innerHTML    = '';
     const channels = d.channels || [];
+    channelsCache = channels;   // store globally for chName() lookups
     if (!channels.length) {
+      channelsCache = [{index:0, name:'Channel 0'}];
       convCh.innerHTML = `<div class="conv-item" data-conv="ch:0" onclick="switchConv('ch:0')"># Channel 0</div>`;
       sel.innerHTML = '<option value="0">Channel 0</option>';
       return;
     }
     channels.forEach(ch => {
-      const name = ch.name || `Channel ${ch.index}`;
+      const name = ch.name || `Ch-${ch.index}`;
       const key  = `ch:${ch.index}`;
       const el   = document.createElement('div');
       el.className = 'conv-item' + (activeConv === key ? ' active' : '');
@@ -2321,6 +2634,7 @@ async function fetchNodes() {
     updateMap(nodesCache);
     if (radarInited) setRadarNodes(nodesCache);
     opsOnNodesUpdate(nodesCache);
+    if (activeConv === 'admin') renderAdminPanel();
   } catch(e) {}
 }
 
@@ -2756,50 +3070,138 @@ async function saveCfg(sec) {
   }
 }
 
+// Meshtastic precision → km radius mapping (accurate values from firmware)
+// Slider index 0..8 maps to these entries
+const PREC_STEPS = [
+  {label:'Disabled',  km:0,     prec:0 },
+  {label:'~44 m',     km:0.044, prec:19},
+  {label:'~175 m',    km:0.175, prec:17},
+  {label:'~350 m',    km:0.350, prec:16},
+  {label:'~700 m',    km:0.700, prec:15},
+  {label:'~1.4 km',   km:1.4,   prec:14},
+  {label:'~2.8 km',   km:2.8,   prec:13},
+  {label:'~5.7 km',   km:5.7,   prec:12},
+  {label:'~10 km',    km:10,    prec:11},
+];
+
+// Convert raw Meshtastic precision value → slider index
+function precToStep(prec) {
+  if (!prec) return 0;
+  // Find closest step by prec value
+  let best = 0, bestDiff = Infinity;
+  PREC_STEPS.forEach((s, i) => {
+    const d = Math.abs(s.prec - prec);
+    if (d < bestDiff) { bestDiff = d; best = i; }
+  });
+  return best;
+}
+
+function chPrecLabel(step) {
+  const s = PREC_STEPS[Math.round(step)];
+  return s ? s.label : 'Disabled';
+}
+
 function renderChannelsCfg() {
-  const channels = cfgData.channels || [];
   const container = document.getElementById('ch-cfg-list');
   if (!container) return;
-  if (!channels.length) { container.innerHTML='<div style="color:var(--muted)">No channel data — connect device</div>'; return; }
-  const ROLES = {0:'DISABLED',1:'PRIMARY',2:'SECONDARY'};
-  container.innerHTML = channels.map(ch => {
-    const idx = ch.index ?? 0;
-    const s = ch.settings || {};
-    const role = ch.role ?? 0;
-    const psk = s.psk || '';
-    return `<div class="ch-cfg-card">
+
+  // Build a map from device data (if available)
+  const devMap = {};
+  (cfgData.channels || []).forEach(ch => { devMap[ch.index ?? 0] = ch; });
+
+  // Always render all 8 slots (0–7); fill from device data where present
+  const ROLES = {0:'DISABLED', 1:'PRIMARY', 2:'SECONDARY'};
+  let html = '';
+  for (let idx = 0; idx < 8; idx++) {
+    const ch  = devMap[idx] || {};
+    const s   = ch.settings || {};
+    const ms  = s.module_settings || {};
+    const role = (ch.role === undefined || ch.role === null) ? 0 : Number(ch.role);
+    const psk  = s.psk || '';
+    const prec = ms.position_precision ?? 0;
+    const posEnabled = prec > 0 && !(ms.is_muted ?? false);
+    let pskBytes = 0;
+    try { pskBytes = psk ? atob(psk).length : 0; } catch(e) {}
+    const keySize = psk === '' ? 'None' : psk === 'AQ==' ? 'Default (1B)' :
+                    pskBytes === 16 ? '128-bit' : pskBytes === 32 ? '256-bit' : psk ? `${pskBytes}B` : 'None';
+    const hashNote = ch._hash != null ? ` · hash=${ch._hash}` : '';
+    const roleCls  = role === 1 ? 'color:var(--primary)' : role === 2 ? 'color:var(--ai)' : 'color:var(--muted)';
+    const fromDev  = devMap[idx] ? '' : ' <span style="font-size:.65em;color:var(--muted)">(not on device)</span>';
+
+    html += `<div class="ch-cfg-card" style="${role===0?'opacity:.7':''}">
       <div class="ch-cfg-hdr">
         <span class="ch-cfg-idx">CH${idx}</span>
-        <span class="ch-cfg-role">${ROLES[role]||role}</span>
+        <span class="ch-cfg-role" style="${roleCls}">${ROLES[role]||role}</span>
+        <span class="ch-cfg-hash">Key: ${keySize}${hashNote}</span>
+        ${fromDev}
       </div>
+
       <div class="cfg-row"><span class="cfg-label">Name</span>
-        <input class="cfg-input" type="text" id="ch${idx}-name" value="${esc(s.name||'')}" style="flex:1;"></div>
-      <div class="cfg-row"><span class="cfg-label">PSK (Base64)</span>
-        <input class="cfg-input" type="text" id="ch${idx}-psk" value="${esc(psk)}" style="flex:1;" placeholder="AQ== for default"></div>
+        <input class="cfg-input" type="text" id="ch${idx}-name" value="${esc(s.name||'')}" style="flex:1;" placeholder="leave blank = unnamed"></div>
+
+      <div class="cfg-row"><span class="cfg-label">PSK (Base64)<small>AQ== = public default · empty = no enc</small></span>
+        <input class="cfg-input" type="text" id="ch${idx}-psk" value="${esc(psk)}" style="flex:1;" placeholder="puste = brak szyfrowania · AQ== = domyślny klucz AES"></div>
+
       <div class="cfg-row"><span class="cfg-label">Role</span>
         <select class="cfg-select" id="ch${idx}-role">
           <option value="0" ${role===0?'selected':''}>DISABLED</option>
           <option value="1" ${role===1?'selected':''}>PRIMARY</option>
           <option value="2" ${role===2?'selected':''}>SECONDARY</option>
         </select></div>
-      <div class="cfg-row"><span class="cfg-label">Downlink</span>
-        <input class="cfg-chk" type="checkbox" id="ch${idx}-dl" ${s.downlink_enabled?'checked':''}></div>
-      <div class="cfg-row"><span class="cfg-label">Uplink</span>
+
+      <div style="border-top:1px solid var(--border);margin:8px 0;padding-top:4px;">
+        <span style="font-size:.68em;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">Position &amp; MQTT</span></div>
+
+      <div class="cfg-row"><span class="cfg-label">Position sharing</span>
+        <input class="cfg-chk" type="checkbox" id="ch${idx}-pos-en" ${posEnabled?'checked':''}
+          onchange="document.getElementById('ch${idx}-prec-wrap').style.opacity=this.checked?1:.35"></div>
+      <div class="cfg-row" id="ch${idx}-prec-wrap" style="opacity:${posEnabled?1:.35}">
+        <span class="cfg-label">Obfuscation radius<small>0 = off · max 10 km</small></span>
+        <div class="ch-prec-row">
+          <input type="range" min="0" max="8" step="1" value="${precToStep(prec)}" id="ch${idx}-prec"
+            oninput="document.getElementById('ch${idx}-prec-lbl').textContent=chPrecLabel(+this.value)">
+          <span class="ch-prec-val" id="ch${idx}-prec-lbl">${chPrecLabel(precToStep(prec))}</span>
+        </div></div>
+
+      <div class="cfg-row">
+        <span class="cfg-label">Uplink → MQTT broker<small>mesh→mqtt.meshtastic.org (mapy publiczne)</small></span>
         <input class="cfg-chk" type="checkbox" id="ch${idx}-ul" ${s.uplink_enabled?'checked':''}></div>
-      <button class="cfg-save" style="margin-top:8px" onclick="saveChannel(${idx})">Save Ch${idx}</button>
+      <div class="cfg-row">
+        <span class="cfg-label">Downlink ← MQTT broker<small>mqtt.meshtastic.org→mesh</small></span>
+        <input class="cfg-chk" type="checkbox" id="ch${idx}-dl" ${s.downlink_enabled?'checked':''}></div>
+
+      <button class="cfg-save" style="margin-top:10px" onclick="saveChannel(${idx})">Save CH${idx}</button>
     </div>`;
-  }).join('');
+  }
+  container.innerHTML = html;
   const msgEl = document.getElementById('cfgmsg-channels');
   if (msgEl) msgEl.style.display='none';
 }
 
 async function saveChannel(idx) {
-  const name = document.getElementById(`ch${idx}-name`)?.value||'';
-  const psk  = document.getElementById(`ch${idx}-psk`)?.value||'';
-  const role = parseInt(document.getElementById(`ch${idx}-role`)?.value||'0');
-  const dl   = document.getElementById(`ch${idx}-dl`)?.checked||false;
-  const ul   = document.getElementById(`ch${idx}-ul`)?.checked||false;
-  const payload = { index: idx, role, settings: { name, psk, downlink_enabled: dl, uplink_enabled: ul } };
+  const name = (document.getElementById(`ch${idx}-name`)?.value || '').trim();
+  // Strip all whitespace, normalise base64 padding
+  let psk = (document.getElementById(`ch${idx}-psk`)?.value || '').trim().replace(/\s+/g,'');
+  if (psk && psk.length % 4 !== 0) psk += '='.repeat(4 - psk.length % 4);
+  const role = parseInt(document.getElementById(`ch${idx}-role`)?.value || '0');
+  const dl      = document.getElementById(`ch${idx}-dl`)?.checked  || false;
+  const ul      = document.getElementById(`ch${idx}-ul`)?.checked  || false;
+  const posEn   = document.getElementById(`ch${idx}-pos-en`)?.checked || false;
+  const step    = parseInt(document.getElementById(`ch${idx}-prec`)?.value || '0');
+  // Convert slider index → actual Meshtastic precision value
+  const precVal = posEn ? (PREC_STEPS[step]?.prec || 0) : 0;
+  const payload = {
+    index: idx, role,
+    settings: {
+      name, psk,
+      uplink_enabled: ul,
+      downlink_enabled: dl,
+      module_settings: {
+        position_precision: precVal,
+        is_muted: false,
+      },
+    },
+  };
   const msgEl = document.getElementById('cfgmsg-channels');
   try {
     const r = await fetch('/api/config/channel', {
@@ -2808,10 +3210,10 @@ async function saveChannel(idx) {
     });
     const d = await r.json();
     if (msgEl) {
-      msgEl.textContent = d.message || (d.ok?'Saved!':'Error');
-      msgEl.className = `cfg-msg ${d.ok?'ok':'err'}`;
+      msgEl.textContent = d.message || (d.ok ? 'Saved!' : 'Error');
+      msgEl.className   = `cfg-msg ${d.ok ? 'ok' : 'err'}`;
       msgEl.style.display = 'inline';
-      setTimeout(()=>{if(msgEl)msgEl.style.display='none';}, 4000);
+      setTimeout(() => { if (msgEl) msgEl.style.display='none'; }, 4000);
     }
   } catch(e) {
     if (msgEl) { msgEl.textContent='Network error'; msgEl.className='cfg-msg err'; msgEl.style.display='inline'; }
@@ -3877,16 +4279,26 @@ let _currentShader = 'plasma';
 (function initShader() {
   const canvas = document.getElementById('wallpaper');
   if (!canvas || typeof ShaderWallpaper === 'undefined') return;
-  _wp = new ShaderWallpaper(canvas);
-  _wp.use('plasma');
+  try {
+    _wp = new ShaderWallpaper(canvas);
+  } catch(e) {
+    console.warn('WebGL shader init failed:', e.message);
+    // hide canvas gracefully — pure CSS background remains
+    canvas.style.display = 'none';
+    const v = document.getElementById('wallpaper-vignette');
+    if (v) v.style.display = 'none';
+    return;
+  }
 
   // Load persisted choice
   const saved = localStorage.getItem('mesh_bg_shader') || 'plasma';
   const savedInt = parseInt(localStorage.getItem('mesh_bg_intensity') || '100');
   setBgShader(saved, false);
   setBgIntensity(savedInt, false);
-  document.getElementById('bg-intensity').value = savedInt;
-  document.getElementById('bg-intensity-val').textContent = savedInt + '%';
+  const slid = document.getElementById('bg-intensity');
+  const slidLbl = document.getElementById('bg-intensity-val');
+  if (slid) slid.value = savedInt;
+  if (slidLbl) slidLbl.textContent = savedInt + '%';
 
   // Keyboard shortcuts 0-5
   const KEYS = {'0':'off','1':'plasma','2':'voronoi','3':'ripple','4':'particles','5':'flow'};
@@ -3896,13 +4308,25 @@ let _currentShader = 'plasma';
     if (s) setBgShader(s);
   });
 
-  // Close dropdown on outside click
+  // Close dropdown on outside click (dropdown is now inside #bg-chooser-wrap)
   document.addEventListener('click', e => {
-    if (!e.target.closest('#bg-chooser-wrap') && !e.target.closest('#bg-chooser-drop')) {
+    if (!e.target.closest('#bg-chooser-wrap')) {
       document.getElementById('bg-chooser-drop').classList.remove('open');
     }
   });
 })();
+
+function toggleAbout() {
+  const ov = document.getElementById('about-overlay');
+  const md = document.getElementById('about-modal');
+  const show = ov.style.display === 'none';
+  ov.style.display = show ? 'flex' : 'none';
+  md.style.display = show ? 'block' : 'none';
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') {
+  document.getElementById('about-overlay').style.display = 'none';
+  document.getElementById('about-modal').style.display = 'none';
+}});
 
 function toggleBgChooser() {
   document.getElementById('bg-chooser-drop').classList.toggle('open');
@@ -3940,21 +4364,87 @@ function setBgIntensity(val, save=true) {
   if (save) localStorage.setItem('mesh_bg_intensity', v);
 }
 
+// ── DEVICE RECONNECT / DISCONNECT / INFO ──────────────────────────────────
+async function deviceReconnect() {
+  const btn = document.getElementById('btn-reconnect');
+  if (btn) { btn.disabled = true; btn.textContent = '↺ …'; }
+  try {
+    const r = await fetch('/api/device/reconnect', {method:'POST'});
+    const d = await r.json();
+    if (!d.ok) alert('Reconnect error: ' + (d.error || '?'));
+  } catch(e) { alert('Network error: ' + e.message); }
+  finally {
+    if (btn) { btn.disabled = false; btn.textContent = '↺ Reconnect'; }
+  }
+}
+
+async function deviceDisconnect() {
+  if (!confirm('Disconnect from Meshtastic device?\n(The bridge will auto-reconnect shortly.)')) return;
+  const btn = document.getElementById('btn-disconnect');
+  if (btn) { btn.disabled = true; btn.textContent = '⏏ …'; }
+  try {
+    const r = await fetch('/api/device/disconnect', {method:'POST'});
+    const d = await r.json();
+    if (!d.ok) alert('Disconnect error: ' + (d.error || '?'));
+  } catch(e) { alert('Network error: ' + e.message); }
+  finally {
+    if (btn) { btn.disabled = false; btn.textContent = '⏏ Disconnect'; }
+  }
+}
+
+
+async function fetchMyDeviceInfo() {
+  const body = document.getElementById('mydev-body');
+  const hw   = document.getElementById('mydev-hw');
+  if (!body) return;
+  try {
+    const r = await fetch('/api/device/info');
+    if (!r.ok) { body.innerHTML = '<span style="color:var(--muted)">Not connected</span>'; return; }
+    const d = await r.json();
+    if (d.error && !d.long_name) { body.innerHTML = `<span style="color:var(--muted)">${d.error}</span>`; return; }
+    if (hw) hw.textContent = d.hw_model || '';
+
+    const bat = d.battery != null ? `${d.battery}%` : '--';
+    const batColor = d.battery > 60 ? 'var(--ai)' : d.battery > 20 ? 'var(--warn)' : 'var(--err)';
+    const volt = d.voltage ? ` · ${d.voltage}V` : '';
+    const uptime = fmtUptime(d.uptime_s);
+    const pos = (d.lat && d.lon) ? `${d.lat.toFixed(4)}, ${d.lon.toFixed(4)}` : '--';
+    const chUtil = d.channel_util != null ? `${d.channel_util.toFixed(1)}%` : '--';
+    const airTx  = d.air_util_tx  != null ? `${d.air_util_tx.toFixed(1)}%`  : '--';
+    const licensed = d.is_licensed ? '<span style="color:var(--ai)">HAM</span>' : '';
+
+    body.innerHTML = `
+      <div class="mydev-row"><span class="mydev-key">Name</span><span class="mydev-val">${esc(d.long_name||d.id)} ${licensed}</span></div>
+      <div class="mydev-row"><span class="mydev-key">Short</span><span class="mydev-val">${esc(d.short_name||'--')}</span></div>
+      <div class="mydev-row"><span class="mydev-key">ID</span><span class="mydev-val">!${d.id}</span></div>
+      <div class="mydev-row"><span class="mydev-key">Battery</span><span class="mydev-val" style="color:${batColor}">${bat}${volt}</span></div>
+      <div class="mydev-row"><span class="mydev-key">Uptime</span><span class="mydev-val">${uptime}</span></div>
+      <div class="mydev-row"><span class="mydev-key">Ch Util</span><span class="mydev-val">${chUtil}</span></div>
+      <div class="mydev-row"><span class="mydev-key">Air TX</span><span class="mydev-val">${airTx}</span></div>
+      <div class="mydev-row"><span class="mydev-key">Position</span><span class="mydev-val">${pos}</span></div>`;
+  } catch(e) { /* silent */ }
+}
+
 // ── BOOTSTRAP ─────────────────────────────────────────────────────────────
 (async function init(){
+  // On mobile start with chat feed visible (not the sidebar)
+  if (isMobile()) document.getElementById('tab-chat').classList.add('mob-conv');
+
   await fetchStatus();
   await fetchChannels();
   await fetchMessages();
   await fetchNodes();
   await fetchPackets();
   await fetchPacketStats();
+  await fetchMyDeviceInfo();
   initOps();   // show ops dashboard on load
 
-  setInterval(fetchMessages,     2000);
-  setInterval(fetchStatus,       5000);
-  setInterval(fetchNodes,       10000);
-  setInterval(fetchPackets,      2000);
-  setInterval(fetchPacketStats,  5000);
+  setInterval(fetchMessages,      2000);
+  setInterval(fetchStatus,        5000);
+  setInterval(fetchNodes,        10000);
+  setInterval(fetchPackets,       2000);
+  setInterval(fetchPacketStats,   5000);
+  setInterval(fetchMyDeviceInfo, 30000);
   setInterval(fetchChannels,    30000);
   setInterval(fetchTraceroutes, 10000);
 })();

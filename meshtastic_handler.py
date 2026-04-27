@@ -189,18 +189,38 @@ class MeshtasticHandler:
                     pass
                 self.interface = None
 
-            # Recreate interface
-            if self._connection_type == "serial":
-                self.interface = meshtastic.serial_interface.SerialInterface(
-                    devPath=self._device_specifier,
-                    connectNow=False,
-                )
-                self.interface.connect()
-                if not self.interface.isConnected.wait(timeout=5.0):
-                    raise TimeoutError("Reconnection timeout")
-            elif self._connection_type == "tcp":
-                self.interface = meshtastic.tcp_interface.TCPInterface(hostname=self._device_specifier)
+            # Recreate interface — wrap in thread with timeout so a hanging
+            # TCP connect (device rebooting) doesn't block forever.
+            _TCP_TIMEOUT = 25  # seconds
+            new_iface = [None]
+            new_err   = [None]
+            done_ev   = threading.Event()
 
+            def _connect():
+                try:
+                    if self._connection_type == "serial":
+                        iface = meshtastic.serial_interface.SerialInterface(
+                            devPath=self._device_specifier, connectNow=False)
+                        iface.connect()
+                        if not iface.isConnected.wait(timeout=5.0):
+                            raise TimeoutError("Serial connection timeout")
+                        new_iface[0] = iface
+                    elif self._connection_type == "tcp":
+                        new_iface[0] = meshtastic.tcp_interface.TCPInterface(
+                            hostname=self._device_specifier)
+                except Exception as e:
+                    new_err[0] = e
+                finally:
+                    done_ev.set()
+
+            t = threading.Thread(target=_connect, daemon=True)
+            t.start()
+            if not done_ev.wait(timeout=_TCP_TIMEOUT):
+                raise TimeoutError(f"Connection attempt timed out after {_TCP_TIMEOUT}s")
+            if new_err[0]:
+                raise new_err[0]
+
+            self.interface = new_iface[0]
             if not self.interface:
                 raise ConnectionError("Interface is None after reconnect")
 
@@ -394,43 +414,55 @@ class MeshtasticHandler:
 
     def list_channels(self):
         if not self.interface or not self.is_connected:
-            print("ERROR: Meshtastic not connected. Cannot list channels.")
-            return [] # Return empty list on error
-        
+            return []
+
         channels_info = []
         try:
-            if self.interface and hasattr(self.interface, 'channels') and self.interface.channels:
-                # print("\nAvailable Channels (from device's perspective):") # TUI will handle display
-                for ch_index, ch_container in self.interface.channels.items(): # Iterate through dict
-                    settings = ch_container.settings
-                    role = ch_container.role 
-                    
-                    name = f"Ch-{ch_index}" # Default name
-                    if mesh_pb2 and hasattr(mesh_pb2, 'Channel') and hasattr(mesh_pb2.Channel, 'Role'):
-                        if settings and hasattr(settings, 'name') and settings.name: 
-                            name = settings.name
-                        elif role == mesh_pb2.Channel.Role.PRIMARY: 
-                            name = "PRIMARY" 
-                        elif role == mesh_pb2.Channel.Role.SECONDARY and (not settings or not settings.name): 
-                            name = f"Secondary-{ch_index}"
-                    elif settings and hasattr(settings, 'name') and settings.name:
-                        name = settings.name
-
-                    try: 
-                        role_name = str(role) 
-                        if mesh_pb2 and hasattr(mesh_pb2, 'Channel') and hasattr(mesh_pb2.Channel, 'Role') and hasattr(mesh_pb2.Channel.Role, 'Name'):
-                            role_name = mesh_pb2.Channel.Role.Name(role) 
-                    except: pass
-
-                    # info_str = f"  Index: {ch_index}, Name: \"{name}\", Role: {role_name}"
-                    # print(info_str) # Removed direct print
-                    channels_info.append({"index": ch_index, "name": name, "role": role_name})
-                # print("")
+            # interface.channels may be an empty dict in some library versions;
+            # fall back to node.channels which is a list of Channel proto objects.
+            ch_source = None
+            iface_ch  = getattr(self.interface, 'channels', None)
+            if iface_ch:
+                ch_source = iface_ch  # dict {index: Channel}
             else:
-                print("INFO: No channel information available from device (interface.channels is empty or None).")
+                try:
+                    node = self.interface.getNode('^local')
+                    node_ch = getattr(node, 'channels', None)
+                    if node_ch:
+                        ch_source = node_ch  # list of Channel proto
+                except Exception:
+                    pass
+
+            if not ch_source:
+                return []
+
+            # Normalise: dict → items(), list → enumerate
+            if isinstance(ch_source, dict):
+                items = ch_source.items()
+            else:
+                items = enumerate(ch_source)
+
+            for ch_index, ch_container in items:
+                settings = getattr(ch_container, 'settings', None)
+                role     = getattr(ch_container, 'role', None)
+
+                # Skip DISABLED channels (role == 0)
+                if role is not None and int(role) == 0:
+                    continue
+
+                name = settings.name if (settings and getattr(settings, 'name', '')) else f"Ch-{ch_index}"
+                if not name:
+                    name = "PRIMARY" if int(role or 0) == 1 else f"Ch-{ch_index}"
+
+                try:
+                    role_name = str(role)
+                except Exception:
+                    role_name = "unknown"
+
+                channels_info.append({"index": ch_index, "name": name, "role": role_name})
+
         except Exception as e:
             print(f"ERROR listing channels: {e}")
-            traceback.print_exc()
         return channels_info
 
     def get_connection_status(self):
@@ -699,6 +731,7 @@ class MeshtasticHandler:
                 node.writeConfig(section)
                 return True, f"Saved module/{section}"
             elif section == 'channel':
+                import base64 as _b64
                 ch_idx = int(values.get('index', 0))
                 # Find the channel object in node.channels (list or dict)
                 node_chs = getattr(node, 'channels', None)
@@ -711,14 +744,36 @@ class MeshtasticHandler:
                 elif isinstance(node_chs, dict):
                     ch_obj = node_chs.get(ch_idx)
                 if ch_obj is None:
-                    from meshtastic import channel_pb2
-                    ch_obj = channel_pb2.Channel()
-                    ch_obj.index = ch_idx
-                # Update fields
+                    # Channel slot not found — use the slot directly from the list
+                    # (writeChannel uses list index, NOT ch.index field)
+                    if isinstance(node_chs, list) and ch_idx < len(node_chs):
+                        ch_obj = node_chs[ch_idx]
+                    else:
+                        from meshtastic import channel_pb2
+                        ch_obj = channel_pb2.Channel()
+                        ch_obj.index = ch_idx
+                # Set role
                 ch_obj.role = int(values.get('role', 0))
                 settings = values.get('settings', {})
                 if settings:
-                    ParseDict(settings, ch_obj.settings, ignore_unknown_fields=True)
+                    # Handle PSK explicitly — NEVER rely on ParseDict for bytes fields.
+                    # ParseDict can silently mangle the bytes depending on protobuf version.
+                    # We decode base64 → raw bytes directly, matching what the official
+                    # Meshtastic clients do.
+                    psk_b64 = settings.pop('psk', None)
+                    if psk_b64 is not None:
+                        psk_b64_clean = str(psk_b64).strip()
+                        if psk_b64_clean:
+                            # Normalise padding and decode
+                            missing = len(psk_b64_clean) % 4
+                            if missing:
+                                psk_b64_clean += '=' * (4 - missing)
+                            ch_obj.settings.psk = _b64.b64decode(psk_b64_clean)
+                        else:
+                            ch_obj.settings.psk = b''   # empty = no encryption
+                    # Remaining settings (name, uplink_enabled, etc.) via ParseDict
+                    if settings:
+                        ParseDict(settings, ch_obj.settings, ignore_unknown_fields=True)
                 # Write to device — prefer writeChannel(idx), fall back to setChannel
                 if hasattr(node, 'writeChannel'):
                     node.writeChannel(ch_idx)
@@ -726,6 +781,13 @@ class MeshtasticHandler:
                     node.setChannel(ch_obj)
                 else:
                     return False, "No write method (writeChannel/setChannel) on node"
+                # Verify what was actually written back
+                try:
+                    written_psk = _b64.b64encode(ch_obj.settings.psk).decode()
+                    print(f"[channel] CH{ch_idx} saved — role={ch_obj.role} "
+                          f"psk_written={written_psk!r} ({len(ch_obj.settings.psk)}B)")
+                except Exception:
+                    pass
                 return True, f"Channel {ch_idx} saved"
             else:
                 return False, f"Unknown section: {section}"

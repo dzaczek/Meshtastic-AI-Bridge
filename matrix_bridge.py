@@ -32,7 +32,9 @@ for _nio_logger_name in ("nio", "nio.rooms", "nio.client.base_client", "nio.resp
 
 _matrix_logger = logging.getLogger("matrix_bridge")
 if not _matrix_logger.handlers:
-    _fh = logging.FileHandler("matrix_bridge.log", mode="a")
+    import os as _os
+    _os.makedirs("logs", exist_ok=True)
+    _fh = logging.FileHandler(_os.path.join("logs", "matrix_bridge.log"), mode="a")
     _fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s: %(message)s"))
     _matrix_logger.addHandler(_fh)
     _matrix_logger.setLevel(logging.DEBUG)

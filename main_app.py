@@ -577,6 +577,16 @@ if __name__ == "__main__":
     if _HAS_MATRIX_BRIDGE and getattr(config, 'MATRIX_ENABLED', False):
         try:
             _invite = [u.strip() for u in str(getattr(config, 'MATRIX_INVITE_USERS', '')).split(',') if u.strip()]
+
+            def _on_matrix_msg(text, sender_name, sender_id, channel_index, is_dm):
+                """Forward Matrix→Mesh messages to the web UI chat."""
+                if _HAS_WEB_UI:
+                    ch = channel_index if channel_index is not None else -1
+                    web_ui.add_message(
+                        text, f"[MX] {sender_name}", ch, "rx",
+                        sender_id=sender_id,
+                    )
+
             _matrix_bridge = MatrixBridge(
                 homeserver=config.MATRIX_HOMESERVER,
                 username=config.MATRIX_USERNAME,
@@ -585,6 +595,7 @@ if __name__ == "__main__":
                 bot_name=getattr(config, 'MATRIX_DISPLAY_NAME', 'MeshBot'),
                 invite_users=_invite,
                 display_name=getattr(config, 'MATRIX_DISPLAY_NAME', ''),
+                on_matrix_message=_on_matrix_msg,
             )
             dprint("MatrixBridge created (will start after Meshtastic connects)")
         except Exception as _mb_exc:
