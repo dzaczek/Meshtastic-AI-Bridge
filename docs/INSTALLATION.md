@@ -1,6 +1,6 @@
 # Detailed Installation Guide
 
-This guide provides step-by-step instructions for installing and setting up the Meshtastic-AI-Bridge v5.8 application.
+This guide provides step-by-step instructions for installing and setting up the Meshtastic-AI-Bridge v5.9.0 application.
 
 ## Prerequisites
 

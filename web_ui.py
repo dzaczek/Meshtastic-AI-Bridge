@@ -643,6 +643,38 @@ if _HAS_FLASK:
     # API
     # ------------------------------------------------------------------
 
+    _version_cache: dict = {"ts": 0, "latest": None}
+
+    @app.route("/api/version")
+    @login_required
+    def api_version():
+        import urllib.request, urllib.error, json as _json
+        try:
+            from version import __version__ as _app_ver, GITHUB_REPO as _repo
+        except ImportError:
+            _app_ver, _repo = "unknown", "dzaczek/Meshtastic-AI-Bridge"
+
+        now = time.time()
+        latest = _version_cache.get("latest")
+        if not latest or now - _version_cache["ts"] > 3600:
+            try:
+                url = f"https://api.github.com/repos/{_repo}/releases/latest"
+                req = urllib.request.Request(url, headers={"User-Agent": "MeshtasticAIBridge"})
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    gh = _json.loads(resp.read().decode())
+                latest = gh.get("tag_name", "").lstrip("v")
+                _version_cache["latest"] = latest
+                _version_cache["ts"] = now
+            except Exception:
+                latest = _version_cache.get("latest")  # keep stale if error
+
+        return jsonify({
+            "running":   _app_ver,
+            "latest":    latest,
+            "repo":      _repo,
+            "up_to_date": (latest == _app_ver) if latest else None,
+        })
+
     @app.route("/api/messages")
     @login_required
     def api_messages():
@@ -656,6 +688,11 @@ if _HAS_FLASK:
     def api_status():
         with _lock:
             st = dict(_status)
+        try:
+            from version import __version__ as _av
+            st["app_version"] = _av
+        except ImportError:
+            pass
         elapsed = int(time.time() - st.pop("uptime_start"))
         h, r = divmod(elapsed, 3600)
         m, s = divmod(r, 60)
@@ -885,6 +922,120 @@ if _HAS_FLASK:
             return jsonify({"traces": []})
         limit = min(int(request.args.get("limit", 50)), 200)
         return jsonify({"traces": _node_db.get_traceroutes(node_id, limit=limit)})
+
+    # Cache for liamcottle.net node list (~5MB, refreshed every 10 min)
+    _netinfo_cache: dict = {"ts": 0, "by_hex": {}, "by_int": {}}
+    _netinfo_lock = threading.Lock()
+
+    @app.route("/api/node/<node_id>/netinfo")
+    @login_required
+    def api_node_netinfo(node_id):
+        """Fetch node data from meshtastic.liamcottle.net (public MQTT aggregator)."""
+        import urllib.request, urllib.error, json as _json
+        node_hex = node_id.lstrip("!").lower()
+        try:
+            node_int = int(node_hex, 16)
+        except ValueError:
+            return jsonify({"ok": False, "error": "Invalid node id"}), 400
+
+        SOURCE_URL = "https://meshtastic.liamcottle.net/api/v1/nodes"
+        CACHE_TTL  = 600  # 10 minutes
+
+        now = time.time()
+        with _netinfo_lock:
+            cache_age = now - _netinfo_cache["ts"]
+            need_refresh = cache_age > CACHE_TTL
+
+        if need_refresh:
+            try:
+                req = urllib.request.Request(
+                    SOURCE_URL,
+                    headers={"User-Agent": "MeshtasticAIBridge/1.0",
+                             "Accept": "application/json"}
+                )
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    raw = _json.loads(resp.read().decode("utf-8", errors="replace"))
+                nodes_list = raw.get("nodes", raw) if isinstance(raw, dict) else raw
+                by_hex = {}
+                by_int = {}
+                by_neighbour = {}   # node_int_str -> [{"reporter_hex","reporter_name","snr","ts"}]
+                for n in nodes_list:
+                    if not isinstance(n, dict):
+                        continue
+                    h = str(n.get("node_id_hex", "") or "").lower().lstrip("!")
+                    if h:
+                        by_hex[h] = n
+                    nid = str(n.get("node_id", "") or "")
+                    if nid:
+                        by_int[nid] = n
+                    # Index neighbours this node has heard via radio
+                    nbs = n.get("neighbours") or []
+                    if not isinstance(nbs, list):
+                        continue
+                    for nb in nbs:
+                        if not isinstance(nb, dict):
+                            continue
+                        nb_id = str(nb.get("node_id", "") or "")
+                        if not nb_id:
+                            continue
+                        by_neighbour.setdefault(nb_id, []).append({
+                            "reporter_hex":  h,
+                            "reporter_name": n.get("long_name") or n.get("short_name") or h,
+                            "snr":           nb.get("snr"),
+                            "ts":            n.get("neighbours_updated_at"),
+                        })
+                with _netinfo_lock:
+                    _netinfo_cache["by_hex"] = by_hex
+                    _netinfo_cache["by_int"] = by_int
+                    _netinfo_cache["by_neighbour"] = by_neighbour
+                    _netinfo_cache["ts"] = time.time()
+                    cache_age = 0
+            except Exception as e:
+                return jsonify({"ok": False, "error": f"Fetch failed: {str(e)[:200]}",
+                                "source": SOURCE_URL}), 502
+
+        with _netinfo_lock:
+            by_hex      = _netinfo_cache.get("by_hex", {})
+            by_int      = _netinfo_cache.get("by_int", {})
+            by_nb       = _netinfo_cache.get("by_neighbour", {})
+            total_cached = len(by_hex)
+            node_data   = by_hex.get(node_hex) or by_int.get(str(node_int))
+            reporters   = by_nb.get(str(node_int), [])
+
+        if not node_data:
+            return jsonify({
+                "ok": False,
+                "error": f"Node !{node_hex} not in public database ({total_cached} nodes). "
+                         f"No MQTT-connected node reports it directly.",
+                "source": SOURCE_URL,
+                "cache_age_s": int(cache_age),
+                "reporters": reporters[:20],   # nodes that heard this node
+                "reporters_count": len(reporters),
+            })
+
+        # Save snapshot to node_db (telemetry, position, full JSON blob)
+        if _HAS_NODE_DB:
+            try:
+                _node_db.add_net_snapshot(node_hex, node_data, source="liamcottle")
+            except Exception:
+                pass
+
+        return jsonify({
+            "ok": True,
+            "node_id": node_hex,
+            "source": SOURCE_URL,
+            "cache_age_s": int(cache_age),
+            "data": node_data,
+        })
+
+    @app.route("/api/node/<node_id>/net_history")
+    @login_required
+    def api_node_net_history(node_id):
+        if not _HAS_NODE_DB:
+            return jsonify({"snapshots": []})
+        limit = min(int(request.args.get("limit", 100)), 500)
+        snaps = _node_db.get_net_snapshots(node_id, limit=limit)
+        return jsonify({"snapshots": snaps})
 
     # ------------------------------------------------------------------
     # Device configuration

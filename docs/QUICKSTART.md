@@ -1,6 +1,6 @@
 # Quick Start Guide 🚀
 
-Hey there! Ready to give your Meshtastic network a brain? Let's get you up and running with Meshtastic-AI-Bridge v5.8 in just 5 minutes! 
+Hey there! Ready to give your Meshtastic network a brain? Let's get you up and running with Meshtastic-AI-Bridge v5.9.0 in just 5 minutes! 
 
 ## What You'll Need 📋
 

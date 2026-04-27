@@ -1,6 +1,6 @@
 # Troubleshooting Guide 🔧
 
-Hey there! Having some issues with your AI Bridge v5.8? Don't worry - we've got your back! This guide will help you diagnose and fix the most common problems. Let's get you back up and running! 🚀
+Hey there! Having some issues with your AI Bridge v5.9.0? Don't worry - we've got your back! This guide will help you diagnose and fix the most common problems. Let's get you back up and running! 🚀
 
 ## Quick Diagnosis 🕵️
 

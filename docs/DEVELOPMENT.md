@@ -619,11 +619,11 @@ refactor: improve error handling in AI bridge
 #### Version Management
 ```python
 # version.py
-__version__ = "5.8.0"
+__version__ = "5.9.0"
 ```
 
 #### Release Checklist
-- [ ] Update version number to 5.8.0
+- [ ] Update version number to 5.9.0
 - [ ] Update changelog with new features
 - [ ] Run full test suite
 - [ ] Update documentation

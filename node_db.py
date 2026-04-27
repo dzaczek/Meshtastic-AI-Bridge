@@ -99,6 +99,15 @@ CREATE TABLE IF NOT EXISTS traceroutes (
 );
 CREATE INDEX IF NOT EXISTS idx_tr_from ON traceroutes(from_id, ts);
 CREATE INDEX IF NOT EXISTS idx_tr_to   ON traceroutes(to_id,   ts);
+
+CREATE TABLE IF NOT EXISTS net_snapshots (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_id   TEXT    NOT NULL,
+    ts        REAL    NOT NULL,
+    source    TEXT    NOT NULL DEFAULT 'liamcottle',
+    data_json TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_net_snap ON net_snapshots(node_id, ts);
 """
 
 
@@ -372,3 +381,68 @@ def get_node_stats(node_id: str) -> dict:
         "telemetry_pts": int(tel_cnt),
         "last_battery":  dict(last_bat) if last_bat else None,
     }
+
+
+def add_net_snapshot(node_id: str, data: dict, source: str = "liamcottle") -> None:
+    """Save a net-fetched snapshot for a node (full JSON blob + extracted telemetry/position)."""
+    if not _conn:
+        return
+    import json as _json
+    ts = time.time()
+    with _lock:
+        _conn.execute(
+            "INSERT INTO net_snapshots (node_id, ts, source, data_json) VALUES (?,?,?,?)",
+            (node_id.lower(), ts, source, _json.dumps(data, ensure_ascii=False))
+        )
+        _conn.commit()
+
+    # Also persist extracted fields into dedicated history tables
+    try:
+        bat  = data.get("battery_level")
+        volt = data.get("voltage")
+        upt  = data.get("uptime_seconds")
+        ch   = data.get("channel_utilization")
+        air  = data.get("air_util_tx")
+        temp = data.get("temperature")
+        hum  = data.get("relative_humidity")
+        pres = data.get("barometric_pressure")
+        if any(v is not None for v in [bat, volt, upt, ch, air, temp, hum, pres]):
+            add_telemetry(node_id, battery=bat,
+                          voltage=float(volt) if volt is not None else None,
+                          uptime_s=int(upt) if upt else None,
+                          ch_util=float(ch) if ch is not None else None,
+                          air_util=float(air) if air is not None else None,
+                          temperature=float(temp) if temp is not None else None,
+                          humidity=float(hum) if hum is not None else None,
+                          pressure=float(pres) if pres is not None else None)
+    except Exception:
+        pass
+    try:
+        lat = data.get("latitude")
+        lon = data.get("longitude")
+        alt = data.get("altitude")
+        if lat and lon:
+            add_position(node_id, lat=float(lat), lon=float(lon),
+                         altitude=int(alt) if alt else None)
+    except Exception:
+        pass
+
+
+def get_net_snapshots(node_id: str, limit: int = 50) -> list[dict]:
+    """Return net snapshots for a node, newest first."""
+    if not _conn:
+        return []
+    import json as _json
+    with _lock:
+        rows = _conn.execute(
+            "SELECT ts, source, data_json FROM net_snapshots WHERE node_id=? ORDER BY ts DESC LIMIT ?",
+            (node_id.lower(), limit)
+        ).fetchall()
+    result = []
+    for r in rows:
+        try:
+            data = _json.loads(r["data_json"])
+        except Exception:
+            data = {}
+        result.append({"ts": r["ts"], "source": r["source"], "data": data})
+    return result

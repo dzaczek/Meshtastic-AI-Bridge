@@ -30,7 +30,7 @@ def hdr(tabs, active):
 <rect x="0" y="33" width="{W}" height="1" fill="{BORD}"/>
 <text x="10" y="50" fill="{PRIM}" font-size="13" font-weight="bold" dy="-17">⬡ Mesh AI Bridge</text>
 <g transform="translate(160,4)">{btns}</g>
-<text x="{W-60}" y="21" fill="{MUTE}" font-size="11">v5.8</text>
+<text x="{W-60}" y="21" fill="{MUTE}" font-size="11">v5.9.0</text>
 '''
 
 def panel(x, y, w, h, rx=10, fill=SURF, stroke=BORD, opacity=".88"):

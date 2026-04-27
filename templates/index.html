@@ -635,8 +635,8 @@
     #pkt-feed{flex:1;overflow-y:auto;padding:4px 2px;}
     .pkt{
       display:grid;
-      grid-template-columns:60px 100px 1fr 40px 70px 1fr;
-      gap:0 6px;align-items:baseline;
+      grid-template-columns:52px 88px 130px 110px 32px 62px 1fr;
+      gap:0 5px;align-items:baseline;
       padding:3px 8px;border-left:3px solid transparent;
       font-size:.8em;line-height:1.5;cursor:default;
     }
@@ -661,10 +661,15 @@
     .pkt-TRACEROUTE .pkt-type{color:#ff88aa;}
     .pkt-type-other{color:#888;}
 
-    .pkt-route{color:#aaa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-    .pkt-ch   {color:var(--muted);text-align:center;}
-    .pkt-snr  {text-align:right;white-space:nowrap;}
-    .pkt-sum  {color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .pkt-from,.pkt-to{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.3;}
+    .pkt-from{color:var(--text);}
+    .pkt-to  {color:var(--muted);}
+    .pkt-nid {font-family:var(--font-mono);font-size:.82em;color:var(--muted2);display:block;}
+    .pkt-nid-link{color:var(--primary);cursor:pointer;text-decoration:none;}
+    .pkt-nid-link:hover{text-decoration:underline;}
+    .pkt-ch  {color:var(--muted);text-align:center;}
+    .pkt-snr {text-align:right;white-space:nowrap;}
+    .pkt-sum {color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
     /* Stats panel — layout defined above in Packets section */
     .stat-block{}
@@ -813,12 +818,14 @@
     #panel-close:hover{color:var(--err);border-color:var(--err);}
     #panel-tabs{
       display:flex;border-bottom:1px solid var(--border);flex-shrink:0;
+      overflow-x:auto;scrollbar-width:none;
     }
+    #panel-tabs::-webkit-scrollbar{display:none;}
     .ptab{
       background:none;border:none;border-bottom:2px solid transparent;
-      color:var(--muted);font-family:inherit;font-size:.75em;padding:7px 12px;
-      cursor:pointer;text-transform:uppercase;letter-spacing:.5px;
-      transition:color .15s,border-color .15s;
+      color:var(--muted);font-family:inherit;font-size:.68em;padding:6px 9px;
+      cursor:pointer;text-transform:uppercase;letter-spacing:.3px;white-space:nowrap;
+      transition:color .15s,border-color .15s;flex-shrink:0;
     }
     .ptab:hover{color:var(--text);}
     .ptab.active{color:var(--primary);border-bottom-color:var(--primary);}
@@ -1065,8 +1072,8 @@
     /* Packet feed header */
     .pkt-header{
       display:grid;
-      grid-template-columns:60px 100px 1fr 40px 70px 1fr;
-      gap:0 6px;padding:3px 8px;
+      grid-template-columns:52px 88px 130px 110px 32px 62px 1fr;
+      gap:0 5px;padding:3px 8px;
       font-size:.68em;color:var(--muted);text-transform:uppercase;
       letter-spacing:.5px;border-bottom:1px solid var(--border);
       background:var(--surf2);flex-shrink:0;
@@ -1142,7 +1149,7 @@
     <div style="width:42px;height:42px;border-radius:10px;background:linear-gradient(135deg,#00ff88,#1e90ff);display:grid;place-items:center;font-size:1.4em;flex-shrink:0;">⬡</div>
     <div>
       <div style="font-size:1.05em;font-weight:700;color:var(--text);letter-spacing:.02em;">Meshtastic AI Bridge</div>
-      <div style="font-size:.72em;color:var(--muted);font-family:var(--font-mono);">v5.8 · open source</div>
+      <div id="about-ver" style="font-size:.72em;color:var(--muted);font-family:var(--font-mono);">v5.9.0 · open source</div>
     </div>
     <button onclick="toggleAbout()" style="margin-left:auto;background:none;border:none;color:var(--muted);font-size:1.2em;cursor:pointer;padding:4px;">✕</button>
   </div>
@@ -1421,6 +1428,14 @@
       <option value="hops">Fewest hops</option>
       <option value="battery">Battery</option>
     </select>
+    <div class="tb-sep"></div>
+    <input id="node-search" type="search" placeholder="🔍 name / ID / type…"
+      oninput="nodeSearch=this.value.trim().toLowerCase();renderNodes(nodesCache)"
+      style="background:var(--bg);border:1px solid var(--border);color:var(--text);
+             font-family:inherit;font-size:.78em;padding:4px 8px;outline:none;
+             border-radius:3px;width:160px;transition:border-color .15s;"
+      onfocus="this.style.borderColor='var(--primary)'"
+      onblur="this.style.borderColor='var(--border)'">
   </div>
   <div id="nodes-grid"></div>
 </div>
@@ -1493,7 +1508,7 @@
       <span id="pkt-feed-count" style="margin-left:auto;color:var(--muted);font-size:.75em;"></span>
     </div>
     <div class="pkt-header">
-      <span>Time</span><span>Type</span><span>Route</span>
+      <span>Time</span><span>Type</span><span>From</span><span>To</span>
       <span>Ch</span><span>SNR/RSSI</span><span>Summary</span>
     </div>
     <div id="pkt-feed"></div>
@@ -1930,6 +1945,7 @@
     <button class="ptab"        onclick="switchPTab(this,'ptel')">Telemetry</button>
     <button class="ptab"        onclick="switchPTab(this,'pmsg')">Messages</button>
     <button class="ptab"        onclick="switchPTab(this,'ptraces')">Traces</button>
+    <button class="ptab"        onclick="switchPTab(this,'pnet');loadNetInfo(panelNodeId)">Net Info</button>
   </div>
   <div id="panel-body">
     <!-- Overview -->
@@ -1981,6 +1997,18 @@
     <div id="ptraces" class="ppane">
       <div id="ptraces-list"><div class="panel-empty">Loading…</div></div>
     </div>
+    <!-- Net Info -->
+    <div id="pnet" class="ppane">
+      <div style="padding:8px 10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--border);flex-shrink:0;">
+        <button class="tb-btn" id="btn-getnet" onclick="loadNetInfo(panelNodeId,true)"
+          style="color:var(--ai);border-color:rgba(77,255,209,.3);">⬇ Get from Net</button>
+        <button class="tb-btn" id="btn-net-hist" onclick="toggleNetHistory()"
+          style="color:var(--muted);">🕐 History</button>
+        <span id="pnet-src" style="font-size:.65em;color:var(--muted);font-family:var(--font-mono);margin-left:4px;"></span>
+      </div>
+      <div id="pnet-hist" style="display:none;border-bottom:1px solid var(--border);max-height:160px;overflow-y:auto;font-size:.74em;"></div>
+      <div id="pnet-body" style="padding:8px 10px 10px;font-size:.78em;overflow-y:auto;flex:1;"></div>
+    </div>
   </div>
 </div>
 
@@ -2000,9 +2028,10 @@ let pktScroll   = true;
 let showSystem  = true;   // toggle for system messages in chat
 let timeFilter = 86400;
 let chFilter   = 'all';
-let nodeFilter = 'all';
-let hopFilter  = 'all';
-let seenFilter = 86400;
+let nodeFilter  = 'all';
+let hopFilter   = 'all';
+let seenFilter  = 86400;
+let nodeSearch  = '';
 let sortBy     = 'last_seen';
 let pktFilter  = 'all';
 let nodesCache    = [];
@@ -2014,11 +2043,23 @@ function chName(idx) {
 }
 
 function getNodeById(id) {
-  return nodesCache.find(n => n.id === id) || null;
+  if (!id) return null;
+  const clean = id.toLowerCase().lstrip ? id : id.toLowerCase();
+  return nodesCache.find(n => n.id === clean || n.id === id) || null;
 }
 function clickMsgSender(nodeId) {
-  const n = getNodeById(nodeId);
-  if (n) openNodeDetail(n.id, n.long_name || n.id, n.short_name || '', n.via_mqtt ? 1 : 0);
+  openNodeById(nodeId);
+}
+function openNodeById(nodeId) {
+  if (!nodeId) return;
+  const nid = nodeId.toLowerCase().replace(/^!/,'');
+  const n = nodesCache.find(nd => nd.id === nid);
+  if (n) {
+    openNodeDetail(n.id, n.long_name || n.id, n.short_name || '', n.via_mqtt ? 1 : 0);
+  } else {
+    // Node not in live cache — open panel with what we have
+    openNodeDetail(nid, '!' + nid, nid.slice(-4).toUpperCase(), 0);
+  }
 }
 
 let mapInited  = false;
@@ -2597,6 +2638,15 @@ function applyNodeFilters(nodes) {
     if (hopFilter==='7+' && (h===null||h<7)) return false;
     if (seenFilter>0 && n.last_heard && (now-n.last_heard)>seenFilter) return false;
     if (seenFilter>0 && !n.last_heard) return false;
+    if (nodeSearch) {
+      const q = nodeSearch;
+      const match = (n.long_name||'').toLowerCase().includes(q)
+                 || (n.short_name||'').toLowerCase().includes(q)
+                 || (n.id||'').toLowerCase().includes(q)
+                 || (n.hw_model||'').toLowerCase().includes(q)
+                 || (n.role||'').toLowerCase().includes(q);
+      if (!match) return false;
+    }
     return true;
   });
 }
@@ -2715,10 +2765,24 @@ function appendPacket(p) {
   const rssiStr= p.rssi!==null&&p.rssi!==undefined? p.rssi:'--';
   const signalStr = `${snrStr}/${rssiStr}`;
   const typeColor = pktTypeColor(p.portnum);
-  const route = `${esc(p.from_name)} → ${esc(p.to_id==='broadcast'?'bcast':p.to_id)}`;
   const mqttBadge = p.via_mqtt?'<span style="color:var(--mqtt);font-size:.65em;margin-left:3px">MQTT</span>':'';
   const hopBadge  = (p.hop_limit!==null&&p.hop_start!==null&&p.hop_start>0&&!p.via_mqtt)
     ? `<span style="color:var(--muted);font-size:.65em;margin-left:3px">${p.hop_start-p.hop_limit}h</span>` : '';
+
+  // From cell — always clickable (node exists if we received from them)
+  const fromCell = `<span class="pkt-from">
+    ${esc(p.from_name||p.from_id||'?')}
+    <span class="pkt-nid"><a class="pkt-nid-link" onclick="event.stopPropagation();openNodeById('${esc(p.from_id||'')}')" title="Open node detail">!${esc(p.from_id||'?')}</a></span>
+  </span>`;
+
+  // To cell — clickable only if not broadcast
+  const isBcast = !p.to_id || p.to_id==='broadcast' || p.to_id==='ffffffff';
+  const toCell = isBcast
+    ? `<span class="pkt-to" style="color:var(--muted2);">broadcast<span class="pkt-nid" style="color:var(--border)">—</span></span>`
+    : `<span class="pkt-to">
+        ${esc(p.to_id)}
+        <span class="pkt-nid"><a class="pkt-nid-link" onclick="event.stopPropagation();openNodeById('${esc(p.to_id||'')}')" title="Open node detail">!${esc(p.to_id||'?')}</a></span>
+       </span>`;
 
   // Build expand detail (full decoded JSON)
   const detailObj = {
@@ -2738,7 +2802,7 @@ function appendPacket(p) {
   row.innerHTML =
     `<span class="pkt-ts">${esc(p.ts_str)}</span>`+
     `<span class="pkt-type" style="color:${typeColor}">${esc(p.portnum)}${mqttBadge}${hopBadge}</span>`+
-    `<span class="pkt-route">${route}</span>`+
+    fromCell + toCell +
     `<span class="pkt-ch">ch${p.channel}</span>`+
     `<span class="pkt-snr" style="color:${snrStr!=='--'?(snrStr>5?'var(--radio)':snrStr>0?'var(--ai)':'var(--err)'):'var(--muted)'}">${signalStr}</span>`+
     `<span class="pkt-sum">${esc(p.summary)}</span>`+
@@ -3674,6 +3738,193 @@ async function loadPanelTraces() {
   }
 }
 
+async function loadNetInfo(nodeId, force=false) {
+  const body = document.getElementById('pnet-body');
+  const src  = document.getElementById('pnet-src');
+  const btn  = document.getElementById('btn-getnet');
+  if (!body || !nodeId) return;
+  if (!force && body.dataset.loaded === nodeId) return;
+  body.innerHTML = '<div class="panel-empty">Fetching from meshtastic.liamcottle.net…<br><small style="color:var(--muted2)">First load downloads ~5MB cache, may take a few seconds</small></div>';
+  if (src) src.textContent = '';
+  if (btn) { btn.disabled = true; btn.textContent = '⬇ Loading…'; }
+  try {
+    const r = await fetch(`/api/node/${nodeId}/netinfo`);
+    const d = await r.json();
+    body.dataset.loaded = nodeId;
+
+    if (!d.ok) {
+      const cacheNote = d.cache_age_s != null ? ` · cache: ${d.cache_age_s}s` : '';
+      const reporters = d.reporters || [];
+      let html = `<div style="color:var(--warn);padding:8px 0 4px;font-size:.82em;">ℹ ${esc(d.error||'Not found')}</div>
+        <div style="font-size:.68em;color:var(--muted2);margin-bottom:10px;">
+          <a href="${esc(d.source||'')}" target="_blank" rel="noopener" style="color:var(--muted);">${esc(d.source||'')}</a>${esc(cacheNote)}
+        </div>`;
+      if (reporters.length) {
+        html += `<div style="font-size:.68em;text-transform:uppercase;letter-spacing:.08em;color:var(--muted2);margin-bottom:4px;">
+          Heard via neighbours by ${reporters.length} MQTT node(s):</div>
+          <table style="width:100%;border-collapse:collapse;font-size:.78em;">`;
+        for (const rep of reporters) {
+          const snr = rep.snr != null ? `SNR ${rep.snr} dB` : '';
+          const ts  = rep.ts ? new Date(rep.ts).toLocaleDateString() : '';
+          html += `<tr style="border-bottom:1px solid rgba(255,255,255,.04);">
+            <td style="padding:3px 6px 3px 0;color:var(--primary);font-family:var(--font-mono);">!${esc(rep.reporter_hex)}</td>
+            <td style="padding:3px 6px;color:var(--text);">${esc(rep.reporter_name||'')}</td>
+            <td style="padding:3px 0;color:var(--ai);font-family:var(--font-mono);">${esc(snr)}</td>
+            <td style="padding:3px 0;color:var(--muted2);font-size:.9em;">${esc(ts)}</td>
+          </tr>`;
+        }
+        html += '</table>';
+      } else {
+        html += `<div style="color:var(--muted);font-size:.78em;">Not reported by any MQTT-connected neighbour node either.</div>`;
+      }
+      body.innerHTML = html;
+      return;
+    }
+
+    const nd = d.data || {};
+    const skip = new Set(['id','node_id','node_id_hex']);
+    const cacheNote = d.cache_age_s != null ? `cached ${d.cache_age_s}s ago` : '';
+    if (src) src.textContent = `✓ liamcottle.net · ${cacheNote}`;
+
+    // Group fields nicely
+    const groups = {
+      'Identity':    ['long_name','short_name','hardware_model_name','role_name','is_licensed','firmware_version'],
+      'Radio':       ['region_name','modem_preset_name','has_default_channel','position_precision'],
+      'Position':    ['latitude','longitude','altitude','position_updated_at'],
+      'Telemetry':   ['battery_level','voltage','channel_utilization','air_util_tx','uptime_seconds','temperature','relative_humidity','barometric_pressure'],
+      'Network':     ['num_online_local_nodes','mqtt_connection_state_updated_at'],
+      'Timestamps':  ['created_at','updated_at'],
+    };
+    const shown = new Set();
+    let html = '';
+    for (const [grpName, keys] of Object.entries(groups)) {
+      const rows = keys.filter(k => nd[k] != null && nd[k] !== '');
+      if (!rows.length) continue;
+      html += `<div style="font-size:.65em;text-transform:uppercase;letter-spacing:.08em;color:var(--muted2);margin:10px 0 3px;">${grpName}</div>
+               <table style="width:100%;border-collapse:collapse;font-size:.78em;margin-bottom:4px;">`;
+      for (const k of rows) {
+        shown.add(k);
+        const v = nd[k];
+        const val = typeof v === 'object' ? JSON.stringify(v) : String(v);
+        html += `<tr style="border-bottom:1px solid rgba(255,255,255,.04);">
+          <td style="color:var(--muted);padding:3px 8px 3px 0;white-space:nowrap;width:45%;">${esc(k.replace(/_/g,' '))}</td>
+          <td style="color:var(--text);padding:3px 0;font-family:var(--font-mono);font-size:.95em;word-break:break-all;">${esc(val)}</td>
+        </tr>`;
+      }
+      html += '</table>';
+    }
+    // Remaining fields
+    const rest = Object.entries(nd).filter(([k,v]) => !shown.has(k) && !skip.has(k) && v != null);
+    if (rest.length) {
+      html += `<div style="font-size:.65em;text-transform:uppercase;letter-spacing:.08em;color:var(--muted2);margin:10px 0 3px;">Other</div>
+               <table style="width:100%;border-collapse:collapse;font-size:.78em;">`;
+      for (const [k,v] of rest) {
+        const val = typeof v === 'object' ? JSON.stringify(v) : String(v);
+        html += `<tr style="border-bottom:1px solid rgba(255,255,255,.04);">
+          <td style="color:var(--muted);padding:3px 8px 3px 0;white-space:nowrap;width:45%;">${esc(k.replace(/_/g,' '))}</td>
+          <td style="color:var(--text);padding:3px 0;font-family:var(--font-mono);font-size:.95em;word-break:break-all;">${esc(val)}</td>
+        </tr>`;
+      }
+      html += '</table>';
+    }
+    body.innerHTML = html;
+    // Refresh history panel if visible
+    if (document.getElementById('pnet-hist').style.display !== 'none') loadNetHistory(nodeId);
+  } catch(e) {
+    body.innerHTML = `<div class="panel-empty">Network error: ${esc(e.message)}</div>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '⬇ Refresh from Net'; }
+  }
+}
+
+async function loadNetHistory(nodeId) {
+  const el = document.getElementById('pnet-hist');
+  if (!el || !nodeId) return;
+  try {
+    const r = await fetch(`/api/node/${nodeId}/net_history?limit=100`);
+    const {snapshots} = await r.json();
+    if (!snapshots || !snapshots.length) {
+      el.innerHTML = '<div style="padding:6px 10px;color:var(--muted);">No history yet — fetch from Net first</div>';
+      return;
+    }
+    const KEY_FIELDS = ['long_name','short_name','battery_level','voltage','uptime_seconds',
+                        'latitude','longitude','altitude','channel_utilization','air_util_tx',
+                        'temperature','firmware_version'];
+    el.innerHTML = snapshots.map((s, i) => {
+      const d = s.data || {};
+      const dt = new Date(s.ts * 1000);
+      const dtStr = dt.toLocaleDateString() + ' ' + dt.toLocaleTimeString();
+      const fields = KEY_FIELDS.filter(k => d[k] != null && d[k] !== '');
+      const preview = fields.slice(0,4).map(k => {
+        let v = d[k];
+        if (typeof v === 'number' && !Number.isInteger(v)) v = v.toFixed(2);
+        return `<span style="color:var(--muted);">${k.replace(/_/g,' ')}:</span> ${esc(String(v))}`;
+      }).join(' · ');
+      return `<div style="padding:5px 10px;border-bottom:1px solid rgba(255,255,255,.04);cursor:pointer;"
+                   onclick="showNetSnap(${i})" id="net-snap-${i}">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span style="color:var(--primary);font-family:var(--font-mono);font-size:.9em;">#${snapshots.length - i}</span>
+          <span style="color:var(--muted2);">${esc(dtStr)}</span>
+          <span style="color:var(--muted);font-size:.85em;">${esc(s.source)}</span>
+        </div>
+        <div style="color:var(--muted2);font-size:.88em;margin-top:2px;">${preview}</div>
+      </div>`;
+    }).join('');
+    el._snapshots = snapshots;
+  } catch(e) {
+    el.innerHTML = `<div style="padding:6px 10px;color:var(--err);">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+function showNetSnap(idx) {
+  const el  = document.getElementById('pnet-hist');
+  const body = document.getElementById('pnet-body');
+  if (!el || !body || !el._snapshots) return;
+  const s = el._snapshots[idx];
+  if (!s) return;
+  const dt = new Date(s.ts * 1000);
+  const dtStr = dt.toLocaleDateString() + ' ' + dt.toLocaleTimeString();
+  const nd = s.data || {};
+  const skip = new Set(['id','node_id','node_id_hex']);
+  const groups = {
+    'Identity':    ['long_name','short_name','hardware_model_name','role_name','is_licensed','firmware_version'],
+    'Radio':       ['region_name','modem_preset_name','has_default_channel','position_precision'],
+    'Position':    ['latitude','longitude','altitude','position_updated_at'],
+    'Telemetry':   ['battery_level','voltage','channel_utilization','air_util_tx','uptime_seconds','temperature','relative_humidity','barometric_pressure'],
+    'Network':     ['num_online_local_nodes'],
+  };
+  const shown = new Set();
+  let html = `<div style="font-size:.65em;color:var(--ai);margin-bottom:8px;font-family:var(--font-mono);">
+    📋 Snapshot #${el._snapshots.length - idx} · ${esc(dtStr)} · ${esc(s.source)}</div>`;
+  for (const [grpName, keys] of Object.entries(groups)) {
+    const rows = keys.filter(k => nd[k] != null && nd[k] !== '');
+    if (!rows.length) continue;
+    html += `<div style="font-size:.65em;text-transform:uppercase;letter-spacing:.08em;color:var(--muted2);margin:8px 0 3px;">${grpName}</div>
+             <table style="width:100%;border-collapse:collapse;font-size:.78em;margin-bottom:4px;">`;
+    for (const k of rows) {
+      shown.add(k);
+      const v = nd[k];
+      const val = typeof v === 'object' ? JSON.stringify(v) : String(v);
+      html += `<tr style="border-bottom:1px solid rgba(255,255,255,.04);">
+        <td style="color:var(--muted);padding:3px 8px 3px 0;white-space:nowrap;width:45%;">${esc(k.replace(/_/g,' '))}</td>
+        <td style="color:var(--text);padding:3px 0;font-family:var(--font-mono);font-size:.95em;word-break:break-all;">${esc(val)}</td>
+      </tr>`;
+    }
+    html += '</table>';
+  }
+  body.innerHTML = html;
+}
+
+async function toggleNetHistory() {
+  const el  = document.getElementById('pnet-hist');
+  const btn = document.getElementById('btn-net-hist');
+  if (!el) return;
+  const visible = el.style.display !== 'none';
+  el.style.display = visible ? 'none' : 'block';
+  if (btn) btn.style.color = visible ? 'var(--muted)' : 'var(--primary)';
+  if (!visible) await loadNetHistory(panelNodeId);
+}
+
 function showHistoricTrace(t) {
   // Re-use the traceroute modal to show a historical trace
   document.getElementById('tr-title').textContent =
@@ -4316,12 +4567,29 @@ let _currentShader = 'plasma';
   });
 })();
 
-function toggleAbout() {
+async function toggleAbout() {
   const ov = document.getElementById('about-overlay');
   const md = document.getElementById('about-modal');
   const show = ov.style.display === 'none';
   ov.style.display = show ? 'flex' : 'none';
   md.style.display = show ? 'block' : 'none';
+  if (show) {
+    try {
+      const r = await fetch('/api/version');
+      const d = await r.json();
+      const el = document.getElementById('about-ver');
+      if (!el) return;
+      const running = d.running || '?';
+      const latest  = d.latest;
+      if (latest && latest !== d.running) {
+        el.innerHTML = `v${running} · <span style="color:var(--warn);">update available: v${esc(latest)}</span>`;
+      } else if (latest) {
+        el.textContent = `v${running} · up to date · open source`;
+      } else {
+        el.textContent = `v${running} · open source`;
+      }
+    } catch(e) { /* silent */ }
+  }
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') {
   document.getElementById('about-overlay').style.display = 'none';
