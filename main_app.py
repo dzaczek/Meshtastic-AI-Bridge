@@ -144,6 +144,7 @@ class MeshtasticAIAppConsole:
         self.conversation_manager = ConversationManager(self.app_config, self.ai_bridge)
 
         self.meshtastic_handler = None
+        self.router = None  # set after connection; guard against early packets
         self.ai_node_id_hex = None
         self.active_channel_for_ai_posts = self.app_config.ACTIVE_MESHTASTIC_CHANNEL_INDEX
         self._stop_event = threading.Event()
@@ -247,6 +248,10 @@ class MeshtasticAIAppConsole:
                 )
             except Exception as _me:
                 dprint(f"Matrix forward error: {_me}")
+
+        if not self.router:
+            dprint("handle_meshtastic_message: router not ready yet, dropping message")
+            return
 
         result = self.router.on_message(
             text, sender_id, sender_name, destination_id,
