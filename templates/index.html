@@ -153,7 +153,7 @@
     .tab-pane.active{display:flex;}
     /* Glass effect on all main panels */
     #chat-sidebar, #chat-main, #cfg-sidebar, #cfg-main,
-    #pkt-feed-wrap, #pkt-stats, #tab-map, #tab-radar,
+    #pkt-feed-wrap, #pkt-stats, #tab-map, #tab-radar, #tab-analytics,
     #nodes-grid, #tab-config {
       backdrop-filter: blur(18px) saturate(140%);
       -webkit-backdrop-filter: blur(18px) saturate(140%);
@@ -179,7 +179,7 @@
       background: var(--surf3); border: 1px solid var(--border-s);
       border-left:none; border-radius: 0 var(--r-lg) var(--r-lg) 0;
     }
-    #tab-map, #tab-radar {
+    #tab-map, #tab-radar, #tab-analytics {
       background: rgba(7,9,12,.85); border: 1px solid var(--border);
       border-radius: var(--r-lg);
     }
@@ -1063,7 +1063,7 @@
       .tb-btn{white-space:nowrap;flex-shrink:0;padding:3px 8px;}
 
       /* ── Map & Radar full height ── */
-      #tab-map,#tab-radar{min-height:calc(100vh - 120px);}
+      #tab-map,#tab-radar,#tab-analytics{min-height:calc(100vh - 120px);}
 
       /* ── Traceroute modal ── */
       #tr-box{width:98vw!important;max-height:90vh!important;}
@@ -1195,6 +1195,7 @@
   <button class="tab-btn"        onclick="switchTab('nodes')">Nodes <span id="badge-nc" style="color:var(--muted);font-size:.8em"></span></button>
   <button class="tab-btn"        onclick="switchTab('map')">Map</button>
   <button class="tab-btn"        onclick="switchTab('packets')">Packets <span id="badge-pkt" style="color:var(--muted);font-size:.8em"></span></button>
+  <button class="tab-btn"        onclick="switchTab('analytics')">Analytics</button>
   <button class="tab-btn"        onclick="switchTab('radar')">Radar</button>
   <button class="tab-btn"        onclick="switchTab('config')">Config</button>
   <div id="tab-meta">
@@ -1515,6 +1516,64 @@
     <div id="route-feed"></div>
   </div>
 
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════
+     ANALYTICS TAB
+════════════════════════════════════════════════════════════════ -->
+<div id="tab-analytics" class="tab-pane" style="flex-direction:column; padding: 15px; overflow-y:auto; gap: 15px;">
+  <div style="display:flex; justify-content:space-between; align-items:center;">
+    <h2 style="color:var(--text); margin:0;">Packet Analytics</h2>
+    <div style="font-size:0.8em; color:var(--muted);">
+      <select id="analytics-days" onchange="initAnalytics()" style="background:var(--surf); color:var(--text); border:1px solid var(--border); padding:4px;">
+        <option value="1">Last 24 Hours</option>
+        <option value="7" selected>Last 7 Days</option>
+        <option value="30">Last 30 Days</option>
+      </select>
+    </div>
+  </div>
+
+  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:15px;">
+
+    <!-- Top row -->
+    <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
+      <div class="stat-title">Hourly Activity</div>
+      <div style="height:150px; position:relative;"><canvas id="chart-an-hourly"></canvas></div>
+    </div>
+
+    <!-- Middle row charts -->
+    <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
+      <div class="stat-title">Top Senders</div>
+      <div style="height:150px; position:relative;"><canvas id="chart-an-senders"></canvas></div>
+    </div>
+
+    <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
+      <div class="stat-title">Top App Types</div>
+      <div style="height:150px; position:relative;"><canvas id="chart-an-types"></canvas></div>
+    </div>
+
+  </div>
+
+  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:15px;">
+    <!-- Bottom row charts -->
+    <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md); display:flex; align-items:center;">
+      <div style="flex:1;">
+          <div class="stat-title">Destinations</div>
+          <div style="height:130px; position:relative;"><canvas id="chart-an-dest"></canvas></div>
+      </div>
+      <div style="flex:1;">
+          <div class="stat-title">Encryption</div>
+          <div style="height:130px; position:relative;"><canvas id="chart-an-enc"></canvas></div>
+      </div>
+    </div>
+
+    <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
+      <div class="stat-title">Top Links (From -> To)</div>
+      <div id="analytics-links-list" style="font-family:var(--font-mono); font-size:0.75em; margin-top:10px;"></div>
+    </div>
+
+  </div>
 </div>
 
 <!-- ══════════════════════════════════════════════════════════════
@@ -2099,7 +2158,7 @@ function deactivateGroup(el, labels) {
 }
 
 // ── Tab switching ──────────────────────────────────────────────────────────
-const TABS = ['ops','chat','nodes','map','packets','radar','config'];
+const TABS = ['ops','chat','nodes','map','packets','analytics','radar','config'];
 const isMobile = () => window.innerWidth <= 640;
 
 function switchTab(name) {
@@ -2110,6 +2169,7 @@ function switchTab(name) {
   if (name==='ops')    { initOps(); setTimeout(()=>opsLeafMap&&opsLeafMap.invalidateSize(),150); }
   if (name==='map')    { initMap(); setTimeout(()=>leafMap&&leafMap.invalidateSize(),100); }
   if (name==='radar')  initRadar();
+  if (name==='analytics') initAnalytics();
   if (name==='config') { cfgData = {}; initConfig(); _fillFixPosFromCache(); }
 }
 
@@ -2976,6 +3036,92 @@ function clearDm() {
   rebuildFeed();
   renderDmList(nodesCache);
 }
+
+
+// ── ANALYTICS ─────────────────────────────────────────────────────────────
+let chartAnHourly = null;
+let chartAnSenders = null;
+let chartAnTypes = null;
+let chartAnDest = null;
+let chartAnEnc = null;
+
+async function initAnalytics() {
+  const days = document.getElementById('analytics-days').value;
+  try {
+    const r = await fetch(`/api/analytics/packets?days=${days}`);
+    if (!r.ok) return;
+    const data = await r.json();
+
+    // Hourly
+    if (chartAnHourly) chartAnHourly.destroy();
+    const hLabels = Object.keys(data.hourly).map(h => `${h}:00`);
+    const hData = Object.values(data.hourly);
+    chartAnHourly = new Chart(document.getElementById('chart-an-hourly'), {
+      type: 'bar',
+      data: { labels: hLabels, datasets: [{ label: 'Packets', data: hData, backgroundColor: '#4488ff' }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+    });
+
+    // Senders
+    if (chartAnSenders) chartAnSenders.destroy();
+    const sLabels = (data.top_senders||[]).map(s => s.name || s.id);
+    const sData = (data.top_senders||[]).map(s => s.count);
+    chartAnSenders = new Chart(document.getElementById('chart-an-senders'), {
+      type: 'bar',
+      data: { labels: sLabels, datasets: [{ label: 'Sent', data: sData, backgroundColor: '#3fb950' }] },
+      options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+    });
+
+    // Types
+    if (chartAnTypes) chartAnTypes.destroy();
+    const tLabels = (data.top_types||[]).map(t => t.type.replace('_APP',''));
+    const tData = (data.top_types||[]).map(t => t.count);
+    chartAnTypes = new Chart(document.getElementById('chart-an-types'), {
+      type: 'bar',
+      data: { labels: tLabels, datasets: [{ label: 'Count', data: tData, backgroundColor: '#ff88aa' }] },
+      options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+    });
+
+    // Dest
+    if (chartAnDest) chartAnDest.destroy();
+    chartAnDest = new Chart(document.getElementById('chart-an-dest'), {
+      type: 'doughnut',
+      data: {
+        labels: ['Broadcast', 'Private'],
+        datasets: [{ data: [data.destinations.broadcast, data.destinations.private], backgroundColor: ['#8844ff', '#ffaa00'], borderWidth: 0 }]
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: '#aaa', font: {size: 10} } } } }
+    });
+
+    // Enc
+    if (chartAnEnc) chartAnEnc.destroy();
+    chartAnEnc = new Chart(document.getElementById('chart-an-enc'), {
+      type: 'doughnut',
+      data: {
+        labels: ['Plaintext', 'Encrypted'],
+        datasets: [{ data: [data.plaintext, data.encrypted], backgroundColor: ['#4488ff', '#f85149'], borderWidth: 0 }]
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: '#aaa', font: {size: 10} } } } }
+    });
+
+    // Links list
+    const linksDiv = document.getElementById('analytics-links-list');
+    if (data.top_links && data.top_links.length > 0) {
+        linksDiv.innerHTML = data.top_links.map(l =>
+            `<div style="display:flex; justify-content:space-between; margin-bottom:4px; padding-bottom:4px; border-bottom:1px solid var(--border-s);">
+                <span style="color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                    ${l.from_name || l.from} <span style="color:var(--muted);">→</span> ${l.to_name || l.to}
+                </span>
+                <span style="color:var(--primary); font-weight:bold; margin-left:10px;">${l.count}</span>
+            </div>`
+        ).join('');
+    } else {
+        linksDiv.innerHTML = '<div class="panel-empty">No direct links recorded</div>';
+    }
+
+  } catch(e) { console.error('Analytics error:', e); }
+}
+
 
 // ── CONFIG TAB ────────────────────────────────────────────────
 let cfgData = {};

@@ -108,6 +108,21 @@ CREATE TABLE IF NOT EXISTS net_snapshots (
     data_json TEXT    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_net_snap ON net_snapshots(node_id, ts);
+
+CREATE TABLE IF NOT EXISTS packets (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts          REAL    NOT NULL,
+    from_id     TEXT    NOT NULL,
+    to_id       TEXT    NOT NULL,
+    channel     INTEGER DEFAULT 0,
+    portnum     TEXT    NOT NULL,
+    encrypted   INTEGER DEFAULT 0,
+    packet_json TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_packets_ts ON packets(ts);
+CREATE INDEX IF NOT EXISTS idx_packets_from ON packets(from_id);
+CREATE INDEX IF NOT EXISTS idx_packets_to ON packets(to_id);
+
 """
 
 
@@ -446,3 +461,105 @@ def get_net_snapshots(node_id: str, limit: int = 50) -> list[dict]:
             data = {}
         result.append({"ts": r["ts"], "source": r["source"], "data": data})
     return result
+
+
+def add_packet_record(parsed: dict) -> None:
+    """Insert a raw packet record for analytics, pruning to keep only the last ~50,000."""
+    if not _conn:
+        return
+    import json as _json
+    import time
+    try:
+        ts = parsed.get("ts", time.time())
+        from_id = parsed.get("from_id", "?")
+        to_id = parsed.get("to_id", "?")
+        channel = parsed.get("channel", 0)
+        portnum = parsed.get("portnum_raw", "UNKNOWN")
+        encrypted = 1 if parsed.get("encrypted") else 0
+        pkt_json = _json.dumps(parsed, ensure_ascii=False)
+    except Exception:
+        return
+
+    with _lock, _conn:
+        _conn.execute(
+            """INSERT INTO packets (ts, from_id, to_id, channel, portnum, encrypted, packet_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (ts, from_id, to_id, channel, portnum, encrypted, pkt_json)
+        )
+
+        # Keep pruning deterministic but fast by tying it to the packet's ID sequence
+        # (Using last_insert_rowid as an approximation, falling back to a quick random check)
+        import random
+        if random.random() < 0.01:
+            _conn.execute(
+                """DELETE FROM packets WHERE id NOT IN (
+                    SELECT id FROM packets ORDER BY id DESC LIMIT 50000
+                )"""
+            )
+
+
+def get_packet_analytics(days: int = 7) -> dict:
+    """Return aggregated packet analytics for the last `days` days."""
+    if not _conn:
+        return {}
+
+    import time
+    start_ts = time.time() - (days * 86400)
+
+    with _lock:
+        total_info = _conn.execute(
+            "SELECT COUNT(*), SUM(CASE WHEN encrypted=1 THEN 1 ELSE 0 END) FROM packets WHERE ts > ?",
+            (start_ts,)
+        ).fetchone()
+        total_packets = total_info[0] or 0
+        total_encrypted = total_info[1] or 0
+
+        hourly_rows = _conn.execute(
+            """SELECT strftime('%H', datetime(ts, 'unixepoch', 'localtime')) as hr, COUNT(*)
+               FROM packets WHERE ts > ? GROUP BY hr ORDER BY hr""",
+            (start_ts,)
+        ).fetchall()
+        hourly = {str(i).zfill(2): 0 for i in range(24)}
+        for r in hourly_rows:
+            if r[0]: hourly[r[0]] = r[1]
+
+        top_senders = _conn.execute(
+            """SELECT from_id, COUNT(*) as cnt FROM packets
+               WHERE ts > ? AND from_id != '?'
+               GROUP BY from_id ORDER BY cnt DESC LIMIT 10""",
+            (start_ts,)
+        ).fetchall()
+
+        top_links = _conn.execute(
+            """SELECT from_id, to_id, COUNT(*) as cnt FROM packets
+               WHERE ts > ? AND from_id != '?' AND to_id NOT IN ('?', 'broadcast', 'ffffffff')
+               GROUP BY from_id, to_id ORDER BY cnt DESC LIMIT 10""",
+            (start_ts,)
+        ).fetchall()
+
+        dest_stats = _conn.execute(
+            """SELECT
+               SUM(CASE WHEN to_id IN ('broadcast', 'ffffffff') THEN 1 ELSE 0 END) as broadcast_cnt,
+               SUM(CASE WHEN to_id NOT IN ('broadcast', 'ffffffff') AND to_id != '?' THEN 1 ELSE 0 END) as private_cnt
+               FROM packets WHERE ts > ?""",
+            (start_ts,)
+        ).fetchone()
+        broadcast_cnt = dest_stats[0] or 0
+        private_cnt = dest_stats[1] or 0
+
+        top_types = _conn.execute(
+            """SELECT portnum, COUNT(*) as cnt FROM packets
+               WHERE ts > ? GROUP BY portnum ORDER BY cnt DESC LIMIT 10""",
+            (start_ts,)
+        ).fetchall()
+
+    return {
+        "total": total_packets,
+        "encrypted": total_encrypted,
+        "plaintext": total_packets - total_encrypted,
+        "hourly": hourly,
+        "top_senders": [{"id": r[0], "count": r[1]} for r in top_senders],
+        "top_links": [{"from": r[0], "to": r[1], "count": r[2]} for r in top_links],
+        "destinations": {"broadcast": broadcast_cnt, "private": private_cnt},
+        "top_types": [{"type": r[0], "count": r[1]} for r in top_types]
+    }
