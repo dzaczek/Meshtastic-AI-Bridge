@@ -321,7 +321,7 @@ class MeshtasticHandler:
                     channel_id_from_packet_field = packet.get('channel')
                     destination_id_num = packet.get('to')
                     destination_id_hex = f"{destination_id_num:x}" if destination_id_num is not None else f"{meshtastic.BROADCAST_NUM:x}"
-                    channel_id = channel_id_from_packet_field
+                    channel_id = channel_id_from_packet_field if channel_id_from_packet_field is not None else 0
 
                     if self.on_message_received_callback:
                         self.on_message_received_callback(
