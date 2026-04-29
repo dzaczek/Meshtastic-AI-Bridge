@@ -180,6 +180,7 @@ def on_packet(packet, interface):
             _packets.append(pkt)
         if _HAS_NODE_DB:
             _persist_packet(packet, pkt, interface)
+            _node_db.add_packet_record(pkt)
         _handle_ack(packet)
         tr = _parse_traceroute(packet, interface)
         if tr:
@@ -863,6 +864,26 @@ if _HAS_FLASK:
             "last_min":       last_min,
             "last_5min":      last_5min,
         })
+
+
+    @app.route("/api/analytics/packets")
+    @login_required
+    def api_analytics_packets():
+        if not _HAS_NODE_DB:
+            return jsonify({"error": "node_db not available"}), 503
+        days = int(request.args.get("days", 7))
+        stats = _node_db.get_packet_analytics(days=days)
+
+        # Resolve names for top_senders and top_links
+        if "top_senders" in stats:
+            for s in stats["top_senders"]:
+                s["name"] = _node_name(s["id"], getattr(_meshtastic_handler, "interface", None))
+        if "top_links" in stats:
+            for l in stats["top_links"]:
+                l["from_name"] = _node_name(l["from"], getattr(_meshtastic_handler, "interface", None))
+                l["to_name"] = _node_name(l["to"], getattr(_meshtastic_handler, "interface", None))
+
+        return jsonify(stats)
 
     @app.route("/api/clear_error", methods=["POST"])
     @login_required
