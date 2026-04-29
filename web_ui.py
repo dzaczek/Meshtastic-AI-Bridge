@@ -133,6 +133,7 @@ def add_message(text: str, sender: str, channel: int,
                 msg_type: str = "rx", timestamp: float | None = None,
                 sender_id: str | None = None, ack: str = "none",
                 destination_id: str | None = None):
+    channel = 0 if channel is None else channel
     ts = timestamp or time.time()
     web_id = int(ts * 1000)
     with _lock:
