@@ -21,19 +21,25 @@ class HalBot:
 
     def should_handle_message(self, text: str) -> bool:
         """Check if the message should be handled by the bot"""
-        text_lower = text.lower().strip()
+        text = text.strip()
+        text_lower = text.lower()
 
         # Admin commands
         if text_lower.startswith("!admin"):
             return True
 
         # Check for direct commands first
-        direct_commands = ['ping', 'traceroute', 'info', 'test', 'qsl']
-        if text_lower in direct_commands:
+        if text_lower in ['ping', 'traceroute', 'info', 'test', 'qsl']:
             return True
 
         # Check for bot prefixed commands
-        return bool(self.command_pattern.match(text))
+        match = self.command_pattern.match(text)
+        if match:
+            command = match.group(1).lower()
+            if command in ['ping', 'traceroute', 'info', 'test', 'qsl']:
+                return True
+
+        return False
 
     def get_node_info(self, node_id: str) -> Dict:
         """Get detailed information about a node"""
@@ -114,7 +120,7 @@ class HalBot:
         hops_str = f"{node_info['hops_away']} hop{'s' if node_info['hops_away'] != 1 else ''}" if node_info['hops_away'] is not None else "unknown"
         mqtt_str = "MQTT connected" if node_info['connection_type'] == 'mqtt' else "LoRa only"
         
-        response = f"{self.bot_name}: {command.upper()} status for node {node_info['node_id']} ({node_info['long_name']}):\n"
+        response = f"[{command.upper()}] Status for node !{node_info['node_id']} ({node_info['long_name']}):\n"
         response += f"• Status: {status}\n"
         response += f"• Signal: {rssi_str}\n"
         response += f"• Distance: {hops_str}\n"
@@ -150,18 +156,18 @@ class HalBot:
         
         # Build the response string
         if is_mqtt:
-            response = f"""[PING] Pong from !{node_id} via MQTT ☁️
-⏱ Latency: {latency} ms
-🌍 Gateway: {gateway}
-🕒 Uptime: {uptime}
-📶 Connection: MQTT Direct
-🔄 Last sync: {last_seen}"""
+            response = f"""[PING] Pong from !{node_id} via MQTT
+• Latency: {latency} ms
+• Gateway: {gateway}
+• Uptime: {uptime}
+• Connection: MQTT Direct
+• Last sync: {last_seen}"""
         else:
-            response = f"""[PING] Pong from !{node_id} via radio 🌐
-⏱ Latency: ~{latency} ms
-📶 RSSI: {rssi_str} | SNR: {snr_str}
-📡 Last seen: {last_seen}
-🔋 Battery: {battery_str}"""
+            response = f"""[PING] Pong from !{node_id} via radio
+• Latency: ~{latency} ms
+• RSSI: {rssi_str} | SNR: {snr_str}
+• Last seen: {last_seen}
+• Battery: {battery_str}"""
         
         return response  # Return the formatted string
 
@@ -178,10 +184,10 @@ class HalBot:
 
 {self.bot_name} (!{self.meshtastic_handler.node_id:x})
 ↳ MQTT Broker: {self.mqtt_broker}
-↳ !{target_id} (subscribed) ✅
-🌐 Path type: MQTT-direct
-⏱ Delivery latency: {latency} ms
-🔄 Last sync: {datetime.now().strftime('%H:%M:%S')}"""
+↳ !{target_id} (subscribed)
+• Path type: MQTT-direct
+• Delivery latency: {latency} ms
+• Last sync: {datetime.now().strftime('%H:%M:%S')}"""
         else:
             # Build the path visualization
             path_lines = []
@@ -197,7 +203,7 @@ class HalBot:
                 if i == 0:
                     path_lines.append(f"{self.bot_name} (!{node_id})")
                 elif i == len(hops) - 1:
-                    path_lines.append(f"↳ !{node_id} (Target) ✅")
+                    path_lines.append(f"↳ !{node_id} (Target)")
                 else:
                     path_lines.append(f"↳ !{node_id} [RSSI: {rssi_str} | SNR: {snr_str}]")
             
@@ -206,10 +212,10 @@ class HalBot:
             return f"""[TRACEROUTE] Path to !{target_id}:
 
 {path_str}
-🪐 Total hops: {total_hops}
-⏱ Estimated delay: ~{latency} ms
-📡 Path type: Radio mesh
-🔄 Trace completed: {datetime.now().strftime('%H:%M:%S')}"""
+• Total hops: {total_hops}
+• Estimated delay: ~{latency} ms
+• Path type: Radio mesh
+• Trace completed: {datetime.now().strftime('%H:%M:%S')}"""
 
     def _find_node_by_name(self, name: str) -> Optional[str]:
         """Find a node ID by its name (long or short)"""
@@ -229,6 +235,113 @@ class HalBot:
                     return f"{node_num:x}" if isinstance(node_num, int) else str(node_num)
         
         return None
+
+    def _handle_ping_qsl(self, sender_id: str, sender_name: str, channel_id: int, is_dm: bool) -> dict:
+        node_info = self.get_node_info(sender_id)
+        if not node_info:
+            node_info = {
+                'node_id': sender_id,
+                'long_name': sender_name,
+                'short_name': sender_name[:3].upper() if len(sender_name) >= 3 else 'UNK',
+                'hops_away': None,
+                'rssi': None,
+                'snr': None,
+                'last_heard': time.time(),
+                'battery_level': None,
+                'connection_type': 'radio',
+                'uptime': 'N/A',
+                'gateway': 'N/A'
+            }
+        is_mqtt = node_info.get('connection_type') == 'mqtt'
+        response_text = self.format_ping_response(node_info, is_mqtt)
+        return {
+            'response': response_text,
+            'channel_id': channel_id,
+            'is_channel_message': not is_dm
+        }
+
+    def _handle_info_test(self, command: str, sender_id: str, sender_name: str, channel_id: int, is_dm: bool) -> dict:
+        node_info = self.get_node_info(sender_id)
+        if not node_info:
+            node_info = {
+                'node_id': sender_id,
+                'long_name': sender_name,
+                'short_name': sender_name[:3].upper() if len(sender_name) >= 3 else 'UNK',
+                'hops_away': None,
+                'rssi': None,
+                'snr': None,
+                'last_heard': time.time(),
+                'battery_level': None,
+                'connection_type': 'radio',
+                'uptime': 'N/A',
+                'gateway': 'N/A'
+            }
+        response_text = self.format_status_response(command, node_info)
+        return {
+            'response': response_text,
+            'channel_id': channel_id,
+            'is_channel_message': not is_dm
+        }
+
+    def _handle_traceroute(self, args: str, sender_id: str, sender_name: str, channel_id: int, is_dm: bool) -> dict:
+        if not args:
+            target_id = sender_id
+        else:
+            target = args.strip().lstrip('!')
+            if not target:
+                return {
+                    'response': f"{self.bot_name}: Invalid target format. Please use !1234abcd, 1234abcd, or a node name",
+                    'channel_id': channel_id,
+                    'is_channel_message': channel_id is not None
+                }
+            target_id = target
+            if not re.match(r'^[0-9a-f]+$', target.lower()):
+                target_id = self._find_node_by_name(target)
+                if not target_id:
+                    return {
+                        'response': f"{self.bot_name}: Could not find a node matching '{target}'",
+                        'channel_id': channel_id,
+                        'is_channel_message': channel_id is not None
+                    }
+
+        if target_id in self.active_traceroutes:
+            return {
+                'response': f"{self.bot_name}: Traceroute already in progress for this node",
+                'channel_id': channel_id,
+                'is_channel_message': channel_id is not None
+            }
+
+        target_info = self.get_node_info(target_id)
+        if not target_info:
+            return {
+                'response': f"{self.bot_name}: Target node !{target_id} not found",
+                'channel_id': channel_id,
+                'is_channel_message': channel_id is not None
+            }
+
+        is_mqtt = target_info.get('connection_type') == 'mqtt'
+
+        self.active_traceroutes[target_id] = {
+            'start_time': time.time(),
+            'target_info': target_info,
+            'is_mqtt': is_mqtt,
+            'requester_id': sender_id,
+            'requester_name': sender_name,
+            'channel_id': channel_id
+        }
+
+        self._start_traceroute_collection(target_id)
+
+        if not args:
+            response = f"{self.bot_name}: Starting traceroute to your node (!{target_id})..."
+        else:
+            response = f"{self.bot_name}: Starting traceroute to !{target_id}..."
+
+        return {
+            'response': response,
+            'channel_id': channel_id,
+            'is_channel_message': channel_id is not None
+        }
 
     def handle_command(self, text: str, sender_id: str, sender_name: str, channel_id: int = None, is_dm: bool = False) -> Optional[dict]:
         """Handle bot commands"""
@@ -255,111 +368,12 @@ class HalBot:
             command = match.group(1).lower()
             args = match.group(2) if match.group(2) else ""
 
-        if command in ['info', 'test', 'ping', 'qsl']:
-            # Get node info
-            node_info = self.get_node_info(sender_id)
-            if not node_info:
-                # If node info not found, try to get basic info from the sender
-                node_info = {
-                    'node_id': sender_id,
-                    'long_name': sender_name,
-                    'short_name': sender_name[:3].upper() if len(sender_name) >= 3 else 'UNK',
-                    'hops_away': None,
-                    'rssi': None,
-                    'snr': None,
-                    'last_heard': time.time(),
-                    'battery_level': None,
-                    'connection_type': 'radio',  # Default to radio if unknown
-                    'uptime': 'N/A',
-                    'gateway': 'N/A'
-                }
-                pass  # using fallback info
-            
-            # Check if node is connected via MQTT
-            is_mqtt = node_info.get('connection_type') == 'mqtt'
-            
-            # Format response based on command
-            response_text = None
-            if command in ['ping', 'qsl']:
-                response_text = self.format_ping_response(node_info, is_mqtt)
-            else:  # info or test
-                response_text = self.format_status_response(command, node_info)
-            
-            # Return the response and channel info for the caller to handle sending
-            return {
-                'response': response_text,  # This should be a string
-                'channel_id': channel_id,  # Pass through the channel ID
-                'is_channel_message': not is_dm  # Use is_dm parameter to determine if this was a channel message
-            }
-                
+        if command in ['ping', 'qsl']:
+            return self._handle_ping_qsl(sender_id, sender_name, channel_id, is_dm)
+        elif command in ['info', 'test']:
+            return self._handle_info_test(command, sender_id, sender_name, channel_id, is_dm)
         elif command == 'traceroute':
-            # If no args provided, use the requester's node ID as the target
-            if not args:
-                target_id = sender_id
-            else:
-                # Extract target identifier from argument
-                target = args.strip().lstrip('!')
-                if not target:
-                    return {
-                        'response': f"{self.bot_name}: Invalid target format. Please use !1234abcd, 1234abcd, or a node name",
-                        'channel_id': channel_id,
-                        'is_channel_message': channel_id is not None
-                    }
-                
-                # Try to find node ID if a name was provided
-                target_id = target
-                if not re.match(r'^[0-9a-f]+$', target.lower()):
-                    target_id = self._find_node_by_name(target)
-                    if not target_id:
-                        return {
-                            'response': f"{self.bot_name}: Could not find a node matching '{target}'",
-                            'channel_id': channel_id,
-                            'is_channel_message': channel_id is not None
-                        }
-            
-            if target_id in self.active_traceroutes:
-                return {
-                    'response': f"{self.bot_name}: Traceroute already in progress for this node",
-                    'channel_id': channel_id,
-                    'is_channel_message': channel_id is not None
-                }
-            
-            # Get target node info
-            target_info = self.get_node_info(target_id)
-            if not target_info:
-                return {
-                    'response': f"{self.bot_name}: Target node !{target_id} not found",
-                    'channel_id': channel_id,
-                    'is_channel_message': channel_id is not None
-                }
-            
-            # Check if target is connected via MQTT
-            is_mqtt = target_info.get('connection_type') == 'mqtt'
-            
-            # Store traceroute request with requester info
-            self.active_traceroutes[target_id] = {
-                'start_time': time.time(),
-                'target_info': target_info,
-                'is_mqtt': is_mqtt,
-                'requester_id': sender_id,  # Store who requested the traceroute
-                'requester_name': sender_name,
-                'channel_id': channel_id  # Store the channel ID for the response
-            }
-            
-            # Start background collection
-            self._start_traceroute_collection(target_id)
-            
-            # Customize response based on whether we're using default target
-            if not args:
-                response = f"{self.bot_name}: Starting traceroute to your node (!{target_id})..."
-            else:
-                response = f"{self.bot_name}: Starting traceroute to !{target_id}..."
-            
-            return {
-                'response': response,
-                'channel_id': channel_id,
-                'is_channel_message': channel_id is not None
-            }
+            return self._handle_traceroute(args, sender_id, sender_name, channel_id, is_dm)
 
     def _start_traceroute_collection(self, target_id: str) -> None:
         """Start background traceroute collection"""
@@ -486,7 +500,7 @@ class HalBot:
         """Process !admin commands. Only authorized nodes may use these."""
         if self.admin_node_ids and sender_id not in self.admin_node_ids:
             return {
-                'response': f"{self.bot_name}: Access denied. You are not authorised for admin commands.",
+                'response': f"[ADMIN] {self.bot_name}: Access denied. You are not authorised for admin commands.",
                 'channel_id': channel_id,
                 'is_channel_message': False,
             }
@@ -494,7 +508,7 @@ class HalBot:
         match = self.admin_pattern.match(text)
         if not match:
             return {
-                'response': f"{self.bot_name}: Usage: !admin <status|persona|switch_ai|nodes|channels|reboot>",
+                'response': f"[ADMIN] {self.bot_name}: Usage: !admin <status|persona|switch_ai|nodes|channels|reboot>",
                 'channel_id': channel_id,
                 'is_channel_message': False,
             }
@@ -514,7 +528,7 @@ class HalBot:
             return self._admin_switch_ai(args, channel_id)
         else:
             return {
-                'response': f"{self.bot_name}: Unknown admin command '{cmd}'. "
+                'response': f"[ADMIN] {self.bot_name}: Unknown admin command '{cmd}'. "
                             f"Available: status, persona <text>, switch_ai <openai|gemini>, nodes, channels",
                 'channel_id': channel_id,
                 'is_channel_message': False,
@@ -536,14 +550,14 @@ class HalBot:
         retries = conn_status.get('retry_count', 0)
 
         lines = [
-            f"{self.bot_name} System Status:",
-            f"Node: {node_id}",
-            f"State: {state_name}",
-            f"Connected: {'Yes' if connected else 'No'}",
-            f"Retries: {retries}",
-            f"Nodes seen: {node_count}",
-            f"AI service: {ai_service}",
-            f"Time: {datetime.now().strftime('%H:%M:%S')}",
+            f"[ADMIN] {self.bot_name} System Status:",
+            f"• Node: {node_id}",
+            f"• State: {state_name}",
+            f"• Connected: {'Yes' if connected else 'No'}",
+            f"• Retries: {retries}",
+            f"• Nodes seen: {node_count}",
+            f"• AI service: {ai_service}",
+            f"• Time: {datetime.now().strftime('%H:%M:%S')}",
         ]
         return {
             'response': "\n".join(lines),
@@ -553,29 +567,29 @@ class HalBot:
 
     def _admin_nodes(self, channel_id):
         if not self.meshtastic_handler or not self.meshtastic_handler.interface:
-            return {'response': f"{self.bot_name}: No interface available.", 'channel_id': channel_id, 'is_channel_message': False}
+            return {'response': f"[ADMIN] {self.bot_name}: No interface available.", 'channel_id': channel_id, 'is_channel_message': False}
 
         interface = self.meshtastic_handler.interface
         if not hasattr(interface, 'nodes') or not interface.nodes:
-            return {'response': f"{self.bot_name}: No nodes found.", 'channel_id': channel_id, 'is_channel_message': False}
+            return {'response': f"[ADMIN] {self.bot_name}: No nodes found.", 'channel_id': channel_id, 'is_channel_message': False}
 
-        lines = [f"{self.bot_name}: {len(interface.nodes)} node(s):"]
+        lines = [f"[ADMIN] {self.bot_name}: {len(interface.nodes)} node(s):"]
         for node_num, info in list(interface.nodes.items())[:15]:  # cap at 15 to fit message
             nid = f"{node_num:x}" if isinstance(node_num, int) else str(node_num)
             user = info.get('user', {})
             name = user.get('shortName') or user.get('longName') or 'UNK'
-            lines.append(f"  !{nid} {name}")
+            lines.append(f"• !{nid} {name}")
 
         return {'response': "\n".join(lines), 'channel_id': channel_id, 'is_channel_message': False}
 
     def _admin_channels(self, channel_id):
         channels = self.meshtastic_handler.list_channels() if self.meshtastic_handler else []
         if not channels:
-            return {'response': f"{self.bot_name}: No channel info available.", 'channel_id': channel_id, 'is_channel_message': False}
+            return {'response': f"[ADMIN] {self.bot_name}: No channel info available.", 'channel_id': channel_id, 'is_channel_message': False}
 
-        lines = [f"{self.bot_name}: Channels:"]
+        lines = [f"[ADMIN] {self.bot_name}: Channels:"]
         for ch in channels:
-            lines.append(f"  {ch['index']}: {ch['name']} ({ch['role']})")
+            lines.append(f"• {ch['index']}: {ch['name']} ({ch['role']})")
 
         return {'response': "\n".join(lines), 'channel_id': channel_id, 'is_channel_message': False}
 
@@ -584,7 +598,7 @@ class HalBot:
         if self.app_config:
             self.app_config.DEFAULT_PERSONA = persona_text
         return {
-            'response': f"{self.bot_name}: Persona updated ({len(persona_text)} chars).",
+            'response': f"[ADMIN] {self.bot_name}: Persona updated ({len(persona_text)} chars).",
             'channel_id': channel_id,
             'is_channel_message': False,
         }
@@ -593,14 +607,14 @@ class HalBot:
         service = service.lower().strip()
         if service not in ("openai", "gemini"):
             return {
-                'response': f"{self.bot_name}: Unknown AI service '{service}'. Use openai or gemini.",
+                'response': f"[ADMIN] {self.bot_name}: Unknown AI service '{service}'. Use openai or gemini.",
                 'channel_id': channel_id,
                 'is_channel_message': False,
             }
         if self.app_config:
             self.app_config.DEFAULT_AI_SERVICE = service
         return {
-            'response': f"{self.bot_name}: AI service switched to {service}.",
+            'response': f"[ADMIN] {self.bot_name}: AI service switched to {service}.",
             'channel_id': channel_id,
             'is_channel_message': False,
         }
