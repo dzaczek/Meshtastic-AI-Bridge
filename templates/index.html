@@ -1653,7 +1653,19 @@
     </div>
 
     <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
-      <div class="stat-title">Direct Messages (Force-Directed Graph)<button class="graph-expand-btn" onclick="openGraphFs('d3-an-pernode-dm-graph','Direct Messages')">⤢</button></div>
+      <div class="stat-title">Direct Messages (Force-Directed Graph)
+        <span style="display:flex;align-items:center;gap:6px;margin-left:auto;">
+          <label style="font-size:.75em;color:var(--muted);text-transform:none;letter-spacing:0">Top</label>
+          <select id="pernode-dm-limit" onchange="redrawPernodeDmGraph()" style="background:var(--surf);color:var(--text);border:1px solid var(--border-s);padding:1px 4px;font-size:.75em;border-radius:3px;">
+            <option value="25">25</option>
+            <option value="50" selected>50</option>
+            <option value="100">100</option>
+            <option value="250">250</option>
+            <option value="0">All</option>
+          </select>
+          <button class="graph-expand-btn" onclick="openGraphFs('d3-an-pernode-dm-graph','Direct Messages')">⤢</button>
+        </span>
+      </div>
       <div id="d3-an-pernode-dm-graph" style="height:350px; position:relative; overflow:hidden;"></div>
     </div>
 
@@ -3441,6 +3453,22 @@ function handleNodeSelectChange() {
   }
 }
 
+function _drawPernodeDmGraph() {
+  const allLinks = window._pernodeDmLinks || [];
+  const limitSel = document.getElementById('pernode-dm-limit');
+  const limit = limitSel ? parseInt(limitSel.value) : 50;
+  const links = (limit > 0) ? allLinks.slice(0, limit) : allLinks;
+  clearD3('#d3-an-pernode-dm-graph');
+  if (links.length > 0) {
+    drawForceDirectedGraph(links, '#d3-an-pernode-dm-graph', '#3fb950');
+  } else {
+    const el = document.querySelector('#d3-an-pernode-dm-graph');
+    if (el) el.innerHTML = '<p style="color:var(--muted);padding:20px;font-size:.8em">No direct message links in this period.</p>';
+  }
+}
+
+function redrawPernodeDmGraph() { _drawPernodeDmGraph(); }
+
 async function loadPerNodeAnalytics(nodeId) {
   const hours = document.getElementById('analytics-hours').value;
   try {
@@ -3480,31 +3508,24 @@ async function loadPerNodeAnalytics(nodeId) {
       drawDoughnutChart(destData, '#d3-an-pernode-dest', ['#8844ff', '#ffaa00']);
     }
 
-    // DM Force Graph — build links from receivers + senders
+    // DM Force Graph — build links from receivers + senders, store for top-N filtering
     {
       const nodeName = (() => {
         const n = nodesCache.find(x => x.id === nodeId);
         return n ? (n.short_name || n.long_name || nodeId) : nodeId;
       })();
       const BROADCAST = ['broadcast','ffffffff','?'];
-      const links = [];
+      const allLinks = [];
       (data.top_receivers || []).forEach(r => {
-        if (!BROADCAST.includes(r.id)) {
-          links.push({ from: nodeId, from_name: nodeName, to: r.id, to_name: r.name || r.id, count: r.count });
-        }
+        if (!BROADCAST.includes(r.id))
+          allLinks.push({ from: nodeId, from_name: nodeName, to: r.id, to_name: r.name || r.id, count: r.count });
       });
       (data.top_senders || []).forEach(s => {
-        if (!BROADCAST.includes(s.id)) {
-          links.push({ from: s.id, from_name: s.name || s.id, to: nodeId, to_name: nodeName, count: s.count });
-        }
+        if (!BROADCAST.includes(s.id))
+          allLinks.push({ from: s.id, from_name: s.name || s.id, to: nodeId, to_name: nodeName, count: s.count });
       });
-      clearD3('#d3-an-pernode-dm-graph');
-      if (links.length > 0) {
-        drawForceDirectedGraph(links, '#d3-an-pernode-dm-graph', '#3fb950');
-      } else {
-        document.querySelector('#d3-an-pernode-dm-graph').innerHTML =
-          '<p style="color:var(--muted);padding:20px;font-size:.8em">No direct message links in this period.</p>';
-      }
+      window._pernodeDmLinks = allLinks;
+      _drawPernodeDmGraph();
     }
 
   } catch(e) {
