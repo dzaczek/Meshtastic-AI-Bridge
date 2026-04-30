@@ -29,14 +29,14 @@ class HalBot:
             return True
 
         # Check for direct commands first
-        if text_lower in ['ping', 'traceroute', 'info', 'test', 'qsl']:
+        if text_lower in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl']:
             return True
 
         # Check for bot prefixed commands
         match = self.command_pattern.match(text)
         if match:
             command = match.group(1).lower()
-            if command in ['ping', 'traceroute', 'info', 'test', 'qsl']:
+            if command in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl']:
                 return True
 
         return False
@@ -357,7 +357,7 @@ class HalBot:
             return self._handle_admin(text, sender_id, sender_name, channel_id)
 
         # Handle direct commands without bot prefix
-        if text_lower in ['ping', 'traceroute', 'info', 'test', 'qsl']:
+        if text_lower in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl']:
             command = text_lower
             args = ""
         else:
@@ -372,7 +372,7 @@ class HalBot:
             return self._handle_ping_qsl(sender_id, sender_name, channel_id, is_dm)
         elif command in ['info', 'test']:
             return self._handle_info_test(command, sender_id, sender_name, channel_id, is_dm)
-        elif command == 'traceroute':
+        elif command in ['traceroute', 'gtraceroute']:
             return self._handle_traceroute(args, sender_id, sender_name, channel_id, is_dm)
 
     def _start_traceroute_collection(self, target_id: str) -> None:
