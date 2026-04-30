@@ -701,11 +701,20 @@ class MeshtasticHandler:
             from google.protobuf.json_format import ParseDict
             node = self.interface.getNode('^local')
             if section == 'owner':
+                new_long  = values.get('long_name')  or values.get('longName')  or ''
+                new_short = values.get('short_name') or values.get('shortName') or ''
                 node.setOwner(
-                    long_name=values.get('long_name') or values.get('longName') or '',
-                    short_name=values.get('short_name') or values.get('shortName') or '',
+                    long_name=new_long,
+                    short_name=new_short,
                     is_licensed=bool(values.get('is_licensed', False)),
                 )
+                # Immediately update interface.nodes cache so UI reflects change
+                for nd in (getattr(self.interface, 'nodes', None) or {}).values():
+                    if nd.get('num') == self.node_id:
+                        nd.setdefault('user', {})
+                        if new_long:  nd['user']['longName']  = new_long
+                        if new_short: nd['user']['shortName'] = new_short
+                        break
                 return True, "Owner updated"
             elif section in LOCAL_SECS:
                 # Resolve localConfig from node (interface.localConfig may not exist)

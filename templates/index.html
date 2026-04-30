@@ -3747,7 +3747,16 @@ async function saveCfg(sec) {
       msgEl.className = `cfg-msg ${d.ok ? 'ok' : 'err'}`;
       setTimeout(() => { if(msgEl) msgEl.style.display='none'; }, 4000);
     }
-    if (d.ok) { cfgData = {}; } // force reload on next open
+    if (d.ok) {
+      cfgData = {}; // force reload on next open
+      if (sec === 'owner') {
+        // Reload config from device after 2s so the new name is reflected
+        setTimeout(async () => {
+          await loadCfg();
+          fetchMyDeviceInfo(); // refresh OPS My Device panel too
+        }, 2000);
+      }
+    }
   } catch(e) {
     if (msgEl) { msgEl.textContent='Network error'; msgEl.className='cfg-msg err'; }
   }
