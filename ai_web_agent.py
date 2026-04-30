@@ -13,6 +13,41 @@ import nest_asyncio
 # from openai import OpenAI
 import base64
 
+# Pre-compiled regular expressions for performance
+RE_PRICE_PATTERNS = [
+    re.compile(r'(\d+[.,]\d+)\s*(?:PLN|USD|EUR|CHF|GBP)', re.IGNORECASE),
+    re.compile(r'(\d+[.,]\d+)\s*zł', re.IGNORECASE),
+    re.compile(r'(\d+[.,]\d+)\s*euro', re.IGNORECASE),
+    re.compile(r'(\d+[.,]\d+)\s*frank', re.IGNORECASE),
+    re.compile(r'CHF[:\s]*(\d+[.,]\d+)', re.IGNORECASE),
+    re.compile(r'(\d+[.,]\d+)\s*CHF', re.IGNORECASE),
+    re.compile(r'(\d+[.,]\d+)\s*USD', re.IGNORECASE),
+    re.compile(r'(\d+[.,]\d+)\s*EUR', re.IGNORECASE),
+]
+
+RE_CURRENCY_PATTERNS = [
+    re.compile(r'CHF/PLN[:\s]*(\d+[.,]\d+)', re.IGNORECASE),
+    re.compile(r'PLN/CHF[:\s]*(\d+[.,]\d+)', re.IGNORECASE),
+    re.compile(r'USD/CHF[:\s]*(\d+[.,]\d+)', re.IGNORECASE),
+    re.compile(r'CHF/USD[:\s]*(\d+[.,]\d+)', re.IGNORECASE),
+    re.compile(r'EUR/CHF[:\s]*(\d+[.,]\d+)', re.IGNORECASE),
+    re.compile(r'CHF/EUR[:\s]*(\d+[.,]\d+)', re.IGNORECASE),
+]
+
+RE_NEWS_PATTERNS = [
+    re.compile(r'<h[1-3][^>]*>([^<]+)</h[1-3]>', re.IGNORECASE | re.DOTALL),
+    re.compile(r'<title>([^<]+)</title>', re.IGNORECASE | re.DOTALL),
+    re.compile(r'<article[^>]*>.*?<h[1-3][^>]*>([^<]+)</h[1-3]>', re.IGNORECASE | re.DOTALL),
+]
+
+RE_TEMP_PATTERNS = [
+    re.compile(r'(\d+)\s*°[CF]', re.IGNORECASE),
+    re.compile(r'(\d+)\s*degrees', re.IGNORECASE),
+    re.compile(r'temperature[:\s]*(\d+)', re.IGNORECASE),
+    re.compile(r'(\d+)\s*°C', re.IGNORECASE),
+    re.compile(r'(\d+)\s*°F', re.IGNORECASE),
+]
+
 class AIWebAgent:
     """
     AI-powered web agent that decides how to extract information from the web
@@ -335,19 +370,8 @@ class AIWebAgent:
                 
                 if "currency" in query_type.lower() or "price" in data_to_extract.lower() or "exchange" in data_to_extract.lower():
                     # Look for currency/price patterns
-                    price_patterns = [
-                        r'(\d+[.,]\d+)\s*(?:PLN|USD|EUR|CHF|GBP)',  # 4.12 PLN
-                        r'(\d+[.,]\d+)\s*zł',  # 4.12 zł
-                        r'(\d+[.,]\d+)\s*euro',  # 1.23 euro
-                        r'(\d+[.,]\d+)\s*frank',  # 1.23 frank
-                        r'CHF[:\s]*(\d+[.,]\d+)',  # CHF: 1.23
-                        r'(\d+[.,]\d+)\s*CHF',  # 1.23 CHF
-                        r'(\d+[.,]\d+)\s*USD',  # 1.23 USD
-                        r'(\d+[.,]\d+)\s*EUR',  # 1.23 EUR
-                    ]
-                    
-                    for pattern in price_patterns:
-                        matches = re.findall(pattern, content, re.IGNORECASE)
+                    for pattern in RE_PRICE_PATTERNS:
+                        matches = pattern.findall(content)
                         if matches:
                             for match in matches[:3]:  # Take first 3 matches
                                 results.append({
@@ -359,17 +383,8 @@ class AIWebAgent:
                                 print(f"INFO: Found exchange rate: {match}")
                     
                     # Also look for specific currency pairs
-                    currency_patterns = [
-                        r'CHF/PLN[:\s]*(\d+[.,]\d+)',
-                        r'PLN/CHF[:\s]*(\d+[.,]\d+)',
-                        r'USD/CHF[:\s]*(\d+[.,]\d+)',
-                        r'CHF/USD[:\s]*(\d+[.,]\d+)',
-                        r'EUR/CHF[:\s]*(\d+[.,]\d+)',
-                        r'CHF/EUR[:\s]*(\d+[.,]\d+)',
-                    ]
-                    
-                    for pattern in currency_patterns:
-                        matches = re.findall(pattern, content, re.IGNORECASE)
+                    for pattern in RE_CURRENCY_PATTERNS:
+                        matches = pattern.findall(content)
                         if matches:
                             for match in matches[:2]:  # Take first 2 matches
                                 results.append({
@@ -382,14 +397,8 @@ class AIWebAgent:
                                 
                 elif "news" in query_type.lower() or "headlines" in data_to_extract.lower():
                     # Look for news headlines and articles
-                    news_patterns = [
-                        r'<h[1-3][^>]*>([^<]+)</h[1-3]>',  # Headlines in h1-h3 tags
-                        r'<title>([^<]+)</title>',  # Page title
-                        r'<article[^>]*>.*?<h[1-3][^>]*>([^<]+)</h[1-3]>',  # Article headlines
-                    ]
-                    
-                    for pattern in news_patterns:
-                        matches = re.findall(pattern, content, re.IGNORECASE | re.DOTALL)
+                    for pattern in RE_NEWS_PATTERNS:
+                        matches = pattern.findall(content)
                         if matches:
                             for match in matches[:5]:  # Take first 5 matches
                                 clean_title = re.sub(r'<[^>]+>', '', match).strip()
@@ -404,16 +413,8 @@ class AIWebAgent:
                                     
                 elif "temperature" in data_to_extract.lower() or "weather" in query_type.lower():
                     # Look for temperature patterns
-                    temp_patterns = [
-                        r'(\d+)\s*°[CF]',  # 25°C or 77°F
-                        r'(\d+)\s*degrees',  # 25 degrees
-                        r'temperature[:\s]*(\d+)',  # temperature: 25
-                        r'(\d+)\s*°C',  # 25°C
-                        r'(\d+)\s*°F',  # 77°F
-                    ]
-                    
-                    for pattern in temp_patterns:
-                        matches = re.findall(pattern, content, re.IGNORECASE)
+                    for pattern in RE_TEMP_PATTERNS:
+                        matches = pattern.findall(content)
                         if matches:
                             for match in matches[:2]:  # Take first 2 matches
                                 results.append({
