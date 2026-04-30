@@ -3331,7 +3331,7 @@ function drawBubbleChart(data, selector, colorScheme) {
     .style("font-size", d => Math.min(d.r / 3, 12) + "px")
     .style("fill", "#fff")
     .style("pointer-events", "none")
-    .text(d => (d.r > 15) ? (d.data.name || d.data.id).substring(0, 10) : "");
+    .text(d => (d.r > 15) ? String(d.data.name || d.data.id).substring(0, 10) : "");
 
   node.append("text")
     .attr("dy", "1em")
