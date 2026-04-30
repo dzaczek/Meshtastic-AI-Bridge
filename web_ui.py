@@ -871,8 +871,13 @@ if _HAS_FLASK:
     def api_analytics_node(node_id):
         if not _HAS_NODE_DB:
             return jsonify({"error": "node_db not available"}), 503
-        days = int(request.args.get("days", 7))
-        stats = _node_db.get_per_node_analytics(node_id, days=days)
+
+        if "hours" in request.args:
+            hours = float(request.args.get("hours"))
+        else:
+            hours = float(request.args.get("days", 7)) * 24.0
+
+        stats = _node_db.get_per_node_analytics(node_id, hours=hours)
 
         # Resolve names for top_receivers and top_senders
         if "top_receivers" in stats:
@@ -889,8 +894,13 @@ if _HAS_FLASK:
     def api_analytics_packets():
         if not _HAS_NODE_DB:
             return jsonify({"error": "node_db not available"}), 503
-        days = int(request.args.get("days", 7))
-        stats = _node_db.get_packet_analytics(days=days)
+
+        if "hours" in request.args:
+            hours = float(request.args.get("hours"))
+        else:
+            hours = float(request.args.get("days", 7)) * 24.0
+
+        stats = _node_db.get_packet_analytics(hours=hours)
 
         # Resolve names for top_senders and top_links
         if "top_senders" in stats:

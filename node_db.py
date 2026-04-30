@@ -496,13 +496,13 @@ def add_packet_record(parsed: dict) -> None:
             )
 
 
-def get_packet_analytics(days: int = 7) -> dict:
-    """Return aggregated packet analytics for the last `days` days."""
+def get_packet_analytics(hours: float = 168.0) -> dict:
+    """Return aggregated packet analytics for the last `hours` hours."""
     if not _conn:
         return {}
 
     import time
-    start_ts = time.time() - (days * 86400)
+    start_ts = time.time() - (hours * 3600.0)
 
     with _lock:
         total_info = _conn.execute(
@@ -587,13 +587,13 @@ def get_packet_analytics(days: int = 7) -> dict:
         "top_types": [{"type": r[0], "count": r[1]} for r in top_types]
     }
 
-def get_per_node_analytics(node_id: str, days: int = 7) -> dict:
-    """Return aggregated packet analytics for a specific node over the last `days` days."""
+def get_per_node_analytics(node_id: str, hours: float = 168.0) -> dict:
+    """Return aggregated packet analytics for a specific node over the last `hours` hours."""
     if not _conn:
         return {}
 
     import time
-    start_ts = time.time() - (days * 86400)
+    start_ts = time.time() - (hours * 3600.0)
 
     with _lock:
         # Hourly broadcast count (packets sent per hour by this node)
