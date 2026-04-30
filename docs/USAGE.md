@@ -2,6 +2,81 @@
 
 This guide provides detailed instructions for using the Meshtastic-AI-Bridge v5.9.0 application.
 
+## Table of Contents
+
+- [Getting Started](#getting-started)
+  - [1. Starting the Application](#1-starting-the-application)
+    - [Interactive TUI Mode (Default)](#interactive-tui-mode-default)
+    - [Console Mode](#console-mode)
+    - [Debug Mode](#debug-mode)
+  - [2. Initial Setup](#2-initial-setup)
+- [Interactive TUI Mode](#interactive-tui-mode)
+  - [Interface Overview](#interface-overview)
+  - [Navigation](#navigation)
+    - [Keyboard Shortcuts](#keyboard-shortcuts)
+    - [Mouse Navigation](#mouse-navigation)
+  - [Sending Messages](#sending-messages)
+    - [As AI](#as-ai)
+    - [Manual AI Response](#manual-ai-response)
+  - [Channel Management](#channel-management)
+    - [Switching Channels](#switching-channels)
+    - [Channel Information](#channel-information)
+  - [User Statistics](#user-statistics)
+- [Console Mode](#console-mode)
+  - [Available Commands](#available-commands)
+    - [Message Commands](#message-commands)
+    - [AI Control Commands](#ai-control-commands)
+    - [Channel Commands](#channel-commands)
+    - [System Commands](#system-commands)
+  - [Example Console Session](#example-console-session)
+- [AI Features](#ai-features)
+  - [Automatic Responses](#automatic-responses)
+  - [AI Persona](#ai-persona)
+  - [AI Services](#ai-services)
+    - [OpenAI (GPT Models)](#openai-gpt-models)
+    - [Google Gemini](#google-gemini)
+  - [Switching AI Services](#switching-ai-services)
+    - [In TUI Mode](#in-tui-mode)
+    - [In Console Mode](#in-console-mode)
+- [Automated Bot Commands](#automated-bot-commands)
+  - [Ping / QSL](#ping--qsl)
+  - [Info / Test](#info--test)
+  - [Traceroute](#traceroute)
+  - [Admin Commands](#admin-commands)
+- [Web Integration Features](#web-integration-features)
+  - [Weather Information](#weather-information)
+  - [Web Search](#web-search)
+  - [URL Analysis](#url-analysis)
+  - [Screenshot Capture](#screenshot-capture)
+- [Advanced Features](#advanced-features)
+  - [Message Triage](#message-triage)
+  - [Conversation Context](#conversation-context)
+  - [Direct Messaging](#direct-messaging)
+  - [Channel-Specific Behavior](#channel-specific-behavior)
+- [Monitoring and Logs](#monitoring-and-logs)
+  - [Log Files](#log-files)
+  - [Log Levels](#log-levels)
+  - [Monitoring Commands](#monitoring-commands)
+    - [In Console Mode](#in-console-mode)
+    - [Log Analysis](#log-analysis)
+- [Performance Optimization](#performance-optimization)
+  - [Memory Management](#memory-management)
+  - [Network Optimization](#network-optimization)
+  - [AI Service Optimization](#ai-service-optimization)
+- [Troubleshooting Usage](#troubleshooting-usage)
+  - [Common Issues](#common-issues)
+    - [AI Not Responding](#ai-not-responding)
+    - [Messages Not Appearing](#messages-not-appearing)
+    - [Interface Issues](#interface-issues)
+  - [Getting Help](#getting-help)
+- [Best Practices](#best-practices)
+  - [For Users](#for-users)
+  - [For Administrators](#for-administrators)
+  - [For Developers](#for-developers)
+- [Next Steps](#next-steps)
+- [Support Resources](#support-resources)
+
+
 ## Getting Started
 
 ### 1. Starting the Application
@@ -197,6 +272,32 @@ DEFAULT_PERSONA = (
 use_ai openai    # Switch to OpenAI
 use_ai gemini    # Switch to Gemini
 ```
+
+## Automated Bot Commands
+
+The application includes a built-in HAL bot (`hal_bot.py`) that automatically responds to specific commands sent over the mesh network. These commands can be used to diagnose network connectivity, retrieve node information, and manage the bot remotely. You can optionally prefix these commands with `bot ` (e.g. `bot ping`).
+
+### Ping / QSL
+For checking node connectivity.
+- **`ping`**: Responds with a simple pong message acknowledging receipt.
+- **`qsl`**: An alternative to `ping` commonly used in amateur radio to acknowledge receipt.
+
+### Info / Test
+For retrieving node status and connection metrics.
+- **`info`**: Returns detailed status information about the node, including connection state, node count, current AI service, and response probability.
+- **`test`**: Alias for `info`.
+
+### Traceroute
+For routing and path testing to target nodes.
+- **`traceroute`** or **`traceroute <target_id>`**: Initiates a traceroute to determine the path messages take through the mesh network to reach a destination. If no target ID is specified, it runs a traceroute back to the sender.
+
+### Admin Commands
+For managing the bot remotely. These commands are prefixed with `!admin` and are restricted to authorized node IDs specified in the `config.py` file (`ADMIN_NODE_IDS`).
+- **`!admin status`**: Shows detailed system status, including uptime, connected state, and retry counts.
+- **`!admin nodes`**: Lists up to 15 visible mesh nodes with their short names and node IDs.
+- **`!admin channels`**: Lists the configured channels on the Meshtastic device.
+- **`!admin persona <text>`**: Updates the AI's personality/persona on the fly.
+- **`!admin switch_ai <openai|gemini>`**: Switches the active AI service to either OpenAI or Gemini.
 
 ## Web Integration Features
 
