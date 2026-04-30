@@ -208,7 +208,6 @@ class MeshtasticAIAppConsole:
                 try:
                     node = self.meshtastic_handler.interface.getNode('^local')
                     node.setOwner(long_name=long_name, short_name=short_name)
-                    time.sleep(2)  # startup context — blocking OK, lets firmware write to flash
                     dprint(f"Node name applied: '{long_name}' / '{short_name}'")
                 except Exception as e:
                     dprint(f"setOwner failed: {e}")
