@@ -149,12 +149,8 @@ class MessageRouter:
             user_name=ctx.sender_name, node_id=ctx.sender_id
         )
 
-        # --- Priority 1: SOS / Help ---
-        help_result = self._check_help(ctx)
-        if help_result:
-            return help_result
-
-        # --- Priority 2: Bot commands (ping, traceroute, info ...) ---
+        # SOS/Help disabled
+        # --- Priority 1: Bot commands (ping, traceroute, info ...) ---
         if self.bot_commands_enabled:
             hal_result = self._check_hal_bot(ctx)
             if hal_result:
