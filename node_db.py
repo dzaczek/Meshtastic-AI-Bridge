@@ -586,3 +586,67 @@ def get_packet_analytics(days: int = 7) -> dict:
         "destinations": {"broadcast": broadcast_cnt, "private": private_cnt},
         "top_types": [{"type": r[0], "count": r[1]} for r in top_types]
     }
+
+def get_per_node_analytics(node_id: str, days: int = 7) -> dict:
+    """Return aggregated packet analytics for a specific node over the last `days` days."""
+    if not _conn:
+        return {}
+
+    import time
+    start_ts = time.time() - (days * 86400)
+
+    with _lock:
+        # Hourly broadcast count (packets sent per hour by this node)
+        hourly_rows = _conn.execute(
+            """SELECT strftime('%H', datetime(ts, 'unixepoch', 'localtime')) as hr, COUNT(*)
+               FROM packets WHERE ts > ? AND from_id = ? GROUP BY hr ORDER BY hr""",
+            (start_ts, node_id)
+        ).fetchall()
+        hourly = {str(i).zfill(2): 0 for i in range(24)}
+        for r in hourly_rows:
+            if r[0]: hourly[r[0]] = r[1]
+
+        # Top receivers from this node
+        top_receivers_rows = _conn.execute(
+            """SELECT to_id, COUNT(*) as cnt FROM packets
+               WHERE ts > ? AND from_id = ? AND to_id NOT IN ('?', 'broadcast', 'ffffffff')
+               GROUP BY to_id ORDER BY cnt DESC LIMIT 10""",
+            (start_ts, node_id)
+        ).fetchall()
+        top_receivers = [{"id": r[0], "count": r[1]} for r in top_receivers_rows]
+
+        # Top senders to this node
+        top_senders_rows = _conn.execute(
+            """SELECT from_id, COUNT(*) as cnt FROM packets
+               WHERE ts > ? AND to_id = ? AND from_id != '?'
+               GROUP BY from_id ORDER BY cnt DESC LIMIT 10""",
+            (start_ts, node_id)
+        ).fetchall()
+        top_senders = [{"id": r[0], "count": r[1]} for r in top_senders_rows]
+
+        # Daily activity
+        daily_rows = _conn.execute(
+            """SELECT strftime('%Y-%m-%d', datetime(ts, 'unixepoch', 'localtime')) as day, COUNT(*)
+               FROM packets WHERE ts > ? AND from_id = ? GROUP BY day ORDER BY day""",
+            (start_ts, node_id)
+        ).fetchall()
+        daily = [{"label": r[0], "value": r[1]} for r in daily_rows]
+
+        # Destinations summary
+        dest_stats = _conn.execute(
+            """SELECT
+               SUM(CASE WHEN to_id IN ('broadcast', 'ffffffff') THEN 1 ELSE 0 END) as broadcast_cnt,
+               SUM(CASE WHEN to_id NOT IN ('broadcast', 'ffffffff') AND to_id != '?' THEN 1 ELSE 0 END) as private_cnt
+               FROM packets WHERE ts > ? AND from_id = ?""",
+            (start_ts, node_id)
+        ).fetchone()
+        broadcast_cnt = dest_stats[0] or 0
+        private_cnt = dest_stats[1] or 0
+
+        return {
+            "hourly": hourly,
+            "top_receivers": top_receivers,
+            "top_senders": top_senders,
+            "daily": daily,
+            "destinations": {"broadcast": broadcast_cnt, "private": private_cnt}
+        }
