@@ -464,7 +464,7 @@ def get_net_snapshots(node_id: str, limit: int = 50) -> list[dict]:
 
 
 def add_packet_record(parsed: dict) -> None:
-    """Insert a raw packet record for analytics, pruning to keep only the last ~50,000."""
+    """Insert a raw packet record for analytics, pruning to keep records from the last 30 days."""
     if not _conn:
         return
     import json as _json
@@ -487,14 +487,12 @@ def add_packet_record(parsed: dict) -> None:
             (ts, from_id, to_id, channel, portnum, encrypted, pkt_json)
         )
 
-        # Keep pruning deterministic but fast by tying it to the packet's ID sequence
-        # (Using last_insert_rowid as an approximation, falling back to a quick random check)
+        # Prune older than 30 days. Do it ~1% of the time to avoid lag on every message.
         import random
         if random.random() < 0.01:
+            cutoff_ts = time.time() - (30 * 24 * 60 * 60)
             _conn.execute(
-                """DELETE FROM packets WHERE id NOT IN (
-                    SELECT id FROM packets ORDER BY id DESC LIMIT 50000
-                )"""
+                "DELETE FROM packets WHERE ts < ?", (cutoff_ts,)
             )
 
 
