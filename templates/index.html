@@ -1551,10 +1551,20 @@
       <select id="analytics-node-select" onchange="handleNodeSelectChange()" style="background:var(--surf); color:var(--text); border:1px solid var(--border); padding:4px; max-width: 200px;">
         <option value="all">All Nodes</option>
       </select>
-      <select id="analytics-days" onchange="handleNodeSelectChange()" style="background:var(--surf); color:var(--text); border:1px solid var(--border); padding:4px;">
-        <option value="1">Last 24 Hours</option>
-        <option value="7" selected>Last 7 Days</option>
-        <option value="30">Last 30 Days</option>
+      <select id="analytics-hours" onchange="handleNodeSelectChange()" style="background:var(--surf); color:var(--text); border:1px solid var(--border); padding:4px;">
+        <option value="0.08333333333333333">Last 5m</option>
+        <option value="0.16666666666666666">Last 10m</option>
+        <option value="0.5">Last 30m</option>
+        <option value="1">Last 1h</option>
+        <option value="2">Last 2h</option>
+        <option value="4">Last 4h</option>
+        <option value="5">Last 5h</option>
+        <option value="6">Last 6h</option>
+        <option value="8">Last 8h</option>
+        <option value="12">Last 12h</option>
+        <option value="24">Last 24h</option>
+        <option value="168" selected>Last 7d</option>
+        <option value="720">Last 30d</option>
       </select>
     </div>
   </div>
@@ -3427,9 +3437,9 @@ function handleNodeSelectChange() {
 }
 
 async function loadPerNodeAnalytics(nodeId) {
-  const days = document.getElementById('analytics-days').value;
+  const hours = document.getElementById('analytics-hours').value;
   try {
-    const r = await fetch(`/api/analytics/node/${nodeId}?days=${days}`);
+    const r = await fetch(`/api/analytics/node/${nodeId}?hours=${hours}`);
     if (!r.ok) return;
     const data = await r.json();
 
@@ -3475,9 +3485,9 @@ async function initAnalytics() {
     handleNodeSelectChange();
     return;
   }
-  const days = document.getElementById('analytics-days').value;
+  const hours = document.getElementById('analytics-hours').value;
   try {
-    const r = await fetch(`/api/analytics/packets?days=${days}`);
+    const r = await fetch(`/api/analytics/packets?hours=${hours}`);
     if (!r.ok) return;
     const data = await r.json();
 
