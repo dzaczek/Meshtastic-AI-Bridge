@@ -9,6 +9,13 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 import nest_asyncio
 
+# Pre-compiled regex patterns for performance
+RE_TEMP_PATTERNS = [
+    re.compile(r'(\d+)\s*°[CF]', re.IGNORECASE),  # 25°C or 77°F
+    re.compile(r'(\d+)\s*degrees', re.IGNORECASE),  # 25 degrees
+    re.compile(r'temperature[:\s]*(\d+)', re.IGNORECASE),  # temperature: 25
+]
+
 class WebSpider:
     """
     Advanced web spider for extracting specific information from websites
@@ -109,16 +116,11 @@ class WebSpider:
         for source_url in sources:
             try:
                 if await self.navigate_to_page(source_url):
-                    # Look for temperature patterns
-                    temp_patterns = [
-                        r'(\d+)\s*°[CF]',  # 25°C or 77°F
-                        r'(\d+)\s*degrees',  # 25 degrees
-                        r'temperature[:\s]*(\d+)',  # temperature: 25
-                    ]
-                    
                     page_content = await self.page.content()
-                    for pattern in temp_patterns:
-                        matches = re.findall(pattern, page_content, re.IGNORECASE)
+
+                    # Look for temperature patterns
+                    for pattern in RE_TEMP_PATTERNS:
+                        matches = pattern.findall(page_content)
                         if matches:
                             weather_data['temperature'] = matches[0]
                             weather_data['source'] = source_url
