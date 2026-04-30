@@ -107,10 +107,30 @@ class AIWebAgent:
             )
             
             result = response.choices[0].message.content.strip()
+
+            # Remove markdown block decorators if present
+            if result.startswith("```json"):
+                result = result.replace("```json", "", 1)
+            elif result.startswith("```"):
+                result = result.replace("```", "", 1)
+            if result.endswith("```"):
+                result = result[::-1].replace("```", "", 1)[::-1]
+            result = result.strip()
+
             # Try to parse JSON
             try:
-                return json.loads(result)
-            except json.JSONDecodeError:
+                parsed = json.loads(result)
+                if not isinstance(parsed, dict):
+                    raise ValueError("Parsed JSON is not a dictionary")
+
+                # Validate required keys
+                required_keys = ["query_type", "search_strategy", "search_queries"]
+                for key in required_keys:
+                    if key not in parsed:
+                        raise ValueError(f"Missing required key: {key}")
+
+                return parsed
+            except (json.JSONDecodeError, ValueError):
                 # Fallback if AI doesn't return valid JSON
                 return {
                     "query_type": "search",
