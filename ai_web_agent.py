@@ -40,6 +40,8 @@ RE_NEWS_PATTERNS = [
     re.compile(r'<article[^>]*>.*?<h[1-3][^>]*>([^<]+)</h[1-3]>', re.IGNORECASE | re.DOTALL),
 ]
 
+RE_HTML_TAGS = re.compile(r'<[^>]+>')
+
 RE_TEMP_PATTERNS = [
     re.compile(r'(\d+)\s*°[CF]', re.IGNORECASE),
     re.compile(r'(\d+)\s*degrees', re.IGNORECASE),
@@ -401,7 +403,7 @@ class AIWebAgent:
                         matches = pattern.findall(content)
                         if matches:
                             for match in matches[:5]:  # Take first 5 matches
-                                clean_title = re.sub(r'<[^>]+>', '', match).strip()
+                                clean_title = RE_HTML_TAGS.sub('', match).strip()
                                 if len(clean_title) > 10 and len(clean_title) < 200:
                                     results.append({
                                         'title': f"News: {clean_title}",

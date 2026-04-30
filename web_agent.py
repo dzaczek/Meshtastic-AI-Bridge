@@ -18,6 +18,36 @@ from bs4 import BeautifulSoup
 import requests
 from urllib.parse import unquote
 
+# Pre-compiled regular expressions for performance
+RE_PRICE_PATTERNS = {
+    'price': [
+        re.compile(r'(\d+[.,]\d+)\s*(?:PLN|USD|EUR|CHF|GBP)', re.IGNORECASE),
+        re.compile(r'CHF[:\s]*(\d+[.,]\d+)', re.IGNORECASE),
+        re.compile(r'(\d+[.,]\d+)\s*CHF', re.IGNORECASE)
+    ]
+}
+
+RE_TEMP_PATTERNS = {
+    'temp': [
+        re.compile(r'(\d+)\s*°[CF]', re.IGNORECASE),
+        re.compile(r'(\d+)\s*degrees', re.IGNORECASE)
+    ]
+}
+
+RE_WEATHER_TEMP_PATTERNS = [
+    re.compile(r'(\d+)\s*°[CF]', re.IGNORECASE),
+    re.compile(r'(\d+)\s*degrees', re.IGNORECASE),
+    re.compile(r'temperature[:\s]*(\d+)', re.IGNORECASE),
+]
+
+RE_NEWS_PATTERNS = {
+    'headline': [
+        re.compile(r'<h[1-3][^>]*>([^<]+)</h[1-3]>', re.IGNORECASE)
+    ]
+}
+
+RE_HTML_TAGS = re.compile(r'<[^>]+>')
+
 try:
     from playwright.async_api import async_playwright
     PLAYWRIGHT_AVAILABLE = True
@@ -107,18 +137,14 @@ class WebAgent:
             f"https://www.google.com/search?q=weather+{city}",
             f"https://weather.com/weather/today/l/{city}",
         ]
-        temp_patterns = [
-            r'(\d+)\s*°[CF]', r'(\d+)\s*degrees',
-            r'temperature[:\s]*(\d+)',
-        ]
         condition_kw = ['sunny', 'cloudy', 'rainy', 'snow', 'clear', 'overcast']
 
         for url in sources:
             try:
                 if await self._goto(url):
                     content = await self.page.content()
-                    for pat in temp_patterns:
-                        m = re.findall(pat, content, re.IGNORECASE)
+                    for pat in RE_WEATHER_TEMP_PATTERNS:
+                        m = pat.findall(content)
                         if m:
                             data['temperature'] = m[0]
                             data['source'] = url
@@ -299,20 +325,17 @@ class WebAgent:
 
             patterns = {}
             if "currency" in query_type or "price" in data_type or "exchange" in data_type:
-                patterns = {
-                    'price': [r'(\d+[.,]\d+)\s*(?:PLN|USD|EUR|CHF|GBP)',
-                              r'CHF[:\s]*(\d+[.,]\d+)', r'(\d+[.,]\d+)\s*CHF']
-                }
+                patterns = RE_PRICE_PATTERNS
             elif "weather" in query_type or "temperature" in data_type:
-                patterns = {'temp': [r'(\d+)\s*°[CF]', r'(\d+)\s*degrees']}
+                patterns = RE_TEMP_PATTERNS
             elif "news" in query_type:
-                patterns = {'headline': [r'<h[1-3][^>]*>([^<]+)</h[1-3]>']}
+                patterns = RE_NEWS_PATTERNS
 
             for label, pats in patterns.items():
                 for pat in pats:
-                    matches = re.findall(pat, content, re.IGNORECASE)
+                    matches = pat.findall(content)
                     for m in matches[:3]:
-                        clean = re.sub(r'<[^>]+>', '', str(m)).strip()
+                        clean = RE_HTML_TAGS.sub('', str(m)).strip()
                         if clean:
                             results.append({'title': f"{label}: {clean}", 'url': url,
                                             'rank': len(results) + 1, 'source': 'direct_site'})
