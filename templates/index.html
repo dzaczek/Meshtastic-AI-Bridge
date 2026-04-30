@@ -3136,17 +3136,27 @@ function clearDm() {
 let analyticsHeatmap = null;
 
 function openGraphFs(chartId, title) {
-  const src = document.getElementById(chartId);
   const overlay = document.getElementById('graph-fs-overlay');
   const content = document.getElementById('graph-fs-content');
   document.getElementById('graph-fs-title-text').textContent = title;
   content.innerHTML = '';
+  overlay.classList.add('active');
+
+  // Force-directed graph → re-render interactively at full size
+  const selector = '#' + chartId;
+  if (_forceGraphData[selector]) {
+    const { linksData, color } = _forceGraphData[selector];
+    setTimeout(() => drawForceDirectedGraph(linksData, '#graph-fs-content', color), 30);
+    return;
+  }
+
+  // Other D3/Chart graphs → clone SVG (scaled)
+  const src = document.getElementById(chartId);
   const svg = src && src.querySelector('svg');
   if (svg) {
     const clone = svg.cloneNode(true);
-    // Preserve viewBox so SVG scales properly
     if (!clone.getAttribute('viewBox')) {
-      const w = svg.getBoundingClientRect().width || svg.getAttribute('width') || 400;
+      const w = svg.getBoundingClientRect().width  || svg.getAttribute('width')  || 400;
       const h = svg.getBoundingClientRect().height || svg.getAttribute('height') || 300;
       clone.setAttribute('viewBox', `0 0 ${w} ${h}`);
     }
@@ -3157,7 +3167,6 @@ function openGraphFs(chartId, title) {
   } else {
     content.innerHTML = '<p style="color:var(--muted);padding:20px">No data to display yet.</p>';
   }
-  overlay.classList.add('active');
 }
 
 function openHeatmapFs() {
@@ -3323,88 +3332,80 @@ function drawBubbleChart(data, selector, colorScheme) {
     .text(d => (d.r > 20) ? d.data.count : "");
 }
 
+// Store last data per selector for interactive fullscreen re-render
+const _forceGraphData = {};
+
 function drawForceDirectedGraph(linksData, selector, color) {
   clearD3(selector);
   const container = document.querySelector(selector);
-  if(!container) return;
-  const width = container.clientWidth;
-  const height = container.clientHeight;
+  if (!container) return;
+  const width  = container.clientWidth  || 400;
+  const height = container.clientHeight || 300;
+  const pad = 30; // keep nodes inside frame
 
-  // Build nodes from links
+  // Cache data for interactive fullscreen
+  _forceGraphData[selector] = { linksData, color };
+
   const nodesMap = new Map();
   linksData.forEach(l => {
     if (!nodesMap.has(l.from)) nodesMap.set(l.from, { id: l.from, name: l.from_name || l.from });
-    if (!nodesMap.has(l.to)) nodesMap.set(l.to, { id: l.to, name: l.to_name || l.to });
+    if (!nodesMap.has(l.to))   nodesMap.set(l.to,   { id: l.to,   name: l.to_name   || l.to   });
   });
 
   const nodes = Array.from(nodesMap.values());
-  const links = linksData.map(l => ({
-    source: l.from,
-    target: l.to,
-    value: l.count
-  }));
+  const links = linksData.map(l => ({ source: l.from, target: l.to, value: l.count }));
 
   const svg = d3.select(selector).append("svg")
-    .attr("width", width)
-    .attr("height", height);
+    .attr("width", width).attr("height", height)
+    .style("overflow", "hidden");
+
+  // Zoom + pan layer
+  const g = svg.append("g");
+  svg.call(d3.zoom()
+    .scaleExtent([0.2, 8])
+    .on("zoom", e => g.attr("transform", e.transform)));
 
   const simulation = d3.forceSimulation(nodes)
-    .force("link", d3.forceLink(links).id(d => d.id).distance(50))
-    .force("charge", d3.forceManyBody().strength(-150))
-    .force("center", d3.forceCenter(width / 2, height / 2))
-    .force("collide", d3.forceCollide().radius(20));
+    .force("link",    d3.forceLink(links).id(d => d.id).distance(60))
+    .force("charge",  d3.forceManyBody().strength(-200))
+    .force("center",  d3.forceCenter(width / 2, height / 2))
+    .force("collide", d3.forceCollide().radius(22))
+    .force("x",       d3.forceX(width  / 2).strength(0.05))
+    .force("y",       d3.forceY(height / 2).strength(0.05));
 
   const maxVal = d3.max(links, d => d.value) || 1;
 
-  const link = svg.append("g")
-    .attr("stroke", "var(--border-s)")
-    .attr("stroke-opacity", 0.6)
-    .selectAll("line")
-    .data(links)
-    .enter().append("line")
+  const link = g.append("g")
+    .attr("stroke", "var(--border-s)").attr("stroke-opacity", 0.7)
+    .selectAll("line").data(links).enter().append("line")
     .attr("stroke-width", d => Math.max(1, (d.value / maxVal) * 5))
-    .append("title")
-    .text(d => `${d.value} packets`);
+    .append("title").text(d => `${d.value} packets`);
 
-  const node = svg.append("g")
-    .selectAll("g")
-    .data(nodes)
-    .enter().append("g")
+  const node = g.append("g").selectAll("g").data(nodes).enter().append("g")
     .call(d3.drag()
-      .on("start", (e, d) => {
-        if (!e.active) simulation.alphaTarget(0.3).restart();
-        d.fx = d.x; d.fy = d.y;
-      })
-      .on("drag", (e, d) => {
-        d.fx = e.x; d.fy = e.y;
-      })
-      .on("end", (e, d) => {
-        if (!e.active) simulation.alphaTarget(0);
-        d.fx = null; d.fy = null;
-      }));
+      .on("start", (e, d) => { if (!e.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+      .on("drag",  (e, d) => { d.fx = e.x; d.fy = e.y; })
+      .on("end",   (e, d) => { if (!e.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; }));
 
   node.append("circle")
-    .attr("r", 8)
-    .attr("fill", color)
-    .attr("stroke", "var(--bg)")
-    .attr("stroke-width", 1.5)
-    .append("title")
-    .text(d => d.name);
+    .attr("r", 9).attr("fill", color)
+    .attr("stroke", "var(--bg)").attr("stroke-width", 1.5)
+    .append("title").text(d => d.name);
 
   node.append("text")
-    .attr("x", 10)
-    .attr("y", 3)
-    .style("font-size", "10px")
-    .style("fill", "var(--text)")
+    .attr("x", 12).attr("y", 4)
+    .style("font-size", "10px").style("fill", "var(--text)")
     .text(d => d.name);
 
   simulation.on("tick", () => {
-    svg.selectAll("line")
-      .attr("x1", d => d.source.x)
-      .attr("y1", d => d.source.y)
-      .attr("x2", d => d.target.x)
-      .attr("y2", d => d.target.y);
-
+    // Clamp to bounds (zoom-world coords, pad keeps labels visible)
+    nodes.forEach(d => {
+      d.x = Math.max(pad, Math.min(width  - pad, d.x));
+      d.y = Math.max(pad, Math.min(height - pad, d.y));
+    });
+    g.selectAll("line")
+      .attr("x1", d => d.source.x).attr("y1", d => d.source.y)
+      .attr("x2", d => d.target.x).attr("y2", d => d.target.y);
     node.attr("transform", d => `translate(${d.x},${d.y})`);
   });
 }
