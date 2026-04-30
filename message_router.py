@@ -320,7 +320,10 @@ class MessageRouter:
             return None
 
         response_text = hal_result['response']
-        is_channel = hal_result.get('is_channel_message', False)
+        # DM always wins: if the incoming message was a DM, reply as DM regardless
+        # of what hal_bot reports for is_channel_message (channel_id=0 for DMs
+        # causes hal_bot to incorrectly set is_channel_message=True)
+        is_channel = hal_result.get('is_channel_message', False) and not ctx.is_dm_to_ai
 
         return RouteResult(
             reply_text=response_text,

@@ -337,7 +337,7 @@ class HalBot:
                 return {
                     'response': f"{self.bot_name}: Invalid target format. Please use !1234abcd, 1234abcd, or a node name",
                     'channel_id': channel_id,
-                    'is_channel_message': channel_id is not None
+                    'is_channel_message': not is_dm
                 }
             target_id = target
             if not re.match(r'^[0-9a-f]+$', target.lower()):
@@ -346,14 +346,14 @@ class HalBot:
                     return {
                         'response': f"{self.bot_name}: Could not find a node matching '{target}'",
                         'channel_id': channel_id,
-                        'is_channel_message': channel_id is not None
+                        'is_channel_message': not is_dm
                     }
 
         if target_id in self.active_traceroutes:
             return {
                 'response': f"{self.bot_name}: Traceroute already in progress for this node",
                 'channel_id': channel_id,
-                'is_channel_message': channel_id is not None
+                'is_channel_message': not is_dm
             }
 
         target_info = self.get_node_info(target_id)
@@ -361,7 +361,7 @@ class HalBot:
             return {
                 'response': f"{self.bot_name}: Target node !{target_id} not found",
                 'channel_id': channel_id,
-                'is_channel_message': channel_id is not None
+                'is_channel_message': not is_dm
             }
 
         is_mqtt = target_info.get('connection_type') == 'mqtt'
@@ -385,7 +385,7 @@ class HalBot:
         return {
             'response': response,
             'channel_id': channel_id,
-            'is_channel_message': channel_id is not None
+            'is_channel_message': not is_dm
         }
 
     def handle_command(self, text: str, sender_id: str, sender_name: str, channel_id: int = None, is_dm: bool = False) -> Optional[dict]:
