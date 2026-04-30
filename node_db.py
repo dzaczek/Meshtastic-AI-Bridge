@@ -608,20 +608,20 @@ def get_per_node_analytics(node_id: str, hours: float = 168.0) -> dict:
         for r in hourly_rows:
             if r[0]: hourly[r[0]] = r[1]
 
-        # Top receivers from this node
+        # Top receivers from this node (no LIMIT — all unique contacts needed for DM graph)
         top_receivers_rows = _conn.execute(
             """SELECT to_id, COUNT(*) as cnt FROM packets
                WHERE ts > ? AND from_id = ? AND to_id NOT IN ('?', 'broadcast', 'ffffffff')
-               GROUP BY to_id ORDER BY cnt DESC LIMIT 10""",
+               GROUP BY to_id ORDER BY cnt DESC LIMIT 100""",
             (start_ts, node_id)
         ).fetchall()
         top_receivers = [{"id": r[0], "count": r[1]} for r in top_receivers_rows]
 
-        # Top senders to this node
+        # Top senders to this node (no LIMIT — all unique contacts needed for DM graph)
         top_senders_rows = _conn.execute(
             """SELECT from_id, COUNT(*) as cnt FROM packets
                WHERE ts > ? AND to_id = ? AND from_id != '?'
-               GROUP BY from_id ORDER BY cnt DESC LIMIT 10""",
+               GROUP BY from_id ORDER BY cnt DESC LIMIT 100""",
             (start_ts, node_id)
         ).fetchall()
         top_senders = [{"id": r[0], "count": r[1]} for r in top_senders_rows]
