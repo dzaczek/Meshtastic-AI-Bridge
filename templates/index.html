@@ -1652,6 +1652,11 @@
       </div>
     </div>
 
+    <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
+      <div class="stat-title">Direct Messages (Force-Directed Graph)<button class="graph-expand-btn" onclick="openGraphFs('d3-an-pernode-dm-graph','Direct Messages')">⤢</button></div>
+      <div id="d3-an-pernode-dm-graph" style="height:350px; position:relative; overflow:hidden;"></div>
+    </div>
+
   </div> <!-- end per-node container -->
 
 </div>
@@ -3474,6 +3479,34 @@ async function loadPerNodeAnalytics(nodeId) {
       ];
       drawDoughnutChart(destData, '#d3-an-pernode-dest', ['#8844ff', '#ffaa00']);
     }
+
+    // DM Force Graph — build links from receivers + senders
+    {
+      const nodeName = (() => {
+        const n = nodesCache.find(x => x.id === nodeId);
+        return n ? (n.short_name || n.long_name || nodeId) : nodeId;
+      })();
+      const BROADCAST = ['broadcast','ffffffff','?'];
+      const links = [];
+      (data.top_receivers || []).forEach(r => {
+        if (!BROADCAST.includes(r.id)) {
+          links.push({ from: nodeId, from_name: nodeName, to: r.id, to_name: r.name || r.id, count: r.count });
+        }
+      });
+      (data.top_senders || []).forEach(s => {
+        if (!BROADCAST.includes(s.id)) {
+          links.push({ from: s.id, from_name: s.name || s.id, to: nodeId, to_name: nodeName, count: s.count });
+        }
+      });
+      clearD3('#d3-an-pernode-dm-graph');
+      if (links.length > 0) {
+        drawForceDirectedGraph(links, '#d3-an-pernode-dm-graph', '#3fb950');
+      } else {
+        document.querySelector('#d3-an-pernode-dm-graph').innerHTML =
+          '<p style="color:var(--muted);padding:20px;font-size:.8em">No direct message links in this period.</p>';
+      }
+    }
+
   } catch(e) {
     console.error('Per-node analytics load error:', e);
   }
