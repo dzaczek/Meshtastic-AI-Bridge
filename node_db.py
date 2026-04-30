@@ -531,7 +531,7 @@ def get_packet_analytics(hours: float = 168.0) -> dict:
         top_links = _conn.execute(
             """SELECT from_id, to_id, COUNT(*) as cnt FROM packets
                WHERE ts > ? AND from_id != '?' AND to_id NOT IN ('?', 'broadcast', 'ffffffff')
-               GROUP BY from_id, to_id ORDER BY cnt DESC LIMIT 10""",
+               GROUP BY from_id, to_id ORDER BY cnt DESC LIMIT 500""",
             (start_ts,)
         ).fetchall()
 
