@@ -3457,7 +3457,22 @@ function _drawPernodeDmGraph() {
   const allLinks = window._pernodeDmLinks || [];
   const limitSel = document.getElementById('pernode-dm-limit');
   const limit = limitSel ? parseInt(limitSel.value) : 50;
-  const links = (limit > 0) ? allLinks.slice(0, limit) : allLinks;
+
+  // Deduplicate: merge A→B and B→A into one link with combined count
+  const linkMap = new Map();
+  allLinks.forEach(l => {
+    const key = [l.from, l.to].sort().join('|');
+    if (linkMap.has(key)) {
+      linkMap.get(key).count += l.count;
+    } else {
+      linkMap.set(key, { ...l });
+    }
+  });
+
+  // Sort by count DESC so Top N always picks most active links
+  const sorted = Array.from(linkMap.values()).sort((a, b) => b.count - a.count);
+  const links = (limit > 0) ? sorted.slice(0, limit) : sorted;
+
   clearD3('#d3-an-pernode-dm-graph');
   if (links.length > 0) {
     drawForceDirectedGraph(links, '#d3-an-pernode-dm-graph', '#3fb950');
