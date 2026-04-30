@@ -328,6 +328,12 @@ class MeshtasticAIAppConsole:
                     print(f"ERROR: Failed to send AI reply: {reason}")
             else:
                 print(f"INFO: No valid AI response for {sender_name}.")
+                # Send fallback only for DMs so the user knows AI is down
+                if result.reply_as_dm and self.meshtastic_handler and self.meshtastic_handler.is_connected:
+                    fallback = f"[{web_ui.get_bot_name() if _HAS_WEB_UI else 'Bot'}] AI service unavailable — check billing/quota."
+                    self.meshtastic_handler.send_message(
+                        fallback, destination_id_hex=result.reply_destination, channel_index=0
+                    )
 
     def run_headless(self):
         """Run in headless mode - no stdin, processes mesh messages via callbacks.
