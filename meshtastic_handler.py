@@ -708,6 +708,9 @@ class MeshtasticHandler:
                     short_name=new_short,
                     is_licensed=bool(values.get('is_licensed', False)),
                 )
+                # Give the device time to write owner to flash before any other operation
+                import time as _time
+                _time.sleep(1.5)
                 # Immediately update interface.nodes cache so UI reflects change
                 for nd in (getattr(self.interface, 'nodes', None) or {}).values():
                     if nd.get('num') == self.node_id:
@@ -715,7 +718,7 @@ class MeshtasticHandler:
                         if new_long:  nd['user']['longName']  = new_long
                         if new_short: nd['user']['shortName'] = new_short
                         break
-                return True, "Owner updated"
+                return True, "Owner updated — wait 10s before restarting device"
             elif section in LOCAL_SECS:
                 # Resolve localConfig from node (interface.localConfig may not exist)
                 lc = getattr(self.interface, 'localConfig', None)
