@@ -335,6 +335,11 @@ class AIBridge:
             try:
                 import json
                 analysis = json.loads(analysis_text)
+
+                if not isinstance(analysis, dict):
+                    print(f"WARNING (ai_bridge): Parsed JSON is not a dictionary: {type(analysis)}")
+                    analysis = {}
+
                 needs_search = analysis.get("needs_web_search", False)
                 search_query = analysis.get("search_query", "")
                 
