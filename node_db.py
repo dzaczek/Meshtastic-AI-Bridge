@@ -552,7 +552,9 @@ def get_packet_analytics(days: int = 7) -> dict:
         # Get positions of top senders to use in heatmap
         node_positions = _conn.execute(
             """SELECT node_id, lat, lon FROM position_history
-               WHERE ts = (SELECT MAX(ts) FROM position_history p2 WHERE p2.node_id = position_history.node_id)
+               WHERE id IN (
+                   SELECT MAX(id) FROM position_history GROUP BY node_id
+               )
             """
         ).fetchall()
         positions_map = {r[0]: {"lat": r[1], "lon": r[2]} for r in node_positions}
