@@ -866,6 +866,24 @@ if _HAS_FLASK:
         })
 
 
+    @app.route("/api/analytics/node/<node_id>")
+    @login_required
+    def api_analytics_node(node_id):
+        if not _HAS_NODE_DB:
+            return jsonify({"error": "node_db not available"}), 503
+        days = int(request.args.get("days", 7))
+        stats = _node_db.get_per_node_analytics(node_id, days=days)
+
+        # Resolve names for top_receivers and top_senders
+        if "top_receivers" in stats:
+            for r in stats["top_receivers"]:
+                r["name"] = _node_name(r["id"], getattr(_meshtastic_handler, "interface", None))
+        if "top_senders" in stats:
+            for s in stats["top_senders"]:
+                s["name"] = _node_name(s["id"], getattr(_meshtastic_handler, "interface", None))
+
+        return jsonify(stats)
+
     @app.route("/api/analytics/packets")
     @login_required
     def api_analytics_packets():

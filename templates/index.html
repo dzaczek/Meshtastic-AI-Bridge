@@ -1547,8 +1547,11 @@
 <div id="tab-analytics" class="tab-pane" style="flex-direction:column; padding: 15px; overflow-y:auto; gap: 15px;">
   <div style="display:flex; justify-content:space-between; align-items:center;">
     <h2 style="color:var(--text); margin:0;">Packet Analytics</h2>
-    <div style="font-size:0.8em; color:var(--muted);">
-      <select id="analytics-days" onchange="initAnalytics()" style="background:var(--surf); color:var(--text); border:1px solid var(--border); padding:4px;">
+    <div style="font-size:0.8em; color:var(--muted); display:flex; gap:10px;">
+      <select id="analytics-node-select" onchange="handleNodeSelectChange()" style="background:var(--surf); color:var(--text); border:1px solid var(--border); padding:4px; max-width: 200px;">
+        <option value="all">All Nodes</option>
+      </select>
+      <select id="analytics-days" onchange="handleNodeSelectChange()" style="background:var(--surf); color:var(--text); border:1px solid var(--border); padding:4px;">
         <option value="1">Last 24 Hours</option>
         <option value="7" selected>Last 7 Days</option>
         <option value="30">Last 30 Days</option>
@@ -1556,6 +1559,7 @@
     </div>
   </div>
 
+  <div id="analytics-global-container" style="display:flex; flex-direction:column; gap:15px;">
   <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:15px;">
 
     <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
@@ -1604,6 +1608,41 @@
     <div class="stat-title">Most Talkative Nodes (Heatmap)<button class="graph-expand-btn" onclick="openHeatmapFs()" title="Fullscreen">⤢</button></div>
     <div id="analytics-heatmap" style="height:400px; border-radius:var(--r-md); border:1px solid var(--border-s); position:relative; z-index:0;"></div>
   </div>
+  </div> <!-- end global container -->
+
+  <!-- Per-Node Analytics Container -->
+  <div id="analytics-pernode-container" style="display:none; flex-direction:column; gap:15px;">
+
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:15px;">
+      <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
+        <div class="stat-title">Hourly Broadcast Activity<button class="graph-expand-btn" onclick="openGraphFs('d3-an-pernode-hourly','Hourly Broadcast Activity')">⤢</button></div>
+        <div id="d3-an-pernode-hourly" style="height:200px; position:relative;"></div>
+      </div>
+
+      <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
+        <div class="stat-title">Daily Activity (Packets/Day)<button class="graph-expand-btn" onclick="openGraphFs('d3-an-pernode-daily','Daily Activity')">⤢</button></div>
+        <div id="d3-an-pernode-daily" style="height:200px; position:relative;"></div>
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:15px;">
+      <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
+        <div class="stat-title">Top Receivers<button class="graph-expand-btn" onclick="openGraphFs('d3-an-pernode-receivers','Top Receivers')">⤢</button></div>
+        <div id="d3-an-pernode-receivers" style="height:250px; position:relative;"></div>
+      </div>
+
+      <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
+        <div class="stat-title">Top Senders<button class="graph-expand-btn" onclick="openGraphFs('d3-an-pernode-senders','Top Senders')">⤢</button></div>
+        <div id="d3-an-pernode-senders" style="height:250px; position:relative;"></div>
+      </div>
+
+      <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
+        <div class="stat-title">Destinations (Broadcast vs Private)<button class="graph-expand-btn" onclick="openGraphFs('d3-an-pernode-dest','Destinations')">⤢</button></div>
+        <div id="d3-an-pernode-dest" style="height:250px; position:relative;"></div>
+      </div>
+    </div>
+
+  </div> <!-- end per-node container -->
 
 </div>
 
@@ -2766,6 +2805,29 @@ function setHopFilterSel(val){hopFilter=val;renderNodes(nodesCache);}
 function setSeenFilterSel(secs){seenFilter=secs;renderNodes(nodesCache);}
 function setSortBy(val){sortBy=val;renderNodes(nodesCache);}
 
+function populateAnalyticsDropdown() {
+  const select = document.getElementById('analytics-node-select');
+  if (!select) return;
+  const currentVal = select.value;
+  select.innerHTML = '<option value="all">All Nodes</option>';
+
+  const sorted = [...nodesCache].sort((a,b) => {
+    return (a.long_name || a.id).localeCompare(b.long_name || b.id);
+  });
+
+  sorted.forEach(n => {
+    const name = n.long_name || n.id;
+    const opt = document.createElement('option');
+    opt.value = n.id;
+    opt.textContent = `${name} (!${n.id})`;
+    select.appendChild(opt);
+  });
+
+  if (currentVal && select.querySelector(`option[value="${currentVal}"]`)) {
+    select.value = currentVal;
+  }
+}
+
 async function fetchNodes() {
   try {
     const r=await fetch('/api/nodes'); if(!r.ok) return;
@@ -2775,6 +2837,7 @@ async function fetchNodes() {
     updateMap(nodesCache);
     if (radarInited) setRadarNodes(nodesCache);
     opsOnNodesUpdate(nodesCache);
+    populateAnalyticsDropdown();
     if (activeConv === 'admin') renderAdminPanel();
   } catch(e) {}
 }
@@ -3346,7 +3409,71 @@ function drawForceDirectedGraph(linksData, selector, color) {
   });
 }
 
+function handleNodeSelectChange() {
+  const select = document.getElementById('analytics-node-select');
+  if (!select) return;
+  const nodeId = select.value;
+
+  if (nodeId === 'all') {
+    document.getElementById('analytics-global-container').style.display = 'flex';
+    document.getElementById('analytics-pernode-container').style.display = 'none';
+    initAnalytics();
+  } else {
+    document.getElementById('analytics-global-container').style.display = 'none';
+    document.getElementById('analytics-pernode-container').style.display = 'flex';
+    loadPerNodeAnalytics(nodeId);
+  }
+}
+
+async function loadPerNodeAnalytics(nodeId) {
+  const days = document.getElementById('analytics-days').value;
+  try {
+    const r = await fetch(`/api/analytics/node/${nodeId}?days=${days}`);
+    if (!r.ok) return;
+    const data = await r.json();
+
+    // Hourly Broadcast
+    if (data.hourly) {
+      const hData = Object.keys(data.hourly).map(h => ({ label: `${h}:00`, value: data.hourly[h] }));
+      drawBarChart(hData, '#d3-an-pernode-hourly', 'Time', 'Packets', '#4488ff');
+    }
+
+    // Daily Activity
+    if (data.daily) {
+      drawBarChart(data.daily, '#d3-an-pernode-daily', 'Day', 'Packets', '#3fb950');
+    }
+
+    // Top Receivers
+    if (data.top_receivers) {
+      const rData = data.top_receivers.map(t => ({ label: t.name || t.id, value: t.count }));
+      drawBarChart(rData, '#d3-an-pernode-receivers', 'Node', 'Count', '#ffaa00');
+    }
+
+    // Top Senders
+    if (data.top_senders) {
+      const sData = data.top_senders.map(t => ({ label: t.name || t.id, value: t.count }));
+      drawBarChart(sData, '#d3-an-pernode-senders', 'Node', 'Count', '#ff88aa');
+    }
+
+    // Destinations (Broadcast vs Private)
+    if (data.destinations) {
+      const destData = [
+        { label: 'Broadcast', value: data.destinations.broadcast || 0 },
+        { label: 'Private', value: data.destinations.private || 0 }
+      ];
+      drawDoughnutChart(destData, '#d3-an-pernode-dest', ['#8844ff', '#ffaa00']);
+    }
+  } catch(e) {
+    console.error('Per-node analytics load error:', e);
+  }
+}
+
 async function initAnalytics() {
+  const select = document.getElementById('analytics-node-select');
+  if (select && select.value !== 'all') {
+    handleNodeSelectChange();
+    return;
+  }
   const days = document.getElementById('analytics-days').value;
   try {
     const r = await fetch(`/api/analytics/packets?days=${days}`);
