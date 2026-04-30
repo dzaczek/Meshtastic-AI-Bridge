@@ -6,7 +6,6 @@ import json
 import time
 from typing import Dict, List, Optional, Any
 from bs4 import BeautifulSoup
-import requests
 from urllib.parse import urljoin, urlparse
 import nest_asyncio
 
