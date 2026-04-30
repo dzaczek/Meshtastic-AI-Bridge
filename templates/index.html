@@ -1547,9 +1547,12 @@
 <div id="tab-analytics" class="tab-pane" style="flex-direction:column; padding: 15px; overflow-y:auto; gap: 15px;">
   <div style="display:flex; justify-content:space-between; align-items:center;">
     <h2 style="color:var(--text); margin:0;">Packet Analytics</h2>
-    <div style="font-size:0.8em; color:var(--muted); display:flex; gap:10px;">
+    <div style="font-size:0.8em; color:var(--muted); display:flex; gap:10px; flex-wrap:wrap;">
       <select id="analytics-node-select" onchange="handleNodeSelectChange()" style="background:var(--surf); color:var(--text); border:1px solid var(--border); padding:4px; max-width: 200px;">
         <option value="all">All Nodes</option>
+      </select>
+      <select id="analytics-portnum" onchange="handleNodeSelectChange()" style="background:var(--surf); color:var(--text); border:1px solid var(--border); padding:4px; max-width:180px;">
+        <option value="">All packet types</option>
       </select>
       <select id="analytics-hours" onchange="handleNodeSelectChange()" style="background:var(--surf); color:var(--text); border:1px solid var(--border); padding:4px;">
         <option value="0.08333333333333333">Last 5m</option>
@@ -1608,8 +1611,13 @@
     </div>
 
     <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
-      <div class="stat-title">Direct Messages (Force-Directed Graph)<button class="graph-expand-btn" onclick="openGraphFs('d3-an-dm-graph','Direct Messages')">⤢</button></div>
+      <div class="stat-title">All Unicast Packets (Force-Directed Graph)<button class="graph-expand-btn" onclick="openGraphFs('d3-an-dm-graph','All Unicast Packets')">⤢</button></div>
       <div id="d3-an-dm-graph" style="height:350px; position:relative; overflow:hidden;"></div>
+    </div>
+
+    <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
+      <div class="stat-title">P2P Conversations — Text Only (Force-Directed Graph)<button class="graph-expand-btn" onclick="openGraphFs('d3-an-dm-text-graph','P2P Text Conversations')">⤢</button></div>
+      <div id="d3-an-dm-text-graph" style="height:350px; position:relative; overflow:hidden;"></div>
     </div>
 
   </div>
@@ -1653,7 +1661,7 @@
     </div>
 
     <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
-      <div class="stat-title">Direct Messages (Force-Directed Graph)
+      <div class="stat-title">All Unicast Packets (Force-Directed Graph)
         <span style="display:flex;align-items:center;gap:6px;margin-left:auto;">
           <label style="font-size:.75em;color:var(--muted);text-transform:none;letter-spacing:0">Top</label>
           <select id="pernode-dm-limit" onchange="redrawPernodeDmGraph()" style="background:var(--surf);color:var(--text);border:1px solid var(--border-s);padding:1px 4px;font-size:.75em;border-radius:3px;">
@@ -1663,10 +1671,26 @@
             <option value="250">250</option>
             <option value="0">All</option>
           </select>
-          <button class="graph-expand-btn" onclick="openGraphFs('d3-an-pernode-dm-graph','Direct Messages')">⤢</button>
+          <button class="graph-expand-btn" onclick="openGraphFs('d3-an-pernode-dm-graph','All Unicast Packets')">⤢</button>
         </span>
       </div>
       <div id="d3-an-pernode-dm-graph" style="height:350px; position:relative; overflow:hidden;"></div>
+    </div>
+
+    <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
+      <div class="stat-title">P2P Conversations — Text Only (Force-Directed Graph)
+        <span style="display:flex;align-items:center;gap:6px;margin-left:auto;">
+          <label style="font-size:.75em;color:var(--muted);text-transform:none;letter-spacing:0">Top</label>
+          <select id="pernode-dm-text-limit" onchange="redrawPernodeDmTextGraph()" style="background:var(--surf);color:var(--text);border:1px solid var(--border-s);padding:1px 4px;font-size:.75em;border-radius:3px;">
+            <option value="25">25</option>
+            <option value="50" selected>50</option>
+            <option value="100">100</option>
+            <option value="0">All</option>
+          </select>
+          <button class="graph-expand-btn" onclick="openGraphFs('d3-an-pernode-dm-text-graph','P2P Text Conversations')">⤢</button>
+        </span>
+      </div>
+      <div id="d3-an-pernode-dm-text-graph" style="height:350px; position:relative; overflow:hidden;"></div>
     </div>
 
   </div> <!-- end per-node container -->
@@ -3220,7 +3244,7 @@ function clearD3(selector) {
 function drawBarChart(data, selector, xLabel, yLabel, color) {
   clearD3(selector);
   const container = document.querySelector(selector);
-  const margin = {top: 10, right: 10, bottom: 20, left: 40};
+  const margin = {top: 10, right: 10, bottom: 42, left: 40};
   const width = container.clientWidth - margin.left - margin.right;
   const height = container.clientHeight - margin.top - margin.bottom;
 
@@ -3240,12 +3264,19 @@ function drawBarChart(data, selector, xLabel, yLabel, color) {
     .nice()
     .range([height, 0]);
 
+  const tickCount = data.length;
+  const skipN = tickCount > 20 ? Math.ceil(tickCount / 12) : 1;
   svg.append("g")
     .attr("transform", `translate(0,${height})`)
-    .call(d3.axisBottom(x).tickSize(0))
+    .call(d3.axisBottom(x).tickSize(0).tickValues(
+      data.filter((_, i) => i % skipN === 0).map(d => d.label)
+    ))
     .selectAll("text")
     .style("fill", "var(--text)")
-    .style("font-size", "10px");
+    .style("font-size", "9px")
+    .attr("transform", "rotate(-40)")
+    .style("text-anchor", "end")
+    .attr("dx", "-.5em").attr("dy", ".1em");
 
   svg.append("g")
     .call(d3.axisLeft(y).ticks(5).tickSizeOuter(0))
@@ -3454,35 +3485,53 @@ function handleNodeSelectChange() {
 }
 
 function _drawPernodeDmGraph() {
-  const allLinks = window._pernodeDmLinks || [];
-  const limitSel = document.getElementById('pernode-dm-limit');
-  const limit = limitSel ? parseInt(limitSel.value) : 50;
-
-  // Deduplicate: merge A→B and B→A into one link with combined count
-  const linkMap = new Map();
-  allLinks.forEach(l => {
-    const key = [l.from, l.to].sort().join('|');
-    if (linkMap.has(key)) {
-      linkMap.get(key).count += l.count;
-    } else {
-      linkMap.set(key, { ...l });
-    }
-  });
-
-  // Sort by count DESC so Top N always picks most active links
-  const sorted = Array.from(linkMap.values()).sort((a, b) => b.count - a.count);
-  const links = (limit > 0) ? sorted.slice(0, limit) : sorted;
-
-  clearD3('#d3-an-pernode-dm-graph');
-  if (links.length > 0) {
-    drawForceDirectedGraph(links, '#d3-an-pernode-dm-graph', '#3fb950');
-  } else {
-    const el = document.querySelector('#d3-an-pernode-dm-graph');
-    if (el) el.innerHTML = '<p style="color:var(--muted);padding:20px;font-size:.8em">No direct message links in this period.</p>';
-  }
+  _drawGraphOrEmpty(_applyDmLimit(window._pernodeDmLinks || [], 'pernode-dm-limit'),
+    '#d3-an-pernode-dm-graph', '#3fb950');
 }
 
 function redrawPernodeDmGraph() { _drawPernodeDmGraph(); }
+
+function _buildDmLinks(receivers, senders, nodeId, nodeName) {
+  const BROADCAST = ['broadcast','ffffffff','?'];
+  const allLinks = [];
+  (receivers || []).forEach(r => {
+    if (!BROADCAST.includes(r.id))
+      allLinks.push({ from: nodeId, from_name: nodeName, to: r.id, to_name: r.name || r.id, count: r.count });
+  });
+  (senders || []).forEach(s => {
+    if (!BROADCAST.includes(s.id))
+      allLinks.push({ from: s.id, from_name: s.name || s.id, to: nodeId, to_name: nodeName, count: s.count });
+  });
+  return allLinks;
+}
+
+function _applyDmLimit(allLinks, limitSelId) {
+  const limitSel = document.getElementById(limitSelId);
+  const limit = limitSel ? parseInt(limitSel.value) : 50;
+  const linkMap = new Map();
+  allLinks.forEach(l => {
+    const key = [l.from, l.to].sort().join('|');
+    if (linkMap.has(key)) linkMap.get(key).count += l.count;
+    else linkMap.set(key, { ...l });
+  });
+  const sorted = Array.from(linkMap.values()).sort((a, b) => b.count - a.count);
+  return (limit > 0) ? sorted.slice(0, limit) : sorted;
+}
+
+function _drawGraphOrEmpty(links, selector, color) {
+  clearD3(selector);
+  if (links.length > 0) {
+    drawForceDirectedGraph(links, selector, color);
+  } else {
+    const el = document.querySelector(selector);
+    if (el) el.innerHTML = '<p style="color:var(--muted);padding:20px;font-size:.8em">No links in this period.</p>';
+  }
+}
+
+function redrawPernodeDmTextGraph() {
+  _drawGraphOrEmpty(_applyDmLimit(window._pernodeDmTextLinks || [], 'pernode-dm-text-limit'),
+    '#d3-an-pernode-dm-text-graph', '#f8a64a');
+}
 
 let _pernodeAbortCtrl = null;
 
@@ -3530,24 +3579,16 @@ async function loadPerNodeAnalytics(nodeId) {
       drawDoughnutChart(destData, '#d3-an-pernode-dest', ['#8844ff', '#ffaa00']);
     }
 
-    // DM Force Graph — build links from receivers + senders, store for top-N filtering
+    // DM Force Graphs (all unicast + text-only)
     {
       const nodeName = (() => {
         const n = nodesCache.find(x => x.id === nodeId);
         return n ? (n.short_name || n.long_name || nodeId) : nodeId;
       })();
-      const BROADCAST = ['broadcast','ffffffff','?'];
-      const allLinks = [];
-      (data.top_receivers || []).forEach(r => {
-        if (!BROADCAST.includes(r.id))
-          allLinks.push({ from: nodeId, from_name: nodeName, to: r.id, to_name: r.name || r.id, count: r.count });
-      });
-      (data.top_senders || []).forEach(s => {
-        if (!BROADCAST.includes(s.id))
-          allLinks.push({ from: s.id, from_name: s.name || s.id, to: nodeId, to_name: nodeName, count: s.count });
-      });
-      window._pernodeDmLinks = allLinks;
+      window._pernodeDmLinks     = _buildDmLinks(data.top_receivers,      data.top_senders,      nodeId, nodeName);
+      window._pernodeDmTextLinks = _buildDmLinks(data.top_receivers_text, data.top_senders_text, nodeId, nodeName);
       _drawPernodeDmGraph();
+      redrawPernodeDmTextGraph();
     }
 
   } catch(e) {
@@ -3563,10 +3604,20 @@ async function initAnalytics() {
     return;
   }
   const hours = document.getElementById('analytics-hours').value;
+  const portnum = document.getElementById('analytics-portnum')?.value || '';
+  const portnumParam = portnum ? `&portnum=${encodeURIComponent(portnum)}` : '';
   try {
-    const r = await fetch(`/api/analytics/packets?hours=${hours}`);
+    const r = await fetch(`/api/analytics/packets?hours=${hours}${portnumParam}`);
     if (!r.ok) return;
     const data = await r.json();
+
+    // Populate portnum filter dropdown from live data
+    const pnSel = document.getElementById('analytics-portnum');
+    if (pnSel && data.portnum_types) {
+      const cur = pnSel.value;
+      pnSel.innerHTML = '<option value="">All packet types</option>' +
+        data.portnum_types.map(t => `<option value="${t}" ${t===cur?'selected':''}>${t.replace('_APP','')}</option>`).join('');
+    }
 
     // 1. Hourly Bar
     const hData = Object.keys(data.hourly).map(h => ({ label: `${h}:00`, value: data.hourly[h] }));
@@ -3596,8 +3647,15 @@ async function initAnalytics() {
     // 6. Encrypted Senders Bubble
     if(data.encrypted_senders) drawBubbleChart(data.encrypted_senders, '#d3-an-encrypted-senders-bubble', d3.schemeDark2);
 
-    // 7. DM Force Graph
+    // 7a. All Unicast Force Graph
     if(data.top_links) drawForceDirectedGraph(data.top_links, '#d3-an-dm-graph', '#3fb950');
+    // 7b. Text-Only P2P Force Graph
+    clearD3('#d3-an-dm-text-graph');
+    if(data.top_links_text && data.top_links_text.length > 0)
+      drawForceDirectedGraph(data.top_links_text, '#d3-an-dm-text-graph', '#f8a64a');
+    else
+      document.querySelector('#d3-an-dm-text-graph').innerHTML =
+        '<p style="color:var(--muted);padding:20px;font-size:.8em">No text DMs in this period.</p>';
 
     // 8. Heatmap
     if (!analyticsHeatmap) {

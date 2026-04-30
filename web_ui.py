@@ -906,13 +906,13 @@ if _HAS_FLASK:
 
         stats = _node_db.get_per_node_analytics(node_id, hours=hours)
 
-        # Resolve names for top_receivers and top_senders
-        if "top_receivers" in stats:
-            for r in stats["top_receivers"]:
-                r["name"] = _node_name(r["id"], getattr(_meshtastic_handler, "interface", None))
-        if "top_senders" in stats:
-            for s in stats["top_senders"]:
-                s["name"] = _node_name(s["id"], getattr(_meshtastic_handler, "interface", None))
+        iface = getattr(_meshtastic_handler, "interface", None)
+        for key in ("top_receivers", "top_receivers_text"):
+            for r in stats.get(key, []):
+                r["name"] = _node_name(r["id"], iface)
+        for key in ("top_senders", "top_senders_text"):
+            for s in stats.get(key, []):
+                s["name"] = _node_name(s["id"], iface)
 
         return jsonify(stats)
 
@@ -927,23 +927,20 @@ if _HAS_FLASK:
         else:
             hours = float(request.args.get("days", 7)) * 24.0
 
-        stats = _node_db.get_packet_analytics(hours=hours)
+        portnum_filter = request.args.get("portnum") or None
 
-        # Resolve names for top_senders and top_links
+        stats = _node_db.get_packet_analytics(hours=hours, portnum_filter=portnum_filter)
+
+        iface = getattr(_meshtastic_handler, "interface", None)
         if "top_senders" in stats:
             for s in stats["top_senders"]:
-                s["name"] = _node_name(s["id"], getattr(_meshtastic_handler, "interface", None))
-        if "top_links" in stats:
-            for l in stats["top_links"]:
-                l["from_name"] = _node_name(l["from"], getattr(_meshtastic_handler, "interface", None))
-                l["to_name"] = _node_name(l["to"], getattr(_meshtastic_handler, "interface", None))
-        if "encrypted_senders" in stats:
-            for s in stats["encrypted_senders"]:
-                s["name"] = _node_name(s["id"], getattr(_meshtastic_handler, "interface", None))
-        if "encrypted_links" in stats:
-            for l in stats["encrypted_links"]:
-                l["from_name"] = _node_name(l["from"], getattr(_meshtastic_handler, "interface", None))
-                l["to_name"] = _node_name(l["to"], getattr(_meshtastic_handler, "interface", None))
+                s["name"] = _node_name(s["id"], iface)
+        for link_key in ("top_links", "top_links_text", "encrypted_links"):
+            for l in stats.get(link_key, []):
+                l["from_name"] = _node_name(l["from"], iface)
+                l["to_name"]   = _node_name(l["to"],   iface)
+        for s in stats.get("encrypted_senders", []):
+            s["name"] = _node_name(s["id"], iface)
 
         return jsonify(stats)
 
