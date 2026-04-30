@@ -372,7 +372,8 @@ class HalBot:
             'is_mqtt': is_mqtt,
             'requester_id': sender_id,
             'requester_name': sender_name,
-            'channel_id': channel_id
+            'channel_id': channel_id,
+            'is_dm': is_dm,
         }
 
         self._start_traceroute_collection(target_id)
@@ -432,19 +433,16 @@ class HalBot:
                 
                 # Send response back to the requester (not the target)
                 if self.meshtastic_handler and self.meshtastic_handler.is_connected:
-                    # Use the stored channel_id if this was a channel message
-                    channel_id = traceroute_data.get('channel_id')
-                    if channel_id is not None:
-                        # Send to channel
-                        self.meshtastic_handler.send_message(
-                            response,
-                            channel_index=channel_id
-                        )
-                    else:
-                        # Send as DM
+                    if traceroute_data.get('is_dm'):
                         self.meshtastic_handler.send_message(
                             response,
                             destination_id_hex=traceroute_data['requester_id']
+                        )
+                    else:
+                        channel_id = traceroute_data.get('channel_id') or 0
+                        self.meshtastic_handler.send_message(
+                            response,
+                            channel_index=channel_id
                         )
                 
                 # Clean up
