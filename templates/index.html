@@ -676,7 +676,27 @@
     .stat-title{
       color:var(--primary);font-size:.67em;text-transform:uppercase;
       letter-spacing:1.5px;margin-bottom:6px;
+      display:flex;align-items:center;justify-content:space-between;
     }
+    .graph-expand-btn{
+      background:none;border:1px solid var(--border-s);color:var(--muted);
+      border-radius:4px;cursor:pointer;padding:1px 6px;font-size:1em;
+      line-height:1;flex-shrink:0;margin-left:6px;opacity:.6;transition:opacity .15s;
+    }
+    .graph-expand-btn:hover{opacity:1;border-color:var(--accent);color:var(--text);}
+    #graph-fs-overlay{
+      display:none;position:fixed;inset:0;z-index:10000;
+      background:rgba(7,9,12,.96);flex-direction:column;padding:16px;gap:10px;
+    }
+    #graph-fs-overlay.active{display:flex;}
+    #graph-fs-header{display:flex;align-items:center;gap:10px;}
+    #graph-fs-title-text{color:var(--text);font-size:.9em;font-weight:600;
+      text-transform:uppercase;letter-spacing:1px;flex:1;}
+    #graph-fs-close{background:none;border:1px solid var(--border-s);color:var(--muted);
+      border-radius:4px;cursor:pointer;padding:3px 10px;font-size:1.1em;}
+    #graph-fs-close:hover{color:var(--text);border-color:var(--accent);}
+    #graph-fs-content{flex:1;position:relative;min-height:0;overflow:hidden;}
+    #graph-fs-content svg{width:100%!important;height:100%!important;display:block;}
     .stat-big{font-size:1.8em;font-weight:bold;color:var(--text);line-height:1;}
     .stat-sub{font-size:.72em;color:var(--muted);margin-top:2px;}
     .stat-row2{display:flex;justify-content:space-between;font-size:.78em;padding:2px 0;border-bottom:1px solid #1a1a1a;}
@@ -1539,22 +1559,22 @@
   <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:15px;">
 
     <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
-      <div class="stat-title">Hourly Activity</div>
+      <div class="stat-title">Hourly Activity<button class="graph-expand-btn" onclick="openGraphFs('d3-an-hourly','Hourly Activity')">⤢</button></div>
       <div id="d3-an-hourly" style="height:150px; position:relative;"></div>
     </div>
 
     <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
-      <div class="stat-title">Top App Types</div>
+      <div class="stat-title">Top App Types<button class="graph-expand-btn" onclick="openGraphFs('d3-an-types','Top App Types')">⤢</button></div>
       <div id="d3-an-types" style="height:150px; position:relative;"></div>
     </div>
 
     <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md); display:flex; align-items:center;">
       <div style="flex:1;">
-          <div class="stat-title">Destinations</div>
+          <div class="stat-title">Destinations<button class="graph-expand-btn" onclick="openGraphFs('d3-an-dest','Destinations')">⤢</button></div>
           <div id="d3-an-dest" style="height:130px; position:relative;"></div>
       </div>
       <div style="flex:1;">
-          <div class="stat-title">Encryption</div>
+          <div class="stat-title">Encryption<button class="graph-expand-btn" onclick="openGraphFs('d3-an-enc','Encryption')">⤢</button></div>
           <div id="d3-an-enc" style="height:130px; position:relative;"></div>
       </div>
     </div>
@@ -1564,24 +1584,24 @@
   <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(400px, 1fr)); gap:15px;">
 
     <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
-      <div class="stat-title">Top Senders (Bubble Chart)</div>
+      <div class="stat-title">Top Senders (Bubble Chart)<button class="graph-expand-btn" onclick="openGraphFs('d3-an-senders-bubble','Top Senders')">⤢</button></div>
       <div id="d3-an-senders-bubble" style="height:350px; position:relative; overflow:hidden;"></div>
     </div>
 
     <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
-      <div class="stat-title">Encrypted Senders (Bubble Chart)</div>
+      <div class="stat-title">Encrypted Senders (Bubble Chart)<button class="graph-expand-btn" onclick="openGraphFs('d3-an-encrypted-senders-bubble','Encrypted Senders')">⤢</button></div>
       <div id="d3-an-encrypted-senders-bubble" style="height:350px; position:relative; overflow:hidden;"></div>
     </div>
 
     <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
-      <div class="stat-title">Direct Messages (Force-Directed Graph)</div>
+      <div class="stat-title">Direct Messages (Force-Directed Graph)<button class="graph-expand-btn" onclick="openGraphFs('d3-an-dm-graph','Direct Messages')">⤢</button></div>
       <div id="d3-an-dm-graph" style="height:350px; position:relative; overflow:hidden;"></div>
     </div>
 
   </div>
 
   <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
-    <div class="stat-title">Most Talkative Nodes (Heatmap)</div>
+    <div class="stat-title">Most Talkative Nodes (Heatmap)<button class="graph-expand-btn" onclick="openHeatmapFs()" title="Fullscreen">⤢</button></div>
     <div id="analytics-heatmap" style="height:400px; border-radius:var(--r-md); border:1px solid var(--border-s); position:relative; z-index:0;"></div>
   </div>
 
@@ -3051,6 +3071,47 @@ function clearDm() {
 
 // ── ANALYTICS (D3) ─────────────────────────────────────────────────────────────
 let analyticsHeatmap = null;
+
+function openGraphFs(chartId, title) {
+  const src = document.getElementById(chartId);
+  const overlay = document.getElementById('graph-fs-overlay');
+  const content = document.getElementById('graph-fs-content');
+  document.getElementById('graph-fs-title-text').textContent = title;
+  content.innerHTML = '';
+  const svg = src && src.querySelector('svg');
+  if (svg) {
+    const clone = svg.cloneNode(true);
+    // Preserve viewBox so SVG scales properly
+    if (!clone.getAttribute('viewBox')) {
+      const w = svg.getBoundingClientRect().width || svg.getAttribute('width') || 400;
+      const h = svg.getBoundingClientRect().height || svg.getAttribute('height') || 300;
+      clone.setAttribute('viewBox', `0 0 ${w} ${h}`);
+    }
+    clone.removeAttribute('width');
+    clone.removeAttribute('height');
+    clone.style.cssText = 'width:100%;height:100%;display:block;';
+    content.appendChild(clone);
+  } else {
+    content.innerHTML = '<p style="color:var(--muted);padding:20px">No data to display yet.</p>';
+  }
+  overlay.classList.add('active');
+}
+
+function openHeatmapFs() {
+  const el = document.getElementById('analytics-heatmap');
+  if (el.requestFullscreen) {
+    el.requestFullscreen().then(() => {
+      setTimeout(() => { if (analyticsHeatmap) analyticsHeatmap.invalidateSize(); }, 200);
+    });
+  }
+}
+
+function closeGraphFs() {
+  document.getElementById('graph-fs-overlay').classList.remove('active');
+  document.getElementById('graph-fs-content').innerHTML = '';
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeGraphFs(); });
 
 function clearD3(selector) {
   const el = document.querySelector(selector);
@@ -5104,5 +5165,13 @@ async function fetchMyDeviceInfo() {
   setInterval(fetchTraceroutes, 10000);
 })();
 </script>
+<!-- Graph Fullscreen Overlay -->
+<div id="graph-fs-overlay" onclick="if(event.target===this)closeGraphFs()">
+  <div id="graph-fs-header">
+    <span id="graph-fs-title-text"></span>
+    <button id="graph-fs-close" onclick="closeGraphFs()" title="Close (Esc)">✕</button>
+  </div>
+  <div id="graph-fs-content"></div>
+</div>
 </body>
 </html>
