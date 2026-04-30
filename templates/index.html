@@ -959,6 +959,14 @@
     .nb-cnt{color:var(--text);white-space:nowrap;padding-left:6px;}
     .nb-snr{white-space:nowrap;padding-left:6px;min-width:50px;text-align:right;}
 
+    /* D3 Tooltip */
+    .d3-tooltip-bg {
+      filter: drop-shadow(0 4px 12px rgba(0,0,0,0.5));
+    }
+    .d3-tooltip-text {
+      pointer-events: none;
+    }
+
     /* Error banner */
     #error-banner{
       background:#2e0a0a;border-bottom:1px solid var(--err);
@@ -1525,6 +1533,7 @@
       <button class="tb-btn" onclick="setPktFilter(this,'NODEINFO')">Node Info</button>
       <button class="tb-btn" onclick="setPktFilter(this,'ROUTING')">Routing</button>
       <button class="tb-btn" id="btn-routes" onclick="toggleRoutesView(this)">Routes</button>
+      <button class="tb-btn" id="btn-hide-bcast" onclick="toggleHideBroadcast(this)">Hide Broadcast</button>
       <div class="tb-sep"></div>
       <button class="tb-btn active" id="btn-pkt-as" onclick="togglePktScroll()">Auto-scroll</button>
       <button class="tb-btn" onclick="clearPackets()">Clear</button>
@@ -1547,10 +1556,17 @@
 <div id="tab-analytics" class="tab-pane" style="flex-direction:column; padding: 15px; overflow-y:auto; gap: 15px;">
   <div style="display:flex; justify-content:space-between; align-items:center;">
     <h2 style="color:var(--text); margin:0;">Packet Analytics</h2>
-    <div style="font-size:0.8em; color:var(--muted); display:flex; gap:10px;">
+    <div style="font-size:0.8em; color:var(--muted); display:flex; gap:10px; flex-wrap:wrap;">
       <select id="analytics-node-select" onchange="handleNodeSelectChange()" style="background:var(--surf); color:var(--text); border:1px solid var(--border); padding:4px; max-width: 200px;">
         <option value="all">All Nodes</option>
       </select>
+      <select id="analytics-portnum" onchange="handleNodeSelectChange()" style="background:var(--surf); color:var(--text); border:1px solid var(--border); padding:4px; max-width:180px;">
+        <option value="">All packet types</option>
+      </select>
+      <button id="analytics-hide-bcast" onclick="toggleAnalyticsBroadcast(this)"
+        style="background:var(--surf);color:var(--muted);border:1px solid var(--border);padding:4px 8px;border-radius:4px;cursor:pointer;font-size:.8em;">
+        Hide Broadcast
+      </button>
       <select id="analytics-hours" onchange="handleNodeSelectChange()" style="background:var(--surf); color:var(--text); border:1px solid var(--border); padding:4px;">
         <option value="0.08333333333333333">Last 5m</option>
         <option value="0.16666666666666666">Last 10m</option>
@@ -1608,8 +1624,27 @@
     </div>
 
     <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
-      <div class="stat-title">Direct Messages (Force-Directed Graph)<button class="graph-expand-btn" onclick="openGraphFs('d3-an-dm-graph','Direct Messages')">⤢</button></div>
+      <div class="stat-title">All Unicast Packets (Force-Directed Graph)<button class="graph-expand-btn" onclick="openGraphFs('d3-an-dm-graph','All Unicast Packets')">⤢</button></div>
       <div id="d3-an-dm-graph" style="height:350px; position:relative; overflow:hidden;"></div>
+    </div>
+
+    <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
+      <div class="stat-title">P2P Conversations — Text Only (Force-Directed Graph)<button class="graph-expand-btn" onclick="openGraphFs('d3-an-dm-text-graph','P2P Text Conversations')">⤢</button></div>
+      <div id="d3-an-dm-text-graph" style="height:350px; position:relative; overflow:hidden;"></div>
+    </div>
+
+  </div>
+
+  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(400px, 1fr)); gap:15px;">
+
+    <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
+      <div class="stat-title">SNR vs RSSI (Scatter Plot)<button class="graph-expand-btn" onclick="openGraphFs('d3-an-snr-scatter','SNR vs RSSI')">⤢</button></div>
+      <div id="d3-an-snr-scatter" style="height:350px; position:relative; overflow:hidden;"></div>
+    </div>
+
+    <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
+      <div class="stat-title">Average Battery Decay (Line Chart)<button class="graph-expand-btn" onclick="openGraphFs('d3-an-battery-decay','Battery Decay')">⤢</button></div>
+      <div id="d3-an-battery-decay" style="height:350px; position:relative; overflow:hidden;"></div>
     </div>
 
   </div>
@@ -1653,8 +1688,36 @@
     </div>
 
     <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
-      <div class="stat-title">Direct Messages (Force-Directed Graph)<button class="graph-expand-btn" onclick="openGraphFs('d3-an-pernode-dm-graph','Direct Messages')">⤢</button></div>
+      <div class="stat-title">All Unicast Packets (Force-Directed Graph)
+        <span style="display:flex;align-items:center;gap:6px;margin-left:auto;">
+          <label style="font-size:.75em;color:var(--muted);text-transform:none;letter-spacing:0">Top</label>
+          <select id="pernode-dm-limit" onchange="redrawPernodeDmGraph()" style="background:var(--surf);color:var(--text);border:1px solid var(--border-s);padding:1px 4px;font-size:.75em;border-radius:3px;">
+            <option value="25">25</option>
+            <option value="50" selected>50</option>
+            <option value="100">100</option>
+            <option value="250">250</option>
+            <option value="0">All</option>
+          </select>
+          <button class="graph-expand-btn" onclick="openGraphFs('d3-an-pernode-dm-graph','All Unicast Packets')">⤢</button>
+        </span>
+      </div>
       <div id="d3-an-pernode-dm-graph" style="height:350px; position:relative; overflow:hidden;"></div>
+    </div>
+
+    <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
+      <div class="stat-title">P2P Conversations — Text Only (Force-Directed Graph)
+        <span style="display:flex;align-items:center;gap:6px;margin-left:auto;">
+          <label style="font-size:.75em;color:var(--muted);text-transform:none;letter-spacing:0">Top</label>
+          <select id="pernode-dm-text-limit" onchange="redrawPernodeDmTextGraph()" style="background:var(--surf);color:var(--text);border:1px solid var(--border-s);padding:1px 4px;font-size:.75em;border-radius:3px;">
+            <option value="25">25</option>
+            <option value="50" selected>50</option>
+            <option value="100">100</option>
+            <option value="0">All</option>
+          </select>
+          <button class="graph-expand-btn" onclick="openGraphFs('d3-an-pernode-dm-text-graph','P2P Text Conversations')">⤢</button>
+        </span>
+      </div>
+      <div id="d3-an-pernode-dm-text-graph" style="height:350px; position:relative; overflow:hidden;"></div>
     </div>
 
   </div> <!-- end per-node container -->
@@ -2178,6 +2241,8 @@ let seenFilter  = 86400;
 let nodeSearch  = '';
 let sortBy     = 'last_seen';
 let pktFilter  = 'all';
+let pktHideBroadcast = false;
+let analyticsHideBroadcast = false;
 let nodesCache    = [];
 let channelsCache = [];   // [{index, name}] from /api/channels
 
@@ -2930,6 +2995,7 @@ function pktTypeColor(portnum) {
 
 function appendPacket(p) {
   if (pktFilter!=='all'&&!p.portnum.toUpperCase().includes(pktFilter.toUpperCase())) return;
+  if (pktHideBroadcast && (p.to_id==='broadcast'||p.to_id==='ffffffff')) return;
   const snrStr = p.snr!==null&&p.snr!==undefined ? p.snr : '--';
   const rssiStr= p.rssi!==null&&p.rssi!==undefined? p.rssi:'--';
   const signalStr = `${snrStr}/${rssiStr}`;
@@ -3064,6 +3130,22 @@ async function fetchPacketStats() {
       el.style.height = `${Math.min(30,Math.max(4,Math.round((rate/(threshold||1))*20)))}px`;
     }
   } catch(e) {}
+}
+
+function toggleHideBroadcast(btn) {
+  pktHideBroadcast = !pktHideBroadcast;
+  btn.classList.toggle('active', pktHideBroadcast);
+  btn.style.color = pktHideBroadcast ? 'var(--text)' : 'var(--muted)';
+  pktFeed.innerHTML=''; pktFeedCount=0; pktNodeCounts={}; lastPktTs=0;
+  fetchPackets();
+}
+
+function toggleAnalyticsBroadcast(btn) {
+  analyticsHideBroadcast = !analyticsHideBroadcast;
+  btn.classList.toggle('active', analyticsHideBroadcast);
+  btn.style.color = analyticsHideBroadcast ? 'var(--text)' : 'var(--muted)';
+  btn.style.borderColor = analyticsHideBroadcast ? 'var(--accent)' : 'var(--border)';
+  handleNodeSelectChange();
 }
 
 function setPktFilter(btn, val) {
@@ -3208,7 +3290,7 @@ function clearD3(selector) {
 function drawBarChart(data, selector, xLabel, yLabel, color) {
   clearD3(selector);
   const container = document.querySelector(selector);
-  const margin = {top: 10, right: 10, bottom: 20, left: 40};
+  const margin = {top: 10, right: 10, bottom: 42, left: 40};
   const width = container.clientWidth - margin.left - margin.right;
   const height = container.clientHeight - margin.top - margin.bottom;
 
@@ -3228,12 +3310,19 @@ function drawBarChart(data, selector, xLabel, yLabel, color) {
     .nice()
     .range([height, 0]);
 
+  const tickCount = data.length;
+  const skipN = tickCount > 20 ? Math.ceil(tickCount / 12) : 1;
   svg.append("g")
     .attr("transform", `translate(0,${height})`)
-    .call(d3.axisBottom(x).tickSize(0))
+    .call(d3.axisBottom(x).tickSize(0).tickValues(
+      data.filter((_, i) => i % skipN === 0).map(d => d.label)
+    ))
     .selectAll("text")
     .style("fill", "var(--text)")
-    .style("font-size", "10px");
+    .style("font-size", "9px")
+    .attr("transform", "rotate(-40)")
+    .style("text-anchor", "end")
+    .attr("dx", "-.5em").attr("dy", ".1em");
 
   svg.append("g")
     .call(d3.axisLeft(y).ticks(5).tickSizeOuter(0))
@@ -3347,6 +3436,110 @@ function drawBubbleChart(data, selector, colorScheme) {
     .text(d => (d.r > 20) ? d.data.count : "");
 }
 
+function drawScatterPlot(data, selector) {
+  clearD3(selector);
+  const container = document.querySelector(selector);
+  if(!container) return;
+  const margin = {top: 20, right: 20, bottom: 40, left: 50};
+  const width = container.clientWidth - margin.left - margin.right;
+  const height = container.clientHeight - margin.top - margin.bottom;
+
+  const svg = d3.select(selector).append("svg")
+    .attr("width", width + margin.left + margin.right)
+    .attr("height", height + margin.top + margin.bottom)
+    .append("g")
+    .attr("transform", `translate(${margin.left},${margin.top})`);
+
+  const x = d3.scaleLinear()
+    .domain(d3.extent(data, d => d.rssi)).nice()
+    .range([0, width]);
+
+  const y = d3.scaleLinear()
+    .domain(d3.extent(data, d => d.snr)).nice()
+    .range([height, 0]);
+
+  svg.append("g")
+    .attr("transform", `translate(0,${height})`)
+    .call(d3.axisBottom(x))
+    .selectAll("text").style("fill", "var(--muted)");
+
+  svg.append("g")
+    .call(d3.axisLeft(y))
+    .selectAll("text").style("fill", "var(--muted)");
+
+  svg.append("text")
+    .attr("text-anchor", "end")
+    .attr("x", width)
+    .attr("y", height - 6)
+    .attr("fill", "var(--muted)")
+    .style("font-size", "10px")
+    .text("RSSI (dBm)");
+
+  svg.append("text")
+    .attr("text-anchor", "end")
+    .attr("y", 6)
+    .attr("dy", ".75em")
+    .attr("transform", "rotate(-90)")
+    .attr("fill", "var(--muted)")
+    .style("font-size", "10px")
+    .text("SNR (dB)");
+
+  svg.append('g')
+    .selectAll("dot")
+    .data(data)
+    .enter()
+    .append("circle")
+      .attr("cx", d => x(d.rssi))
+      .attr("cy", d => y(d.snr))
+      .attr("r", 3)
+      .style("fill", "var(--primary)")
+      .style("opacity", 0.5);
+}
+
+function drawLineChart(data, selector) {
+  clearD3(selector);
+  const container = document.querySelector(selector);
+  if(!container) return;
+  const margin = {top: 20, right: 20, bottom: 40, left: 50};
+  const width = container.clientWidth - margin.left - margin.right;
+  const height = container.clientHeight - margin.top - margin.bottom;
+
+  const svg = d3.select(selector).append("svg")
+    .attr("width", width + margin.left + margin.right)
+    .attr("height", height + margin.top + margin.bottom)
+    .append("g")
+    .attr("transform", `translate(${margin.left},${margin.top})`);
+
+  const x = d3.scaleTime()
+    .domain(d3.extent(data, d => new Date(d.ts * 1000)))
+    .range([0, width]);
+
+  const y = d3.scaleLinear()
+    .domain([0, 100])
+    .range([height, 0]);
+
+  svg.append("g")
+    .attr("transform", `translate(0,${height})`)
+    .call(d3.axisBottom(x).ticks(5))
+    .selectAll("text").style("fill", "var(--muted)");
+
+  svg.append("g")
+    .call(d3.axisLeft(y).ticks(5))
+    .selectAll("text").style("fill", "var(--muted)");
+
+  const line = d3.line()
+    .x(d => x(new Date(d.ts * 1000)))
+    .y(d => y(d.battery));
+
+  svg.append("path")
+    .datum(data)
+    .attr("fill", "none")
+    .attr("stroke", "var(--ai)")
+    .attr("stroke-width", 2)
+    .attr("d", line);
+}
+
+
 // Store last data per selector for interactive fullscreen re-render
 const _forceGraphData = {};
 
@@ -3362,67 +3555,121 @@ function drawForceDirectedGraph(linksData, selector, color) {
   _forceGraphData[selector] = { linksData, color };
 
   const nodesMap = new Map();
+  let packetSum = 0;
   linksData.forEach(l => {
-    if (!nodesMap.has(l.from)) nodesMap.set(l.from, { id: l.from, name: l.from_name || l.from });
-    if (!nodesMap.has(l.to))   nodesMap.set(l.to,   { id: l.to,   name: l.to_name   || l.to   });
+    packetSum += l.count;
+    if (!nodesMap.has(l.from)) nodesMap.set(l.from, { id: l.from, name: l.from_name || l.from, packetCount: 0 });
+    if (!nodesMap.has(l.to))   nodesMap.set(l.to,   { id: l.to,   name: l.to_name   || l.to, packetCount: 0 });
+    nodesMap.get(l.from).packetCount += l.count;
+    nodesMap.get(l.to).packetCount += l.count;
   });
 
   const nodes = Array.from(nodesMap.values());
   const links = linksData.map(l => ({ source: l.from, target: l.to, value: l.count }));
 
-  const svg = d3.select(selector).append("svg")
-    .attr("width", width).attr("height", height)
-    .style("overflow", "hidden");
+  const canvas = d3.select(selector).append("canvas")
+    .attr("width", width)
+    .attr("height", height)
+    .style("position", "absolute")
+    .style("top", "0").style("left", "0");
+  const ctx = canvas.node().getContext("2d");
 
-  // Zoom + pan layer
-  const g = svg.append("g");
-  svg.call(d3.zoom()
-    .scaleExtent([0.2, 8])
-    .on("zoom", e => g.attr("transform", e.transform)));
+  // Overlay SVG for Tooltips and interacion
+  const svg = d3.select(selector).append("svg")
+    .attr("width", width)
+    .attr("height", height)
+    .style("position", "absolute")
+    .style("top", "0").style("left", "0")
+    .style("pointer-events", "none");
+
+  const tooltipGroup = svg.append("g").style("opacity", 0);
+  const tooltipBg = tooltipGroup.append("rect")
+    .attr("class", "d3-tooltip-bg")
+    .attr("rx", 4).attr("ry", 4)
+    .style("fill", "rgba(10,14,20,0.9)")
+    .style("stroke", "var(--border-s)")
+    .style("stroke-width", 1);
+  const tooltipText = tooltipGroup.append("text")
+    .attr("class", "d3-tooltip-text")
+    .style("fill", "var(--text)")
+    .style("font-family", "var(--font-mono)")
+    .style("font-size", "10px");
+
+  let transform = d3.zoomIdentity;
+  let hoveredNode = null;
+
+  d3.select(canvas.node()).call(d3.zoom()
+    .scaleExtent([0.1, 8])
+    .on("zoom", e => {
+      transform = e.transform;
+      drawCanvas();
+    })
+    .on("start", () => { hoveredNode = null; drawCanvas(); tooltipGroup.style("opacity", 0); })
+  ).on("mousemove", (e) => {
+    const pt = d3.pointer(e, canvas.node());
+    const mx = transform.invertX(pt[0]);
+    const my = transform.invertY(pt[1]);
+    hoveredNode = simulation.find(mx, my, 20 / transform.k);
+
+    if (hoveredNode) {
+      drawCanvas();
+      tooltipText.text(hoveredNode.name);
+      const bbox = tooltipText.node().getBBox();
+      tooltipBg.attr("width", bbox.width + 12).attr("height", bbox.height + 8)
+               .attr("x", bbox.x - 6).attr("y", bbox.y - 4);
+      tooltipGroup.attr("transform", `translate(${pt[0] + 12}, ${pt[1] + 12})`)
+                  .style("opacity", 1);
+    } else {
+      drawCanvas();
+      tooltipGroup.style("opacity", 0);
+    }
+  }).on("mouseout", () => {
+    hoveredNode = null;
+    drawCanvas();
+    tooltipGroup.style("opacity", 0);
+  });
 
   const simulation = d3.forceSimulation(nodes)
     .force("link",    d3.forceLink(links).id(d => d.id).distance(60))
-    .force("charge",  d3.forceManyBody().strength(-200))
+    .force("charge",  d3.forceManyBody().strength(-150))
     .force("center",  d3.forceCenter(width / 2, height / 2))
-    .force("collide", d3.forceCollide().radius(22))
-    .force("x",       d3.forceX(width  / 2).strength(0.05))
-    .force("y",       d3.forceY(height / 2).strength(0.05));
+    .force("collide", d3.forceCollide().radius(d => Math.max(3, Math.min(12, Math.sqrt(d.packetCount || 0))) + 2))
+    .on("tick", drawCanvas);
 
   const maxVal = d3.max(links, d => d.value) || 1;
 
-  const link = g.append("g")
-    .attr("stroke", "var(--border-s)").attr("stroke-opacity", 0.7)
-    .selectAll("line").data(links).enter().append("line")
-    .attr("stroke-width", d => Math.max(1, (d.value / maxVal) * 5))
-    .append("title").text(d => `${d.value} packets`);
+  function drawCanvas() {
+    ctx.save();
+    ctx.clearRect(0, 0, width, height);
+    ctx.translate(transform.x, transform.y);
+    ctx.scale(transform.k, transform.k);
 
-  const node = g.append("g").selectAll("g").data(nodes).enter().append("g")
-    .call(d3.drag()
-      .on("start", (e, d) => { if (!e.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
-      .on("drag",  (e, d) => { d.fx = e.x; d.fy = e.y; })
-      .on("end",   (e, d) => { if (!e.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; }));
-
-  node.append("circle")
-    .attr("r", 9).attr("fill", color)
-    .attr("stroke", "var(--bg)").attr("stroke-width", 1.5)
-    .append("title").text(d => d.name);
-
-  node.append("text")
-    .attr("x", 12).attr("y", 4)
-    .style("font-size", "10px").style("fill", "var(--text)")
-    .text(d => d.name);
-
-  simulation.on("tick", () => {
-    // Clamp to bounds (zoom-world coords, pad keeps labels visible)
-    nodes.forEach(d => {
-      d.x = Math.max(pad, Math.min(width  - pad, d.x));
-      d.y = Math.max(pad, Math.min(height - pad, d.y));
+    ctx.beginPath();
+    links.forEach(link => {
+      ctx.moveTo(link.source.x, link.source.y);
+      ctx.lineTo(link.target.x, link.target.y);
     });
-    g.selectAll("line")
-      .attr("x1", d => d.source.x).attr("y1", d => d.source.y)
-      .attr("x2", d => d.target.x).attr("y2", d => d.target.y);
-    node.attr("transform", d => `translate(${d.x},${d.y})`);
-  });
+    ctx.strokeStyle = "rgba(120, 180, 220, 0.15)";
+    ctx.lineWidth = 1 / transform.k;
+    ctx.stroke();
+
+    nodes.forEach(node => {
+      const isHovered = hoveredNode === node;
+      const radius = Math.max(3, Math.min(12, Math.sqrt(node.packetCount || 0)));
+      ctx.beginPath();
+      ctx.moveTo(node.x + radius, node.y);
+      ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI);
+      ctx.fillStyle = isHovered ? "var(--ai)" : color;
+      ctx.fill();
+      if (isHovered) {
+        ctx.strokeStyle = "var(--text)";
+        ctx.lineWidth = 2 / transform.k;
+        ctx.stroke();
+      }
+    });
+
+    ctx.restore();
+  }
 }
 
 function handleNodeSelectChange() {
@@ -3441,10 +3688,67 @@ function handleNodeSelectChange() {
   }
 }
 
+function _drawPernodeDmGraph() {
+  _drawGraphOrEmpty(_applyDmLimit(window._pernodeDmLinks || [], 'pernode-dm-limit'),
+    '#d3-an-pernode-dm-graph', '#3fb950');
+}
+
+function redrawPernodeDmGraph() { _drawPernodeDmGraph(); }
+
+function _buildDmLinks(receivers, senders, nodeId, nodeName) {
+  const BROADCAST = ['broadcast','ffffffff','?'];
+  const allLinks = [];
+  (receivers || []).forEach(r => {
+    if (!BROADCAST.includes(r.id))
+      allLinks.push({ from: nodeId, from_name: nodeName, to: r.id, to_name: r.name || r.id, count: r.count });
+  });
+  (senders || []).forEach(s => {
+    if (!BROADCAST.includes(s.id))
+      allLinks.push({ from: s.id, from_name: s.name || s.id, to: nodeId, to_name: nodeName, count: s.count });
+  });
+  return allLinks;
+}
+
+function _applyDmLimit(allLinks, limitSelId) {
+  const limitSel = document.getElementById(limitSelId);
+  const limit = limitSel ? parseInt(limitSel.value) : 50;
+  const linkMap = new Map();
+  allLinks.forEach(l => {
+    const key = [l.from, l.to].sort().join('|');
+    if (linkMap.has(key)) linkMap.get(key).count += l.count;
+    else linkMap.set(key, { ...l });
+  });
+  const sorted = Array.from(linkMap.values()).sort((a, b) => b.count - a.count);
+  return (limit > 0) ? sorted.slice(0, limit) : sorted;
+}
+
+function _drawGraphOrEmpty(links, selector, color) {
+  clearD3(selector);
+  if (links.length > 0) {
+    drawForceDirectedGraph(links, selector, color);
+  } else {
+    const el = document.querySelector(selector);
+    if (el) el.innerHTML = '<p style="color:var(--muted);padding:20px;font-size:.8em">No links in this period.</p>';
+  }
+}
+
+function redrawPernodeDmTextGraph() {
+  _drawGraphOrEmpty(_applyDmLimit(window._pernodeDmTextLinks || [], 'pernode-dm-text-limit'),
+    '#d3-an-pernode-dm-text-graph', '#f8a64a');
+}
+
+let _pernodeAbortCtrl = null;
+
 async function loadPerNodeAnalytics(nodeId) {
+  // Cancel any previous in-flight request to avoid race conditions
+  if (_pernodeAbortCtrl) _pernodeAbortCtrl.abort();
+  _pernodeAbortCtrl = new AbortController();
+  const signal = _pernodeAbortCtrl.signal;
+
   const hours = document.getElementById('analytics-hours').value;
   try {
-    const r = await fetch(`/api/analytics/node/${nodeId}?hours=${hours}`);
+    const bcastParam = analyticsHideBroadcast ? '&hide_broadcast=1' : '';
+    const r = await fetch(`/api/analytics/node/${nodeId}?hours=${hours}${bcastParam}`, { signal });
     if (!r.ok) return;
     const data = await r.json();
 
@@ -3480,34 +3784,20 @@ async function loadPerNodeAnalytics(nodeId) {
       drawDoughnutChart(destData, '#d3-an-pernode-dest', ['#8844ff', '#ffaa00']);
     }
 
-    // DM Force Graph — build links from receivers + senders
+    // DM Force Graphs (all unicast + text-only)
     {
       const nodeName = (() => {
         const n = nodesCache.find(x => x.id === nodeId);
         return n ? (n.short_name || n.long_name || nodeId) : nodeId;
       })();
-      const BROADCAST = ['broadcast','ffffffff','?'];
-      const links = [];
-      (data.top_receivers || []).forEach(r => {
-        if (!BROADCAST.includes(r.id)) {
-          links.push({ from: nodeId, from_name: nodeName, to: r.id, to_name: r.name || r.id, count: r.count });
-        }
-      });
-      (data.top_senders || []).forEach(s => {
-        if (!BROADCAST.includes(s.id)) {
-          links.push({ from: s.id, from_name: s.name || s.id, to: nodeId, to_name: nodeName, count: s.count });
-        }
-      });
-      clearD3('#d3-an-pernode-dm-graph');
-      if (links.length > 0) {
-        drawForceDirectedGraph(links, '#d3-an-pernode-dm-graph', '#3fb950');
-      } else {
-        document.querySelector('#d3-an-pernode-dm-graph').innerHTML =
-          '<p style="color:var(--muted);padding:20px;font-size:.8em">No direct message links in this period.</p>';
-      }
+      window._pernodeDmLinks     = _buildDmLinks(data.top_receivers,      data.top_senders,      nodeId, nodeName);
+      window._pernodeDmTextLinks = _buildDmLinks(data.top_receivers_text, data.top_senders_text, nodeId, nodeName);
+      _drawPernodeDmGraph();
+      redrawPernodeDmTextGraph();
     }
 
   } catch(e) {
+    if (e.name === 'AbortError') return; // superseded by newer request
     console.error('Per-node analytics load error:', e);
   }
 }
@@ -3519,10 +3809,21 @@ async function initAnalytics() {
     return;
   }
   const hours = document.getElementById('analytics-hours').value;
+  const portnum = document.getElementById('analytics-portnum')?.value || '';
+  const portnumParam = portnum ? `&portnum=${encodeURIComponent(portnum)}` : '';
+  const bcastParam = analyticsHideBroadcast ? '&hide_broadcast=1' : '';
   try {
-    const r = await fetch(`/api/analytics/packets?hours=${hours}`);
+    const r = await fetch(`/api/analytics/packets?hours=${hours}${portnumParam}${bcastParam}`);
     if (!r.ok) return;
     const data = await r.json();
+
+    // Populate portnum filter dropdown from live data
+    const pnSel = document.getElementById('analytics-portnum');
+    if (pnSel && data.portnum_types) {
+      const cur = pnSel.value;
+      pnSel.innerHTML = '<option value="">All packet types</option>' +
+        data.portnum_types.map(t => `<option value="${t}" ${t===cur?'selected':''}>${t.replace('_APP','')}</option>`).join('');
+    }
 
     // 1. Hourly Bar
     const hData = Object.keys(data.hourly).map(h => ({ label: `${h}:00`, value: data.hourly[h] }));
@@ -3552,8 +3853,27 @@ async function initAnalytics() {
     // 6. Encrypted Senders Bubble
     if(data.encrypted_senders) drawBubbleChart(data.encrypted_senders, '#d3-an-encrypted-senders-bubble', d3.schemeDark2);
 
-    // 7. DM Force Graph
+    // 7a. All Unicast Force Graph
     if(data.top_links) drawForceDirectedGraph(data.top_links, '#d3-an-dm-graph', '#3fb950');
+    // 7b. Text-Only P2P Force Graph
+    clearD3('#d3-an-dm-text-graph');
+    if(data.top_links_text && data.top_links_text.length > 0)
+      drawForceDirectedGraph(data.top_links_text, '#d3-an-dm-text-graph', '#f8a64a');
+    else
+      document.querySelector('#d3-an-dm-text-graph').innerHTML =
+        '<p style="color:var(--muted);padding:20px;font-size:.8em">No text DMs in this period.</p>';
+
+    // Fetch and render Advanced Analytics
+    try {
+      const r_adv = await fetch(`/api/analytics/advanced?hours=${hours}`);
+      if (r_adv.ok) {
+        const adv_data = await r_adv.json();
+        if (adv_data.signals) drawScatterPlot(adv_data.signals, '#d3-an-snr-scatter');
+        if (adv_data.telemetry) drawLineChart(adv_data.telemetry, '#d3-an-battery-decay');
+      }
+    } catch(e) {
+      console.warn("Advanced analytics fetch failed", e);
+    }
 
     // 8. Heatmap
     if (!analyticsHeatmap) {

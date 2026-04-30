@@ -496,50 +496,70 @@ def add_packet_record(parsed: dict) -> None:
             )
 
 
-def get_packet_analytics(hours: float = 168.0) -> dict:
+def get_packet_analytics(hours: float = 168.0, portnum_filter: str = None, hide_broadcast: bool = False) -> dict:
     """Return aggregated packet analytics for the last `hours` hours."""
     if not _conn:
         return {}
 
     import time
     start_ts = time.time() - (hours * 3600.0)
+    pf = portnum_filter
+    pf_and = "AND portnum = ?" if pf else ""
+    hb_and = "AND to_id NOT IN ('broadcast','ffffffff')" if hide_broadcast else ""
+    pf_p = lambda base: base + ([pf] if pf else [])
 
     with _lock:
         total_info = _conn.execute(
-            "SELECT COUNT(*), SUM(CASE WHEN encrypted=1 THEN 1 ELSE 0 END) FROM packets WHERE ts > ?",
-            (start_ts,)
+            f"SELECT COUNT(*), SUM(CASE WHEN encrypted=1 THEN 1 ELSE 0 END) FROM packets WHERE ts > ? {pf_and} {hb_and}",
+            pf_p([start_ts])
         ).fetchone()
         total_packets = total_info[0] or 0
         total_encrypted = total_info[1] or 0
 
         hourly_rows = _conn.execute(
-            """SELECT strftime('%H', datetime(ts, 'unixepoch', 'localtime')) as hr, COUNT(*)
-               FROM packets WHERE ts > ? GROUP BY hr ORDER BY hr""",
-            (start_ts,)
+            f"""SELECT strftime('%H', datetime(ts, 'unixepoch', 'localtime')) as hr, COUNT(*)
+               FROM packets WHERE ts > ? {pf_and} {hb_and} GROUP BY hr ORDER BY hr""",
+            pf_p([start_ts])
         ).fetchall()
         hourly = {str(i).zfill(2): 0 for i in range(24)}
         for r in hourly_rows:
             if r[0]: hourly[r[0]] = r[1]
 
         top_senders = _conn.execute(
-            """SELECT from_id, COUNT(*) as cnt FROM packets
-               WHERE ts > ? AND from_id != '?'
+            f"""SELECT from_id, COUNT(*) as cnt FROM packets
+               WHERE ts > ? AND from_id != '?' {pf_and} {hb_and}
                GROUP BY from_id ORDER BY cnt DESC LIMIT 10""",
-            (start_ts,)
+            pf_p([start_ts])
         ).fetchall()
 
+        # All unicast links
         top_links = _conn.execute(
             """SELECT from_id, to_id, COUNT(*) as cnt FROM packets
                WHERE ts > ? AND from_id != '?' AND to_id NOT IN ('?', 'broadcast', 'ffffffff')
-               GROUP BY from_id, to_id ORDER BY cnt DESC LIMIT 10""",
+               GROUP BY from_id, to_id ORDER BY cnt DESC LIMIT 500""",
+            (start_ts,)
+        ).fetchall()
+
+        # Text-only P2P links
+        top_links_text = _conn.execute(
+            """SELECT from_id, to_id, COUNT(*) as cnt FROM packets
+               WHERE ts > ? AND from_id != '?' AND to_id NOT IN ('?', 'broadcast', 'ffffffff')
+               AND portnum = 'TEXT_MESSAGE_APP'
+               GROUP BY from_id, to_id ORDER BY cnt DESC LIMIT 500""",
+            (start_ts,)
+        ).fetchall()
+
+        # Available portnum types for filter
+        portnum_types = _conn.execute(
+            "SELECT DISTINCT portnum FROM packets WHERE ts > ? ORDER BY portnum",
             (start_ts,)
         ).fetchall()
 
         encrypted_senders = _conn.execute(
-            """SELECT from_id, COUNT(*) as cnt FROM packets
-               WHERE ts > ? AND from_id != '?' AND encrypted=1
+            f"""SELECT from_id, COUNT(*) as cnt FROM packets
+               WHERE ts > ? AND from_id != '?' AND encrypted=1 {pf_and}
                GROUP BY from_id ORDER BY cnt DESC LIMIT 100""",
-            (start_ts,)
+            pf_p([start_ts])
         ).fetchall()
 
         encrypted_links = _conn.execute(
@@ -560,18 +580,17 @@ def get_packet_analytics(hours: float = 168.0) -> dict:
         positions_map = {r[0]: {"lat": r[1], "lon": r[2]} for r in node_positions}
 
         dest_stats = _conn.execute(
-            """SELECT
+            f"""SELECT
                SUM(CASE WHEN to_id IN ('broadcast', 'ffffffff') THEN 1 ELSE 0 END) as broadcast_cnt,
                SUM(CASE WHEN to_id NOT IN ('broadcast', 'ffffffff') AND to_id != '?' THEN 1 ELSE 0 END) as private_cnt
-               FROM packets WHERE ts > ?""",
-            (start_ts,)
+               FROM packets WHERE ts > ? {pf_and} {hb_and}""",
+            pf_p([start_ts])
         ).fetchone()
         broadcast_cnt = dest_stats[0] or 0
         private_cnt = dest_stats[1] or 0
 
         top_types = _conn.execute(
-            """SELECT portnum, COUNT(*) as cnt FROM packets
-               WHERE ts > ? GROUP BY portnum ORDER BY cnt DESC LIMIT 10""",
+            "SELECT portnum, COUNT(*) as cnt FROM packets WHERE ts > ? GROUP BY portnum ORDER BY cnt DESC LIMIT 20",
             (start_ts,)
         ).fetchall()
 
@@ -581,27 +600,30 @@ def get_packet_analytics(hours: float = 168.0) -> dict:
         "plaintext": total_packets - total_encrypted,
         "hourly": hourly,
         "top_senders": [{"id": r[0], "count": r[1]} for r in top_senders],
-        "top_links": [{"from": r[0], "to": r[1], "count": r[2]} for r in top_links],
+        "top_links":      [{"from": r[0], "to": r[1], "count": r[2]} for r in top_links],
+        "top_links_text": [{"from": r[0], "to": r[1], "count": r[2]} for r in top_links_text],
         "encrypted_senders": [{"id": r[0], "count": r[1]} for r in encrypted_senders],
         "encrypted_links": [{"from": r[0], "to": r[1], "count": r[2]} for r in encrypted_links],
         "node_positions": positions_map,
         "destinations": {"broadcast": broadcast_cnt, "private": private_cnt},
-        "top_types": [{"type": r[0], "count": r[1]} for r in top_types]
+        "top_types": [{"type": r[0], "count": r[1]} for r in top_types],
+        "portnum_types": [r[0] for r in portnum_types],
     }
 
-def get_per_node_analytics(node_id: str, hours: float = 168.0) -> dict:
+def get_per_node_analytics(node_id: str, hours: float = 168.0, hide_broadcast: bool = False) -> dict:
     """Return aggregated packet analytics for a specific node over the last `hours` hours."""
     if not _conn:
         return {}
 
     import time
     start_ts = time.time() - (hours * 3600.0)
+    hb_and = "AND to_id NOT IN ('broadcast','ffffffff')" if hide_broadcast else ""
 
     with _lock:
         # Hourly broadcast count (packets sent per hour by this node)
         hourly_rows = _conn.execute(
-            """SELECT strftime('%H', datetime(ts, 'unixepoch', 'localtime')) as hr, COUNT(*)
-               FROM packets WHERE ts > ? AND from_id = ? GROUP BY hr ORDER BY hr""",
+            f"""SELECT strftime('%H', datetime(ts, 'unixepoch', 'localtime')) as hr, COUNT(*)
+               FROM packets WHERE ts > ? AND from_id = ? {hb_and} GROUP BY hr ORDER BY hr""",
             (start_ts, node_id)
         ).fetchall()
         hourly = {str(i).zfill(2): 0 for i in range(24)}
@@ -612,7 +634,7 @@ def get_per_node_analytics(node_id: str, hours: float = 168.0) -> dict:
         top_receivers_rows = _conn.execute(
             """SELECT to_id, COUNT(*) as cnt FROM packets
                WHERE ts > ? AND from_id = ? AND to_id NOT IN ('?', 'broadcast', 'ffffffff')
-               GROUP BY to_id ORDER BY cnt DESC LIMIT 10""",
+               GROUP BY to_id ORDER BY cnt DESC LIMIT 1000""",
             (start_ts, node_id)
         ).fetchall()
         top_receivers = [{"id": r[0], "count": r[1]} for r in top_receivers_rows]
@@ -621,7 +643,7 @@ def get_per_node_analytics(node_id: str, hours: float = 168.0) -> dict:
         top_senders_rows = _conn.execute(
             """SELECT from_id, COUNT(*) as cnt FROM packets
                WHERE ts > ? AND to_id = ? AND from_id != '?'
-               GROUP BY from_id ORDER BY cnt DESC LIMIT 10""",
+               GROUP BY from_id ORDER BY cnt DESC LIMIT 1000""",
             (start_ts, node_id)
         ).fetchall()
         top_senders = [{"id": r[0], "count": r[1]} for r in top_senders_rows]
@@ -633,6 +655,25 @@ def get_per_node_analytics(node_id: str, hours: float = 168.0) -> dict:
             (start_ts, node_id)
         ).fetchall()
         daily = [{"label": r[0], "value": r[1]} for r in daily_rows]
+
+        # Text-only receivers (P2P conversations)
+        top_receivers_text_rows = _conn.execute(
+            """SELECT to_id, COUNT(*) as cnt FROM packets
+               WHERE ts > ? AND from_id = ? AND to_id NOT IN ('?', 'broadcast', 'ffffffff')
+               AND portnum = 'TEXT_MESSAGE_APP'
+               GROUP BY to_id ORDER BY cnt DESC LIMIT 1000""",
+            (start_ts, node_id)
+        ).fetchall()
+        top_receivers_text = [{"id": r[0], "count": r[1]} for r in top_receivers_text_rows]
+
+        # Text-only senders (P2P conversations)
+        top_senders_text_rows = _conn.execute(
+            """SELECT from_id, COUNT(*) as cnt FROM packets
+               WHERE ts > ? AND to_id = ? AND from_id != '?' AND portnum = 'TEXT_MESSAGE_APP'
+               GROUP BY from_id ORDER BY cnt DESC LIMIT 1000""",
+            (start_ts, node_id)
+        ).fetchall()
+        top_senders_text = [{"id": r[0], "count": r[1]} for r in top_senders_text_rows]
 
         # Destinations summary
         dest_stats = _conn.execute(
@@ -649,6 +690,62 @@ def get_per_node_analytics(node_id: str, hours: float = 168.0) -> dict:
             "hourly": hourly,
             "top_receivers": top_receivers,
             "top_senders": top_senders,
+            "top_receivers_text": top_receivers_text,
+            "top_senders_text": top_senders_text,
             "daily": daily,
             "destinations": {"broadcast": broadcast_cnt, "private": private_cnt}
         }
+
+def get_advanced_analytics(hours: float = 168.0) -> dict:
+    """Return advanced analytics for D3 visualizations (Telemetry, Signals, Traceroutes)."""
+    if not _conn:
+        return {}
+
+    import time
+    import json
+    start_ts = time.time() - (hours * 3600.0)
+
+    with _lock:
+        tel_rows = _conn.execute(
+            """SELECT node_id, ts, battery, voltage, ch_util
+               FROM telemetry_history
+               WHERE ts > ? AND battery IS NOT NULL
+               ORDER BY ts ASC""",
+            (start_ts,)
+        ).fetchall()
+
+        telemetry = []
+        for r in tel_rows:
+            telemetry.append({"node_id": r[0], "ts": r[1], "battery": r[2], "voltage": r[3], "ch_util": r[4]})
+
+        sig_rows = _conn.execute(
+            """SELECT node_id, snr, rssi
+               FROM signal_history
+               WHERE ts > ? AND snr IS NOT NULL AND rssi IS NOT NULL
+               LIMIT 5000""",
+            (start_ts,)
+        ).fetchall()
+        signals = [{"node_id": r[0], "snr": r[1], "rssi": r[2]} for r in sig_rows]
+
+        tr_rows = _conn.execute(
+            """SELECT route_json, hops
+               FROM traceroutes
+               WHERE ts > ? AND route_json != '[]'
+               LIMIT 500""",
+            (start_ts,)
+        ).fetchall()
+
+        traceroutes = []
+        for r in tr_rows:
+            try:
+                route = json.loads(r[0])
+                if isinstance(route, list) and len(route) > 1:
+                    traceroutes.append({"route": route, "hops": r[1]})
+            except Exception:
+                pass
+
+    return {
+        "telemetry": telemetry,
+        "signals": signals,
+        "traceroutes": traceroutes
+    }
