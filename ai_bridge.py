@@ -335,6 +335,8 @@ class AIBridge:
             try:
                 import json
                 analysis = json.loads(analysis_text)
+                if not isinstance(analysis, dict):
+                    analysis = {}
                 needs_search = analysis.get("needs_web_search", False)
                 search_query = analysis.get("search_query", "")
                 
