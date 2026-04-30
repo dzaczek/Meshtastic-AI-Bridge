@@ -31,6 +31,24 @@ except ImportError:
     NEST_ASYNCIO_AVAILABLE = False
 
 
+# Pre-compiled regular expressions for performance
+RE_TEMP_PATTERNS = [
+    re.compile(r'(\d+)\s*°[CF]', re.IGNORECASE),
+    re.compile(r'(\d+)\s*degrees', re.IGNORECASE),
+    re.compile(r'temperature[:\s]*(\d+)', re.IGNORECASE),
+]
+
+RE_PRICE_PATTERNS = [
+    re.compile(r'(\d+[.,]\d+)\s*(?:PLN|USD|EUR|CHF|GBP)', re.IGNORECASE),
+    re.compile(r'CHF[:\s]*(\d+[.,]\d+)', re.IGNORECASE),
+    re.compile(r'(\d+[.,]\d+)\s*CHF', re.IGNORECASE),
+]
+
+RE_NEWS_PATTERNS = [
+    re.compile(r'<h[1-3][^>]*>([^<]+)</h[1-3]>', re.IGNORECASE),
+]
+
+
 class WebAgent:
     """
     All-in-one web agent.  Use as async context manager:
@@ -107,18 +125,14 @@ class WebAgent:
             f"https://www.google.com/search?q=weather+{city}",
             f"https://weather.com/weather/today/l/{city}",
         ]
-        temp_patterns = [
-            r'(\d+)\s*°[CF]', r'(\d+)\s*degrees',
-            r'temperature[:\s]*(\d+)',
-        ]
         condition_kw = ['sunny', 'cloudy', 'rainy', 'snow', 'clear', 'overcast']
 
         for url in sources:
             try:
                 if await self._goto(url):
                     content = await self.page.content()
-                    for pat in temp_patterns:
-                        m = re.findall(pat, content, re.IGNORECASE)
+                    for pat in RE_TEMP_PATTERNS:
+                        m = pat.findall(content)
                         if m:
                             data['temperature'] = m[0]
                             data['source'] = url
@@ -299,18 +313,17 @@ class WebAgent:
 
             patterns = {}
             if "currency" in query_type or "price" in data_type or "exchange" in data_type:
-                patterns = {
-                    'price': [r'(\d+[.,]\d+)\s*(?:PLN|USD|EUR|CHF|GBP)',
-                              r'CHF[:\s]*(\d+[.,]\d+)', r'(\d+[.,]\d+)\s*CHF']
-                }
+                patterns = {'price': RE_PRICE_PATTERNS}
             elif "weather" in query_type or "temperature" in data_type:
-                patterns = {'temp': [r'(\d+)\s*°[CF]', r'(\d+)\s*degrees']}
+                # `temp_patterns` only used two expressions, RE_TEMP_PATTERNS has a third.
+                # using the full RE_TEMP_PATTERNS is fine here.
+                patterns = {'temp': RE_TEMP_PATTERNS}
             elif "news" in query_type:
-                patterns = {'headline': [r'<h[1-3][^>]*>([^<]+)</h[1-3]>']}
+                patterns = {'headline': RE_NEWS_PATTERNS}
 
             for label, pats in patterns.items():
                 for pat in pats:
-                    matches = re.findall(pat, content, re.IGNORECASE)
+                    matches = pat.findall(content)
                     for m in matches[:3]:
                         clean = re.sub(r'<[^>]+>', '', str(m)).strip()
                         if clean:
