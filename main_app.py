@@ -188,14 +188,28 @@ class MeshtasticAIAppConsole:
                     self.meshtastic_handler.close()
                 raise ConnectionError("CLI: Handler reported connected but node_id is None.")
 
-            # Apply node name from config (overrides device default on every connect)
-            long_name  = getattr(self.app_config, 'NODE_LONG_NAME',  '')
-            short_name = getattr(self.app_config, 'NODE_SHORT_NAME', '')
+            # Apply node name — data/device_owner.json takes priority over config.py
+            try:
+                import json as _json, os as _os
+                _owner_path = _os.path.join("data", "device_owner.json")
+                if _os.path.exists(_owner_path):
+                    with open(_owner_path) as _f:
+                        _saved = _json.load(_f)
+                    long_name  = _saved.get("long_name",  "")
+                    short_name = _saved.get("short_name", "")
+                else:
+                    long_name  = getattr(self.app_config, 'NODE_LONG_NAME',  '')
+                    short_name = getattr(self.app_config, 'NODE_SHORT_NAME', '')
+            except Exception:
+                long_name  = getattr(self.app_config, 'NODE_LONG_NAME',  '')
+                short_name = getattr(self.app_config, 'NODE_SHORT_NAME', '')
+
             if long_name or short_name:
                 try:
                     node = self.meshtastic_handler.interface.getNode('^local')
                     node.setOwner(long_name=long_name, short_name=short_name)
-                    dprint(f"Node name set: '{long_name}' / '{short_name}'")
+                    time.sleep(2)  # startup context — blocking OK, lets firmware write to flash
+                    dprint(f"Node name applied: '{long_name}' / '{short_name}'")
                 except Exception as e:
                     dprint(f"setOwner failed: {e}")
 

@@ -708,6 +708,15 @@ class MeshtasticHandler:
                     short_name=new_short,
                     is_licensed=bool(values.get('is_licensed', False)),
                 )
+                # Persist name to disk so it survives device + container restarts
+                try:
+                    import json as _json, os as _os
+                    _owner_path = _os.path.join("data", "device_owner.json")
+                    _os.makedirs("data", exist_ok=True)
+                    with open(_owner_path, "w") as _f:
+                        _json.dump({"long_name": new_long, "short_name": new_short}, _f)
+                except Exception:
+                    pass
                 # Immediately update interface.nodes cache so UI reflects change
                 for nd in (getattr(self.interface, 'nodes', None) or {}).values():
                     if nd.get('num') == self.node_id:
