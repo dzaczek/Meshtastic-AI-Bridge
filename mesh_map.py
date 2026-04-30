@@ -372,7 +372,7 @@ def render_map_text(
     # Count GPS nodes for header
     now = time.time()
     gps_count = sum(1 for n in nodes.values()
-                    if n.get('position', {}).get('latitude') is not None)
+                    if (pos := n.get('position')) and pos.get('latitude') is not None)
 
     zoom_str = f"z{zoom_override}" if zoom_override else "auto"
     header = (
