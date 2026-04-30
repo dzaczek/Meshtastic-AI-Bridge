@@ -535,6 +535,28 @@ def get_packet_analytics(days: int = 7) -> dict:
             (start_ts,)
         ).fetchall()
 
+        encrypted_senders = _conn.execute(
+            """SELECT from_id, COUNT(*) as cnt FROM packets
+               WHERE ts > ? AND from_id != '?' AND encrypted=1
+               GROUP BY from_id ORDER BY cnt DESC LIMIT 100""",
+            (start_ts,)
+        ).fetchall()
+
+        encrypted_links = _conn.execute(
+            """SELECT from_id, to_id, COUNT(*) as cnt FROM packets
+               WHERE ts > ? AND from_id != '?' AND to_id NOT IN ('?', 'broadcast', 'ffffffff') AND encrypted=1
+               GROUP BY from_id, to_id ORDER BY cnt DESC LIMIT 100""",
+            (start_ts,)
+        ).fetchall()
+
+        # Get positions of top senders to use in heatmap
+        node_positions = _conn.execute(
+            """SELECT node_id, lat, lon FROM position_history
+               WHERE ts = (SELECT MAX(ts) FROM position_history p2 WHERE p2.node_id = position_history.node_id)
+            """
+        ).fetchall()
+        positions_map = {r[0]: {"lat": r[1], "lon": r[2]} for r in node_positions}
+
         dest_stats = _conn.execute(
             """SELECT
                SUM(CASE WHEN to_id IN ('broadcast', 'ffffffff') THEN 1 ELSE 0 END) as broadcast_cnt,
@@ -558,6 +580,9 @@ def get_packet_analytics(days: int = 7) -> dict:
         "hourly": hourly,
         "top_senders": [{"id": r[0], "count": r[1]} for r in top_senders],
         "top_links": [{"from": r[0], "to": r[1], "count": r[2]} for r in top_links],
+        "encrypted_senders": [{"id": r[0], "count": r[1]} for r in encrypted_senders],
+        "encrypted_links": [{"from": r[0], "to": r[1], "count": r[2]} for r in encrypted_links],
+        "node_positions": positions_map,
         "destinations": {"broadcast": broadcast_cnt, "private": private_cnt},
         "top_types": [{"type": r[0], "count": r[1]} for r in top_types]
     }

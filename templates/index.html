@@ -1079,6 +1079,8 @@
       background:var(--surf2);flex-shrink:0;
     }
   </style>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="https://leaflet.github.io/Leaflet.heat/dist/leaflet-heat.js"></script>
 </head>
 <body>
 
@@ -1536,44 +1538,58 @@
 
   <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:15px;">
 
-    <!-- Top row -->
     <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
       <div class="stat-title">Hourly Activity</div>
-      <div style="height:150px; position:relative;"><canvas id="chart-an-hourly"></canvas></div>
-    </div>
-
-    <!-- Middle row charts -->
-    <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
-      <div class="stat-title">Top Senders</div>
-      <div style="height:150px; position:relative;"><canvas id="chart-an-senders"></canvas></div>
+      <div id="d3-an-hourly" style="height:150px; position:relative;"></div>
     </div>
 
     <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
       <div class="stat-title">Top App Types</div>
-      <div style="height:150px; position:relative;"><canvas id="chart-an-types"></canvas></div>
+      <div id="d3-an-types" style="height:150px; position:relative;"></div>
     </div>
 
-  </div>
-
-  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:15px;">
-    <!-- Bottom row charts -->
     <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md); display:flex; align-items:center;">
       <div style="flex:1;">
           <div class="stat-title">Destinations</div>
-          <div style="height:130px; position:relative;"><canvas id="chart-an-dest"></canvas></div>
+          <div id="d3-an-dest" style="height:130px; position:relative;"></div>
       </div>
       <div style="flex:1;">
           <div class="stat-title">Encryption</div>
-          <div style="height:130px; position:relative;"><canvas id="chart-an-enc"></canvas></div>
+          <div id="d3-an-enc" style="height:130px; position:relative;"></div>
       </div>
     </div>
 
+  </div>
+
+  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(400px, 1fr)); gap:15px;">
+
     <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
-      <div class="stat-title">Top Links (From -> To)</div>
-      <div id="analytics-links-list" style="font-family:var(--font-mono); font-size:0.75em; margin-top:10px;"></div>
+      <div class="stat-title">Top Senders (Bubble Chart)</div>
+      <div id="d3-an-senders-bubble" style="height:350px; position:relative; overflow:hidden;"></div>
+    </div>
+
+    <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
+      <div class="stat-title">Encrypted Senders (Bubble Chart)</div>
+      <div id="d3-an-encrypted-senders-bubble" style="height:350px; position:relative; overflow:hidden;"></div>
+    </div>
+
+    <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
+      <div class="stat-title">Direct Messages (Force-Directed Graph)</div>
+      <div id="d3-an-dm-graph" style="height:350px; position:relative; overflow:hidden;"></div>
+    </div>
+
+    <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
+      <div class="stat-title">Encrypted Direct Messages (Force-Directed Graph)</div>
+      <div id="d3-an-encrypted-dm-graph" style="height:350px; position:relative; overflow:hidden;"></div>
     </div>
 
   </div>
+
+  <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
+    <div class="stat-title">Most Talkative Nodes (Heatmap)</div>
+    <div id="analytics-heatmap" style="height:400px; border-radius:var(--r-md); border:1px solid var(--border-s); position:relative; z-index:0;"></div>
+  </div>
+
 </div>
 
 <!-- ══════════════════════════════════════════════════════════════
@@ -3038,12 +3054,241 @@ function clearDm() {
 }
 
 
-// ── ANALYTICS ─────────────────────────────────────────────────────────────
-let chartAnHourly = null;
-let chartAnSenders = null;
-let chartAnTypes = null;
-let chartAnDest = null;
-let chartAnEnc = null;
+// ── ANALYTICS (D3) ─────────────────────────────────────────────────────────────
+let analyticsHeatmap = null;
+
+function clearD3(selector) {
+  const el = document.querySelector(selector);
+  if (el) el.innerHTML = '';
+}
+
+function drawBarChart(data, selector, xLabel, yLabel, color) {
+  clearD3(selector);
+  const container = document.querySelector(selector);
+  const margin = {top: 10, right: 10, bottom: 20, left: 40};
+  const width = container.clientWidth - margin.left - margin.right;
+  const height = container.clientHeight - margin.top - margin.bottom;
+
+  const svg = d3.select(selector).append("svg")
+    .attr("width", width + margin.left + margin.right)
+    .attr("height", height + margin.top + margin.bottom)
+    .append("g")
+    .attr("transform", `translate(${margin.left},${margin.top})`);
+
+  const x = d3.scaleBand()
+    .domain(data.map(d => d.label))
+    .range([0, width])
+    .padding(0.2);
+
+  const y = d3.scaleLinear()
+    .domain([0, d3.max(data, d => d.value)])
+    .nice()
+    .range([height, 0]);
+
+  svg.append("g")
+    .attr("transform", `translate(0,${height})`)
+    .call(d3.axisBottom(x).tickSize(0))
+    .selectAll("text")
+    .style("fill", "var(--text)")
+    .style("font-size", "10px");
+
+  svg.append("g")
+    .call(d3.axisLeft(y).ticks(5).tickSizeOuter(0))
+    .selectAll("text")
+    .style("fill", "var(--muted)")
+    .style("font-size", "10px");
+
+  svg.selectAll(".domain, .tick line")
+    .style("stroke", "var(--border)");
+
+  svg.selectAll("rect")
+    .data(data)
+    .enter()
+    .append("rect")
+    .attr("x", d => x(d.label))
+    .attr("y", d => y(d.value))
+    .attr("width", x.bandwidth())
+    .attr("height", d => height - y(d.value))
+    .attr("fill", color)
+    .attr("rx", 2);
+}
+
+function drawDoughnutChart(data, selector, colors) {
+  clearD3(selector);
+  const container = document.querySelector(selector);
+  const width = container.clientWidth;
+  const height = container.clientHeight;
+  const radius = Math.min(width, height) / 2 - 10;
+
+  const svg = d3.select(selector).append("svg")
+    .attr("width", width)
+    .attr("height", height)
+    .append("g")
+    .attr("transform", `translate(${width / 2},${height / 2})`);
+
+  const pie = d3.pie().value(d => d.value).sort(null);
+  const arc = d3.arc().innerRadius(radius * 0.5).outerRadius(radius);
+
+  const path = svg.selectAll("path")
+    .data(pie(data))
+    .enter()
+    .append("path")
+    .attr("d", arc)
+    .attr("fill", (d, i) => colors[i])
+    .attr("stroke", "var(--bg)")
+    .style("stroke-width", "2px");
+
+  // Add labels inside arc if there's space
+  svg.selectAll("text")
+    .data(pie(data))
+    .enter()
+    .append("text")
+    .attr("transform", d => `translate(${arc.centroid(d)})`)
+    .attr("text-anchor", "middle")
+    .style("fill", "#fff")
+    .style("font-size", "10px")
+    .style("font-weight", "bold")
+    .text(d => d.data.value > 0 ? d.data.label : "");
+}
+
+function drawBubbleChart(data, selector, colorScheme) {
+  clearD3(selector);
+  const container = document.querySelector(selector);
+  if(!container) return;
+  const width = container.clientWidth;
+  const height = container.clientHeight;
+
+  const pack = d3.pack()
+    .size([width, height])
+    .padding(3);
+
+  const root = d3.hierarchy({children: data})
+    .sum(d => d.count);
+
+  const nodes = pack(root).leaves();
+
+  const svg = d3.select(selector).append("svg")
+    .attr("width", width)
+    .attr("height", height);
+
+  const node = svg.selectAll("g")
+    .data(nodes)
+    .enter().append("g")
+    .attr("transform", d => `translate(${d.x},${d.y})`);
+
+  const color = d3.scaleOrdinal(colorScheme);
+
+  node.append("circle")
+    .attr("r", d => d.r)
+    .style("fill", (d,i) => color(i))
+    .style("fill-opacity", 0.7)
+    .style("stroke", (d,i) => color(i))
+    .style("stroke-width", 1)
+    .append("title")
+    .text(d => `${d.data.name || d.data.id}\n${d.data.count} packets`);
+
+  node.append("text")
+    .attr("dy", "-0.2em")
+    .style("text-anchor", "middle")
+    .style("font-size", d => Math.min(d.r / 3, 12) + "px")
+    .style("fill", "#fff")
+    .style("pointer-events", "none")
+    .text(d => (d.r > 15) ? (d.data.name || d.data.id).substring(0, 10) : "");
+
+  node.append("text")
+    .attr("dy", "1em")
+    .style("text-anchor", "middle")
+    .style("font-size", d => Math.min(d.r / 3, 10) + "px")
+    .style("fill", "rgba(255,255,255,0.7)")
+    .style("pointer-events", "none")
+    .text(d => (d.r > 20) ? d.data.count : "");
+}
+
+function drawForceDirectedGraph(linksData, selector, color) {
+  clearD3(selector);
+  const container = document.querySelector(selector);
+  if(!container) return;
+  const width = container.clientWidth;
+  const height = container.clientHeight;
+
+  // Build nodes from links
+  const nodesMap = new Map();
+  linksData.forEach(l => {
+    if (!nodesMap.has(l.from)) nodesMap.set(l.from, { id: l.from, name: l.from_name || l.from });
+    if (!nodesMap.has(l.to)) nodesMap.set(l.to, { id: l.to, name: l.to_name || l.to });
+  });
+
+  const nodes = Array.from(nodesMap.values());
+  const links = linksData.map(l => ({
+    source: l.from,
+    target: l.to,
+    value: l.count
+  }));
+
+  const svg = d3.select(selector).append("svg")
+    .attr("width", width)
+    .attr("height", height);
+
+  const simulation = d3.forceSimulation(nodes)
+    .force("link", d3.forceLink(links).id(d => d.id).distance(50))
+    .force("charge", d3.forceManyBody().strength(-150))
+    .force("center", d3.forceCenter(width / 2, height / 2))
+    .force("collide", d3.forceCollide().radius(20));
+
+  const maxVal = d3.max(links, d => d.value) || 1;
+
+  const link = svg.append("g")
+    .attr("stroke", "var(--border-s)")
+    .attr("stroke-opacity", 0.6)
+    .selectAll("line")
+    .data(links)
+    .enter().append("line")
+    .attr("stroke-width", d => Math.max(1, (d.value / maxVal) * 5))
+    .append("title")
+    .text(d => `${d.value} packets`);
+
+  const node = svg.append("g")
+    .selectAll("g")
+    .data(nodes)
+    .enter().append("g")
+    .call(d3.drag()
+      .on("start", (e, d) => {
+        if (!e.active) simulation.alphaTarget(0.3).restart();
+        d.fx = d.x; d.fy = d.y;
+      })
+      .on("drag", (e, d) => {
+        d.fx = e.x; d.fy = e.y;
+      })
+      .on("end", (e, d) => {
+        if (!e.active) simulation.alphaTarget(0);
+        d.fx = null; d.fy = null;
+      }));
+
+  node.append("circle")
+    .attr("r", 8)
+    .attr("fill", color)
+    .attr("stroke", "var(--bg)")
+    .attr("stroke-width", 1.5)
+    .append("title")
+    .text(d => d.name);
+
+  node.append("text")
+    .attr("x", 10)
+    .attr("y", 3)
+    .style("font-size", "10px")
+    .style("fill", "var(--text)")
+    .text(d => d.name);
+
+  simulation.on("tick", () => {
+    svg.selectAll("line")
+      .attr("x1", d => d.source.x)
+      .attr("y1", d => d.source.y)
+      .attr("x2", d => d.target.x)
+      .attr("y2", d => d.target.y);
+
+    node.attr("transform", d => `translate(${d.x},${d.y})`);
+  });
+}
 
 async function initAnalytics() {
   const days = document.getElementById('analytics-days').value;
@@ -3052,76 +3297,80 @@ async function initAnalytics() {
     if (!r.ok) return;
     const data = await r.json();
 
-    // Hourly
-    if (chartAnHourly) chartAnHourly.destroy();
-    const hLabels = Object.keys(data.hourly).map(h => `${h}:00`);
-    const hData = Object.values(data.hourly);
-    chartAnHourly = new Chart(document.getElementById('chart-an-hourly'), {
-      type: 'bar',
-      data: { labels: hLabels, datasets: [{ label: 'Packets', data: hData, backgroundColor: '#4488ff' }] },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
-    });
+    // 1. Hourly Bar
+    const hData = Object.keys(data.hourly).map(h => ({ label: `${h}:00`, value: data.hourly[h] }));
+    drawBarChart(hData, '#d3-an-hourly', 'Time', 'Packets', '#4488ff');
 
-    // Senders
-    if (chartAnSenders) chartAnSenders.destroy();
-    const sLabels = (data.top_senders||[]).map(s => s.name || s.id);
-    const sData = (data.top_senders||[]).map(s => s.count);
-    chartAnSenders = new Chart(document.getElementById('chart-an-senders'), {
-      type: 'bar',
-      data: { labels: sLabels, datasets: [{ label: 'Sent', data: sData, backgroundColor: '#3fb950' }] },
-      options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
-    });
+    // 2. Types Bar
+    const tData = (data.top_types||[]).map(t => ({ label: t.type.replace('_APP',''), value: t.count }));
+    drawBarChart(tData, '#d3-an-types', 'App Type', 'Count', '#ff88aa');
 
-    // Types
-    if (chartAnTypes) chartAnTypes.destroy();
-    const tLabels = (data.top_types||[]).map(t => t.type.replace('_APP',''));
-    const tData = (data.top_types||[]).map(t => t.count);
-    chartAnTypes = new Chart(document.getElementById('chart-an-types'), {
-      type: 'bar',
-      data: { labels: tLabels, datasets: [{ label: 'Count', data: tData, backgroundColor: '#ff88aa' }] },
-      options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
-    });
+    // 3. Destinations Doughnut
+    const destData = [
+      { label: 'Broadcast', value: data.destinations.broadcast },
+      { label: 'Private', value: data.destinations.private }
+    ];
+    drawDoughnutChart(destData, '#d3-an-dest', ['#8844ff', '#ffaa00']);
 
-    // Dest
-    if (chartAnDest) chartAnDest.destroy();
-    chartAnDest = new Chart(document.getElementById('chart-an-dest'), {
-      type: 'doughnut',
-      data: {
-        labels: ['Broadcast', 'Private'],
-        datasets: [{ data: [data.destinations.broadcast, data.destinations.private], backgroundColor: ['#8844ff', '#ffaa00'], borderWidth: 0 }]
-      },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: '#aaa', font: {size: 10} } } } }
-    });
+    // 4. Encryption Doughnut
+    const encData = [
+      { label: 'Plaintext', value: data.plaintext },
+      { label: 'Encrypted', value: data.encrypted }
+    ];
+    drawDoughnutChart(encData, '#d3-an-enc', ['#4488ff', '#f85149']);
 
-    // Enc
-    if (chartAnEnc) chartAnEnc.destroy();
-    chartAnEnc = new Chart(document.getElementById('chart-an-enc'), {
-      type: 'doughnut',
-      data: {
-        labels: ['Plaintext', 'Encrypted'],
-        datasets: [{ data: [data.plaintext, data.encrypted], backgroundColor: ['#4488ff', '#f85149'], borderWidth: 0 }]
-      },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: '#aaa', font: {size: 10} } } } }
-    });
+    // 5. Top Senders Bubble
+    if(data.top_senders) drawBubbleChart(data.top_senders, '#d3-an-senders-bubble', d3.schemeTableau10);
 
-    // Links list
-    const linksDiv = document.getElementById('analytics-links-list');
-    if (data.top_links && data.top_links.length > 0) {
-        linksDiv.innerHTML = data.top_links.map(l =>
-            `<div style="display:flex; justify-content:space-between; margin-bottom:4px; padding-bottom:4px; border-bottom:1px solid var(--border-s);">
-                <span style="color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                    ${l.from_name || l.from} <span style="color:var(--muted);">→</span> ${l.to_name || l.to}
-                </span>
-                <span style="color:var(--primary); font-weight:bold; margin-left:10px;">${l.count}</span>
-            </div>`
-        ).join('');
-    } else {
-        linksDiv.innerHTML = '<div class="panel-empty">No direct links recorded</div>';
+    // 6. Encrypted Senders Bubble
+    if(data.encrypted_senders) drawBubbleChart(data.encrypted_senders, '#d3-an-encrypted-senders-bubble', d3.schemeDark2);
+
+    // 7. DM Force Graph
+    if(data.top_links) drawForceDirectedGraph(data.top_links, '#d3-an-dm-graph', '#3fb950');
+
+    // 8. Encrypted DM Force Graph
+    if(data.encrypted_links) drawForceDirectedGraph(data.encrypted_links, '#d3-an-encrypted-dm-graph', '#f85149');
+
+    // 9. Heatmap
+    if (!analyticsHeatmap) {
+      analyticsHeatmap = L.map('analytics-heatmap', {zoomControl:true, attributionControl:false})
+        .setView([0, 0], 2);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 18}).addTo(analyticsHeatmap);
     }
 
-  } catch(e) { console.error('Analytics error:', e); }
-}
+    // Clear old layers
+    analyticsHeatmap.eachLayer(layer => {
+      if (layer instanceof L.HeatLayer) {
+        analyticsHeatmap.removeLayer(layer);
+      }
+    });
 
+    const heatPoints = [];
+    const bounds = [];
+    if (data.top_senders && data.node_positions) {
+      data.top_senders.forEach(s => {
+        const pos = data.node_positions[s.id];
+        if (pos && pos.lat && pos.lon) {
+          heatPoints.push([pos.lat, pos.lon, s.count]);
+          bounds.push([pos.lat, pos.lon]);
+        }
+      });
+    }
+
+    if (heatPoints.length > 0) {
+      L.heatLayer(heatPoints, {radius: 25, blur: 15, maxZoom: 17}).addTo(analyticsHeatmap);
+      if (bounds.length > 1) {
+        analyticsHeatmap.fitBounds(bounds, {padding: [50, 50]});
+      } else if (bounds.length === 1) {
+        analyticsHeatmap.setView(bounds[0], 10);
+      }
+    }
+
+    // Invalidate size in case tab wasn't visible when map was created
+    setTimeout(() => { if(analyticsHeatmap) analyticsHeatmap.invalidateSize(); }, 100);
+
+  } catch(e) { console.error('Analytics load error:', e); }
+}
 
 // ── CONFIG TAB ────────────────────────────────────────────────
 let cfgData = {};
