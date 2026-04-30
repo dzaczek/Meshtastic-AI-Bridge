@@ -167,9 +167,36 @@ def set_send_callback(callback):
     _send_callback = callback
 
 
+def _load_packet_history() -> None:
+    """Pre-populate _packets deque with recent history from SQLite after node_db is ready."""
+    if not _HAS_NODE_DB or not _node_db.is_initialized():
+        return
+    try:
+        import json as _json
+        rows = _node_db._conn.execute(
+            "SELECT packet_json FROM packets ORDER BY ts DESC LIMIT 500"
+        ).fetchall()
+        loaded = []
+        for r in rows:
+            try:
+                pkt = _json.loads(r[0])
+                if "ts_str" not in pkt and "ts" in pkt:
+                    pkt["ts_str"] = datetime.fromtimestamp(pkt["ts"]).strftime("%H:%M:%S")
+                loaded.append(pkt)
+            except Exception:
+                pass
+        with _lock:
+            for pkt in reversed(loaded):   # oldest first → correct deque order
+                _packets.append(pkt)
+        logger.info(f"packet_history: loaded {len(loaded)} packets from SQLite")
+    except Exception as e:
+        logger.warning(f"packet_history: could not load: {e}")
+
+
 def set_meshtastic_handler(handler):
     global _meshtastic_handler
     _meshtastic_handler = handler
+    _load_packet_history()
 
 
 def on_packet(packet, interface):
