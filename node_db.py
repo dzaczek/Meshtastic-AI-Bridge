@@ -496,7 +496,7 @@ def add_packet_record(parsed: dict) -> None:
             )
 
 
-def get_packet_analytics(hours: float = 168.0, portnum_filter: str = None) -> dict:
+def get_packet_analytics(hours: float = 168.0, portnum_filter: str = None, hide_broadcast: bool = False) -> dict:
     """Return aggregated packet analytics for the last `hours` hours."""
     if not _conn:
         return {}
@@ -505,11 +505,12 @@ def get_packet_analytics(hours: float = 168.0, portnum_filter: str = None) -> di
     start_ts = time.time() - (hours * 3600.0)
     pf = portnum_filter
     pf_and = "AND portnum = ?" if pf else ""
+    hb_and = "AND to_id NOT IN ('broadcast','ffffffff')" if hide_broadcast else ""
     pf_p = lambda base: base + ([pf] if pf else [])
 
     with _lock:
         total_info = _conn.execute(
-            f"SELECT COUNT(*), SUM(CASE WHEN encrypted=1 THEN 1 ELSE 0 END) FROM packets WHERE ts > ? {pf_and}",
+            f"SELECT COUNT(*), SUM(CASE WHEN encrypted=1 THEN 1 ELSE 0 END) FROM packets WHERE ts > ? {pf_and} {hb_and}",
             pf_p([start_ts])
         ).fetchone()
         total_packets = total_info[0] or 0
@@ -517,7 +518,7 @@ def get_packet_analytics(hours: float = 168.0, portnum_filter: str = None) -> di
 
         hourly_rows = _conn.execute(
             f"""SELECT strftime('%H', datetime(ts, 'unixepoch', 'localtime')) as hr, COUNT(*)
-               FROM packets WHERE ts > ? {pf_and} GROUP BY hr ORDER BY hr""",
+               FROM packets WHERE ts > ? {pf_and} {hb_and} GROUP BY hr ORDER BY hr""",
             pf_p([start_ts])
         ).fetchall()
         hourly = {str(i).zfill(2): 0 for i in range(24)}
@@ -526,7 +527,7 @@ def get_packet_analytics(hours: float = 168.0, portnum_filter: str = None) -> di
 
         top_senders = _conn.execute(
             f"""SELECT from_id, COUNT(*) as cnt FROM packets
-               WHERE ts > ? AND from_id != '?' {pf_and}
+               WHERE ts > ? AND from_id != '?' {pf_and} {hb_and}
                GROUP BY from_id ORDER BY cnt DESC LIMIT 10""",
             pf_p([start_ts])
         ).fetchall()
@@ -582,7 +583,7 @@ def get_packet_analytics(hours: float = 168.0, portnum_filter: str = None) -> di
             f"""SELECT
                SUM(CASE WHEN to_id IN ('broadcast', 'ffffffff') THEN 1 ELSE 0 END) as broadcast_cnt,
                SUM(CASE WHEN to_id NOT IN ('broadcast', 'ffffffff') AND to_id != '?' THEN 1 ELSE 0 END) as private_cnt
-               FROM packets WHERE ts > ? {pf_and}""",
+               FROM packets WHERE ts > ? {pf_and} {hb_and}""",
             pf_p([start_ts])
         ).fetchone()
         broadcast_cnt = dest_stats[0] or 0
@@ -609,19 +610,20 @@ def get_packet_analytics(hours: float = 168.0, portnum_filter: str = None) -> di
         "portnum_types": [r[0] for r in portnum_types],
     }
 
-def get_per_node_analytics(node_id: str, hours: float = 168.0) -> dict:
+def get_per_node_analytics(node_id: str, hours: float = 168.0, hide_broadcast: bool = False) -> dict:
     """Return aggregated packet analytics for a specific node over the last `hours` hours."""
     if not _conn:
         return {}
 
     import time
     start_ts = time.time() - (hours * 3600.0)
+    hb_and = "AND to_id NOT IN ('broadcast','ffffffff')" if hide_broadcast else ""
 
     with _lock:
         # Hourly broadcast count (packets sent per hour by this node)
         hourly_rows = _conn.execute(
-            """SELECT strftime('%H', datetime(ts, 'unixepoch', 'localtime')) as hr, COUNT(*)
-               FROM packets WHERE ts > ? AND from_id = ? GROUP BY hr ORDER BY hr""",
+            f"""SELECT strftime('%H', datetime(ts, 'unixepoch', 'localtime')) as hr, COUNT(*)
+               FROM packets WHERE ts > ? AND from_id = ? {hb_and} GROUP BY hr ORDER BY hr""",
             (start_ts, node_id)
         ).fetchall()
         hourly = {str(i).zfill(2): 0 for i in range(24)}

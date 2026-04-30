@@ -1525,6 +1525,7 @@
       <button class="tb-btn" onclick="setPktFilter(this,'NODEINFO')">Node Info</button>
       <button class="tb-btn" onclick="setPktFilter(this,'ROUTING')">Routing</button>
       <button class="tb-btn" id="btn-routes" onclick="toggleRoutesView(this)">Routes</button>
+      <button class="tb-btn" id="btn-hide-bcast" onclick="toggleHideBroadcast(this)">Hide Broadcast</button>
       <div class="tb-sep"></div>
       <button class="tb-btn active" id="btn-pkt-as" onclick="togglePktScroll()">Auto-scroll</button>
       <button class="tb-btn" onclick="clearPackets()">Clear</button>
@@ -1554,6 +1555,10 @@
       <select id="analytics-portnum" onchange="handleNodeSelectChange()" style="background:var(--surf); color:var(--text); border:1px solid var(--border); padding:4px; max-width:180px;">
         <option value="">All packet types</option>
       </select>
+      <button id="analytics-hide-bcast" onclick="toggleAnalyticsBroadcast(this)"
+        style="background:var(--surf);color:var(--muted);border:1px solid var(--border);padding:4px 8px;border-radius:4px;cursor:pointer;font-size:.8em;">
+        Hide Broadcast
+      </button>
       <select id="analytics-hours" onchange="handleNodeSelectChange()" style="background:var(--surf); color:var(--text); border:1px solid var(--border); padding:4px;">
         <option value="0.08333333333333333">Last 5m</option>
         <option value="0.16666666666666666">Last 10m</option>
@@ -2214,6 +2219,8 @@ let seenFilter  = 86400;
 let nodeSearch  = '';
 let sortBy     = 'last_seen';
 let pktFilter  = 'all';
+let pktHideBroadcast = false;
+let analyticsHideBroadcast = false;
 let nodesCache    = [];
 let channelsCache = [];   // [{index, name}] from /api/channels
 
@@ -2966,6 +2973,7 @@ function pktTypeColor(portnum) {
 
 function appendPacket(p) {
   if (pktFilter!=='all'&&!p.portnum.toUpperCase().includes(pktFilter.toUpperCase())) return;
+  if (pktHideBroadcast && (p.to_id==='broadcast'||p.to_id==='ffffffff')) return;
   const snrStr = p.snr!==null&&p.snr!==undefined ? p.snr : '--';
   const rssiStr= p.rssi!==null&&p.rssi!==undefined? p.rssi:'--';
   const signalStr = `${snrStr}/${rssiStr}`;
@@ -3100,6 +3108,22 @@ async function fetchPacketStats() {
       el.style.height = `${Math.min(30,Math.max(4,Math.round((rate/(threshold||1))*20)))}px`;
     }
   } catch(e) {}
+}
+
+function toggleHideBroadcast(btn) {
+  pktHideBroadcast = !pktHideBroadcast;
+  btn.classList.toggle('active', pktHideBroadcast);
+  btn.style.color = pktHideBroadcast ? 'var(--text)' : 'var(--muted)';
+  pktFeed.innerHTML=''; pktFeedCount=0; pktNodeCounts={}; lastPktTs=0;
+  fetchPackets();
+}
+
+function toggleAnalyticsBroadcast(btn) {
+  analyticsHideBroadcast = !analyticsHideBroadcast;
+  btn.classList.toggle('active', analyticsHideBroadcast);
+  btn.style.color = analyticsHideBroadcast ? 'var(--text)' : 'var(--muted)';
+  btn.style.borderColor = analyticsHideBroadcast ? 'var(--accent)' : 'var(--border)';
+  handleNodeSelectChange();
 }
 
 function setPktFilter(btn, val) {
@@ -3543,7 +3567,8 @@ async function loadPerNodeAnalytics(nodeId) {
 
   const hours = document.getElementById('analytics-hours').value;
   try {
-    const r = await fetch(`/api/analytics/node/${nodeId}?hours=${hours}`, { signal });
+    const bcastParam = analyticsHideBroadcast ? '&hide_broadcast=1' : '';
+    const r = await fetch(`/api/analytics/node/${nodeId}?hours=${hours}${bcastParam}`, { signal });
     if (!r.ok) return;
     const data = await r.json();
 
@@ -3606,8 +3631,9 @@ async function initAnalytics() {
   const hours = document.getElementById('analytics-hours').value;
   const portnum = document.getElementById('analytics-portnum')?.value || '';
   const portnumParam = portnum ? `&portnum=${encodeURIComponent(portnum)}` : '';
+  const bcastParam = analyticsHideBroadcast ? '&hide_broadcast=1' : '';
   try {
-    const r = await fetch(`/api/analytics/packets?hours=${hours}${portnumParam}`);
+    const r = await fetch(`/api/analytics/packets?hours=${hours}${portnumParam}${bcastParam}`);
     if (!r.ok) return;
     const data = await r.json();
 
