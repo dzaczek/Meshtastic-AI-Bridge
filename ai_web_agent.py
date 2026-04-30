@@ -386,14 +386,15 @@ class AIWebAgent:
                     for pattern in RE_CURRENCY_PATTERNS:
                         matches = pattern.findall(content)
                         if matches:
+                            prefix = pattern.pattern.split('[')[0]
                             for match in matches[:2]:  # Take first 2 matches
                                 results.append({
-                                    'title': f"Currency pair: {pattern.split('[')[0]}{match}",
+                                    'title': f"Currency pair: {prefix}{match}",
                                     'url': url,
                                     'rank': len(results) + 1,
                                     'source': 'direct_site'
                                 })
-                                print(f"INFO: Found currency pair: {pattern.split('[')[0]}{match}")
+                                print(f"INFO: Found currency pair: {prefix}{match}")
                                 
                 elif "news" in query_type.lower() or "headlines" in data_to_extract.lower():
                     # Look for news headlines and articles
