@@ -1578,11 +1578,6 @@
       <div id="d3-an-dm-graph" style="height:350px; position:relative; overflow:hidden;"></div>
     </div>
 
-    <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
-      <div class="stat-title">Encrypted Direct Messages (Force-Directed Graph)</div>
-      <div id="d3-an-encrypted-dm-graph" style="height:350px; position:relative; overflow:hidden;"></div>
-    </div>
-
   </div>
 
   <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
@@ -3328,10 +3323,7 @@ async function initAnalytics() {
     // 7. DM Force Graph
     if(data.top_links) drawForceDirectedGraph(data.top_links, '#d3-an-dm-graph', '#3fb950');
 
-    // 8. Encrypted DM Force Graph
-    if(data.encrypted_links) drawForceDirectedGraph(data.encrypted_links, '#d3-an-encrypted-dm-graph', '#f85149');
-
-    // 9. Heatmap
+    // 8. Heatmap
     if (!analyticsHeatmap) {
       analyticsHeatmap = L.map('analytics-heatmap', {zoomControl:true, attributionControl:false})
         .setView([0, 0], 2);
