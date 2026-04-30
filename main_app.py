@@ -188,6 +188,17 @@ class MeshtasticAIAppConsole:
                     self.meshtastic_handler.close()
                 raise ConnectionError("CLI: Handler reported connected but node_id is None.")
 
+            # Apply node name from config (overrides device default on every connect)
+            long_name  = getattr(self.app_config, 'NODE_LONG_NAME',  '')
+            short_name = getattr(self.app_config, 'NODE_SHORT_NAME', '')
+            if long_name or short_name:
+                try:
+                    node = self.meshtastic_handler.interface.getNode('^local')
+                    node.setOwner(long_name=long_name, short_name=short_name)
+                    dprint(f"Node name set: '{long_name}' / '{short_name}'")
+                except Exception as e:
+                    dprint(f"setOwner failed: {e}")
+
             # Initialize HAL bot and central message router
             self.hal_bot = HalBot(self.meshtastic_handler, self.app_config)
             self.router = MessageRouter(
