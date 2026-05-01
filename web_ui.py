@@ -894,6 +894,17 @@ if _HAS_FLASK:
         st["uptime_str"] = f"{h:02d}:{m:02d}:{s:02d}"
         st["bot_name"]   = _bot_name
 
+        # Inject total tokens from db instead of static _status tracking
+        if _HAS_NODE_DB:
+            try:
+                db_stats = _node_db.get_token_stats()
+                # Using month stats as a proxy for total, or just query total
+                if 'total' in db_stats:
+                    st['ai_tokens_in'] = db_stats['total']['tokens_in']
+                    st['ai_tokens_out'] = db_stats['total']['tokens_out']
+            except Exception:
+                pass
+
         # Real link health: check last received packet time
         if _meshtastic_handler:
             last_rx = _meshtastic_handler.last_rx_time

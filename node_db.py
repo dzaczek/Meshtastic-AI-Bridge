@@ -123,6 +123,16 @@ CREATE INDEX IF NOT EXISTS idx_packets_ts ON packets(ts);
 CREATE INDEX IF NOT EXISTS idx_packets_from ON packets(from_id);
 CREATE INDEX IF NOT EXISTS idx_packets_to ON packets(to_id);
 
+CREATE TABLE IF NOT EXISTS ai_token_usage (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts         REAL    NOT NULL,
+    node_id    TEXT    NOT NULL,
+    tokens_in  INTEGER NOT NULL,
+    tokens_out INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ai_tokens_ts ON ai_token_usage(ts);
+CREATE INDEX IF NOT EXISTS idx_ai_tokens_node ON ai_token_usage(node_id);
+
 """
 
 
@@ -308,6 +318,86 @@ def get_message_history(node_id: str, limit: int = 300) -> list[dict]:
 
 import json as _json
 
+
+def add_ai_token_usage(tokens_in: int, tokens_out: int, node_id: str, ts: float | None = None) -> None:
+    if not _conn:
+        return
+    ts = ts or time.time()
+    with _lock, _conn:
+        _conn.execute(
+            "INSERT INTO ai_token_usage (ts, node_id, tokens_in, tokens_out) VALUES (?, ?, ?, ?)",
+            (ts, node_id, tokens_in, tokens_out)
+        )
+
+def get_token_stats() -> dict:
+    """Returns AI token usage statistics over the last month, weekly, and daily breakdowns."""
+    if not _conn:
+        return {}
+
+    now = time.time()
+    one_month_ago = now - (30 * 24 * 3600)
+
+    with _lock:
+        # Total lifetime tokens
+        total_row = _conn.execute(
+            "SELECT SUM(tokens_in), SUM(tokens_out) FROM ai_token_usage"
+        ).fetchone()
+
+        # Total tokens this month
+        month_row = _conn.execute(
+            """SELECT SUM(tokens_in), SUM(tokens_out)
+               FROM ai_token_usage
+               WHERE ts > ?""",
+            (one_month_ago,)
+        ).fetchone()
+        month_in = month_row[0] or 0
+        month_out = month_row[1] or 0
+
+        # Daily breakdown for the last 7 days
+        seven_days_ago = now - (7 * 24 * 3600)
+        daily_rows = _conn.execute(
+            """SELECT
+                 strftime('%Y-%m-%d', datetime(ts, 'unixepoch', 'localtime')) as day,
+                 SUM(tokens_in), SUM(tokens_out)
+               FROM ai_token_usage
+               WHERE ts > ?
+               GROUP BY day
+               ORDER BY day ASC""",
+            (seven_days_ago,)
+        ).fetchall()
+
+        daily = []
+        for r in daily_rows:
+            daily.append({
+                "label": r[0],
+                "tokens_in": r[1] or 0,
+                "tokens_out": r[2] or 0
+            })
+
+        # Top users (by node_id) this month
+        top_users_rows = _conn.execute(
+            """SELECT node_id, SUM(tokens_in + tokens_out) as total
+               FROM ai_token_usage
+               WHERE ts > ?
+               GROUP BY node_id
+               ORDER BY total DESC
+               LIMIT 10""",
+            (one_month_ago,)
+        ).fetchall()
+
+        top_users = []
+        for r in top_users_rows:
+            top_users.append({
+                "node_id": r[0],
+                "total_tokens": r[1] or 0
+            })
+
+    return {
+        "total": {"tokens_in": total_row[0] or 0, "tokens_out": total_row[1] or 0},
+        "month": {"tokens_in": month_in, "tokens_out": month_out},
+        "daily": daily,
+        "top_users": top_users
+    }
 
 def add_traceroute(from_id: str, to_id: str, hops: int,
                    route: list, snr_towards: list,
