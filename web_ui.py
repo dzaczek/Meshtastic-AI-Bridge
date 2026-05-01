@@ -49,6 +49,7 @@ try:
         verify_registration_response,
         generate_authentication_options,
         verify_authentication_response,
+        options_to_json,
     )
     from webauthn.helpers.structs import (
         AuthenticatorSelectionCriteria,
@@ -731,7 +732,8 @@ if _HAS_FLASK:
             exclude_credentials=exclude_creds,
         )
         session["webauthn_registration_challenge"] = _b64url_encode(options.challenge)
-        return jsonify({"ok": True, "options": options.model_dump()})
+        import json as _json
+        return jsonify({"ok": True, "options": _json.loads(options_to_json(options))})
 
     @app.route("/api/auth/passkey/register/finish", methods=["POST"])
     @login_required
@@ -744,7 +746,7 @@ if _HAS_FLASK:
             return jsonify({"ok": False, "error": "Missing registration challenge"}), 400
         try:
             verification = verify_registration_response(
-                credential=RegistrationCredential.parse_obj(payload),
+                credential=payload,
                 expected_challenge=_b64url_decode(challenge),
                 expected_rp_id=WEB_UI_RP_ID,
                 expected_origin=WEB_UI_ORIGIN,
@@ -780,7 +782,8 @@ if _HAS_FLASK:
             user_verification=UserVerificationRequirement.PREFERRED,
         )
         session["webauthn_auth_challenge"] = _b64url_encode(options.challenge)
-        return jsonify({"ok": True, "options": options.model_dump()})
+        import json as _json
+        return jsonify({"ok": True, "options": _json.loads(options_to_json(options))})
 
     @app.route("/api/auth/passkey/login/finish", methods=["POST"])
     def passkey_login_finish():
@@ -797,7 +800,7 @@ if _HAS_FLASK:
             return jsonify({"ok": False, "error": "Invalid credentials"}), 401
         try:
             verification = verify_authentication_response(
-                credential=AuthenticationCredential.parse_obj(payload),
+                credential=payload,
                 expected_challenge=_b64url_decode(challenge),
                 expected_rp_id=WEB_UI_RP_ID,
                 expected_origin=WEB_UI_ORIGIN,
