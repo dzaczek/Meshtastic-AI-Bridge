@@ -2373,6 +2373,7 @@ let pktHideBroadcast = false;
 let analyticsHideBroadcast = false;
 let nodesCache    = [];
 let channelsCache = [];   // [{index, name}] from /api/channels
+let _channelRetries = 0;
 
 function chName(idx) {
   const ch = channelsCache.find(c => c.index === Number(idx));
@@ -2837,11 +2838,19 @@ async function fetchChannels() {
     const channels = d.channels || [];
     channelsCache = channels;   // store globally for chName() lookups
     if (!channels.length) {
-      channelsCache = [{index:0, name:'Channel 0'}];
-      convCh.innerHTML = `<div class="conv-item" data-conv="ch:0" onclick="switchConv('ch:0')"># Channel 0</div>`;
-      sel.innerHTML = '<option value="0">Channel 0</option>';
+      // Device may not have sent channel data yet — retry up to 5×
+      if (_channelRetries < 5) {
+        _channelRetries++;
+        setTimeout(fetchChannels, 3000);
+      } else {
+        _channelRetries = 0;
+        channelsCache = [{index:0, name:'Channel 0'}];
+        convCh.innerHTML = `<div class="conv-item" data-conv="ch:0" onclick="switchConv('ch:0')"># Channel 0</div>`;
+        sel.innerHTML = '<option value="0">Channel 0</option>';
+      }
       return;
     }
+    _channelRetries = 0;
     channels.forEach(ch => {
       const name = ch.name || `Ch-${ch.index}`;
       const key  = `ch:${ch.index}`;
@@ -5435,11 +5444,15 @@ function _updatePosLinks() {
   if (!lat || !lon || isNaN(lat) || isNaN(lon)) { row.style.display = 'none'; return; }
   row.style.display = '';
   const z = 15;
-  document.getElementById('pos-link-osm').href     = `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}&zoom=${z}`;
-  document.getElementById('pos-link-gmaps').href   = `https://maps.google.com/?q=${lat},${lon}&z=${z}`;
-  document.getElementById('pos-link-mapcz').href   = `https://mapy.cz/zakladni?x=${lon}&y=${lat}&z=${z}&source=coor&id=${lon},${lat}`;
-  document.getElementById('pos-link-mesh').href    = `https://meshmap.net/#${lat},${lon},${z}`;
-  document.getElementById('pos-link-wikimap').href = `https://wikimapia.org/#lang=en&lat=${lat}&lon=${lon}&z=${z}`;
+  // Always use toFixed(6) to avoid locale-specific number formatting in URLs
+  const latS = lat.toFixed(6);
+  const lonS = lon.toFixed(6);
+  document.getElementById('pos-link-osm').href     = `https://www.openstreetmap.org/?mlat=${latS}&mlon=${lonS}&zoom=${z}`;
+  document.getElementById('pos-link-gmaps').href   = `https://www.google.com/maps?q=${latS},${lonS}&z=${z}`;
+  document.getElementById('pos-link-mapcz').href   = `https://mapy.cz/zakladni?x=${lonS}&y=${latS}&z=${z}&source=coor&id=${lonS},${latS}`;
+  // Meshmap uses Leaflet hash format: #zoom/lat/lon
+  document.getElementById('pos-link-mesh').href    = `https://meshmap.net/#${z}/${latS}/${lonS}`;
+  document.getElementById('pos-link-wikimap').href = `https://wikimapia.org/#lang=en&lat=${latS}&lon=${lonS}&z=${z}&m=b`;
 }
 
 function copyPosLink() {

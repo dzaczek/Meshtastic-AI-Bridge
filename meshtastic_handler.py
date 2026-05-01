@@ -439,18 +439,18 @@ class MeshtasticHandler:
 
         channels_info = []
         try:
-            # interface.channels may be an empty dict in some library versions;
-            # fall back to node.channels which is a list of Channel proto objects.
+            # Try interface.channels first (dict {index: Channel}),
+            # then node.channels (list of Channel proto objects).
             ch_source = None
             iface_ch  = getattr(self.interface, 'channels', None)
             if iface_ch:
-                ch_source = iface_ch  # dict {index: Channel}
-            else:
+                ch_source = iface_ch
+            if not ch_source:
                 try:
                     node = self.interface.getNode('^local')
                     node_ch = getattr(node, 'channels', None)
                     if node_ch:
-                        ch_source = node_ch  # list of Channel proto
+                        ch_source = node_ch
                 except Exception:
                     pass
 
@@ -459,21 +459,22 @@ class MeshtasticHandler:
 
             # Normalise: dict → items(), list → enumerate
             if isinstance(ch_source, dict):
-                items = ch_source.items()
+                items = list(ch_source.items())
             else:
-                items = enumerate(ch_source)
+                items = list(enumerate(ch_source))
 
             for ch_index, ch_container in items:
                 settings = getattr(ch_container, 'settings', None)
                 role     = getattr(ch_container, 'role', None)
 
-                # Skip DISABLED channels (role == 0)
-                if role is not None and int(role) == 0:
+                # Skip DISABLED channels (role == 0) unless it's index 0
+                # (primary may appear as role 0 when not yet fully configured)
+                role_int = int(role) if role is not None else -1
+                if role_int == 0 and ch_index != 0:
                     continue
 
-                name = settings.name if (settings and getattr(settings, 'name', '')) else f"Ch-{ch_index}"
-                if not name:
-                    name = "PRIMARY" if int(role or 0) == 1 else f"Ch-{ch_index}"
+                name = (settings.name if (settings and getattr(settings, 'name', '')) else '') or \
+                       ("LongFast" if ch_index == 0 else f"Ch-{ch_index}")
 
                 try:
                     role_name = str(role)
