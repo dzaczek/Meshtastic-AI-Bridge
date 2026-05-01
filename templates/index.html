@@ -2043,11 +2043,11 @@
       <div id="fix-pos-current" style="font-size:.75em;color:var(--muted);margin-bottom:8px;"></div>
       <div class="cfg-row">
         <span class="cfg-label">Latitude<small>decimal degrees, e.g. 47.376892</small></span>
-        <input class="cfg-input" type="number" step="0.000001" min="-90" max="90" id="fix-lat" style="width:150px;flex:none;" placeholder="47.376892">
+        <input class="cfg-input" type="number" step="0.000001" min="-90" max="90" id="fix-lat" style="width:150px;flex:none;" placeholder="47.376892" oninput="_updatePosLinks()">
       </div>
       <div class="cfg-row">
         <span class="cfg-label">Longitude<small>decimal degrees, e.g. 8.541694</small></span>
-        <input class="cfg-input" type="number" step="0.000001" min="-180" max="180" id="fix-lon" style="width:150px;flex:none;" placeholder="8.541694">
+        <input class="cfg-input" type="number" step="0.000001" min="-180" max="180" id="fix-lon" style="width:150px;flex:none;" placeholder="8.541694" oninput="_updatePosLinks()">
       </div>
       <div class="cfg-row">
         <span class="cfg-label">Altitude (m)<small>optional</small></span>
@@ -2058,7 +2058,16 @@
         <button class="cfg-save" onclick="setFixedPos()">📍 Set Fixed Position</button>
         <button onclick="pickFromMap()" style="background:none;color:var(--primary);border:1px solid var(--primary);font-family:inherit;font-size:.75em;padding:6px 10px;cursor:pointer;margin-left:6px;">🗺 Pick on map</button>
         <button onclick="removeFixedPos()" style="background:#2e0a0a;color:var(--err);border:1px solid var(--err);font-family:inherit;font-size:.75em;padding:6px 10px;cursor:pointer;margin-left:6px;">✕ Remove</button>
-        <button onclick="copyPosLink()" style="background:none;color:var(--muted);border:1px solid #333;font-family:inherit;font-size:.75em;padding:6px 10px;cursor:pointer;margin-left:6px;">📋 Copy link</button>
+      </div>
+      <div class="cfg-row" id="pos-verify-links" style="display:none;">
+        <span class="cfg-label">Verify on</span>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <a id="pos-link-osm"     target="_blank" class="cfg-save" style="text-decoration:none;font-size:.72em;padding:4px 8px;">🗺 OpenStreetMap</a>
+          <a id="pos-link-gmaps"   target="_blank" class="cfg-save" style="text-decoration:none;font-size:.72em;padding:4px 8px;">Google Maps</a>
+          <a id="pos-link-mapcz"   target="_blank" class="cfg-save" style="text-decoration:none;font-size:.72em;padding:4px 8px;">Mapy.cz</a>
+          <a id="pos-link-mesh"    target="_blank" class="cfg-save" style="text-decoration:none;font-size:.72em;padding:4px 8px;">Meshmap</a>
+          <a id="pos-link-wikimap" target="_blank" class="cfg-save" style="text-decoration:none;font-size:.72em;padding:4px 8px;">Wikimapia</a>
+        </div>
       </div>
       <span class="cfg-msg" id="cfgmsg-fixed-pos"></span>
     </div>
@@ -5380,6 +5389,7 @@ function _fillFixPosFromCache() {
   document.getElementById('fix-lat').value = myNode.lat.toFixed(6);
   document.getElementById('fix-lon').value = myNode.lon.toFixed(6);
   if (myNode.altitude) document.getElementById('fix-alt').value = myNode.altitude;
+  _updatePosLinks();
   const info = document.getElementById('fix-pos-current');
   if (info) info.textContent =
     `Current: ${myNode.lat.toFixed(6)}, ${myNode.lon.toFixed(6)}` +
@@ -5415,6 +5425,21 @@ async function removeFixedPos() {
     const d = await r.json();
     _fixPosMsg(d.message || (d.ok ? 'Removed' : 'Error'), d.ok);
   } catch(e) { _fixPosMsg('Network error', false); }
+}
+
+function _updatePosLinks() {
+  const lat = parseFloat(document.getElementById('fix-lat')?.value);
+  const lon = parseFloat(document.getElementById('fix-lon')?.value);
+  const row = document.getElementById('pos-verify-links');
+  if (!row) return;
+  if (!lat || !lon || isNaN(lat) || isNaN(lon)) { row.style.display = 'none'; return; }
+  row.style.display = '';
+  const z = 15;
+  document.getElementById('pos-link-osm').href     = `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}&zoom=${z}`;
+  document.getElementById('pos-link-gmaps').href   = `https://maps.google.com/?q=${lat},${lon}&z=${z}`;
+  document.getElementById('pos-link-mapcz').href   = `https://mapy.cz/zakladni?x=${lon}&y=${lat}&z=${z}&source=coor&id=${lon},${lat}`;
+  document.getElementById('pos-link-mesh').href    = `https://meshmap.net/#${lat},${lon},${z}`;
+  document.getElementById('pos-link-wikimap').href = `https://wikimapia.org/#lang=en&lat=${lat}&lon=${lon}&z=${z}`;
 }
 
 function copyPosLink() {
@@ -5453,6 +5478,7 @@ function pickFromMap() {
       const lon = e.latlng.lng.toFixed(6);
       document.getElementById('fix-lat').value = lat;
       document.getElementById('fix-lon').value = lon;
+      _updatePosLinks();
       L.marker([lat, lon], {
         icon: L.divIcon({
           html: '<div style="width:14px;height:14px;background:#ffff00;border:2px solid #000;border-radius:50%;"></div>',
