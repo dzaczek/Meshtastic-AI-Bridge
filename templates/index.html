@@ -1183,7 +1183,7 @@
 <!-- ══════════════════════════════════════════════════════════════
      OPS DASHBOARD TAB
 ════════════════════════════════════════════════════════════════ -->
-<div id="tab-ops" class="tab-pane active" style="display:flex; flex-direction:column; padding:15px; overflow-y:auto; gap:15px; max-height:100%;">
+<div id="tab-ops" class="tab-pane active" style="flex-direction:column; padding:15px; overflow-y:auto; gap:15px; max-height:100%;">
   <div class="dashboard-toolbar" style="display:flex; justify-content:space-between; align-items:center; background:var(--surf); padding:8px 12px; border:1px solid var(--border); border-radius:var(--r-md);">
     <h2 style="color:var(--text); margin:0;">OPS Dashboard</h2>
     <div class="toolbar-actions" style="display:flex; gap:10px;">
@@ -2440,6 +2440,8 @@ function switchTab(name) {
   if (name==='radar')  initRadar();
   if (name==='analytics') initAnalytics();
   if (name==='config') { cfgData = {}; initConfig(); _fillFixPosFromCache(); }
+  // Let GridStack recalculate layout when tab becomes visible
+  setTimeout(() => { if (grids[name]) grids[name].onParentResize(); }, 50);
 }
 
 function mobChatBack() {
