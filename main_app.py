@@ -351,6 +351,21 @@ class MeshtasticAIAppConsole:
                     )
                 if _HAS_NODE_DB:
                     node_db.add_message(sender_id, ai_response, direction="ai", channel=result.reply_channel)
+
+                if success and _matrix_bridge:
+                    bot_name = web_ui.get_bot_name() if _HAS_WEB_UI else "Eva"
+                    try:
+                        import config
+                        bot_name = getattr(config, 'BOT_NAME', bot_name)
+                    except ImportError:
+                        pass
+                    _matrix_bridge.send_to_matrix(
+                        ai_response, bot_name,
+                        result.reply_destination if result.reply_as_dm else self.ai_node_id_hex,
+                        channel_index=result.reply_channel if not result.reply_as_dm else 0,
+                        is_dm=result.reply_as_dm,
+                    )
+
                 if not success:
                     print(f"ERROR: Failed to send AI reply: {reason}")
             else:
