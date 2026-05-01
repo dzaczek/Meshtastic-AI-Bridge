@@ -2,7 +2,15 @@
 
 > AI-powered gateway between Meshtastic LoRa mesh networks, AI assistants, a web dashboard, and Matrix messenger — runs as a Docker container, no terminal required.
 
-![OPS Dashboard](./mdfiles/screen_ops.svg)
+## Overview
+This system provides a full-featured web dashboard to monitor and manage a Meshtastic LoRa network. It bridges communication with AI assistants (like OpenAI or Gemini) and Matrix messenger, enabling advanced conversational interfaces right on the mesh.
+
+![OPS Dashboard](./mdfiles/screen_ops.png)
+*The OPS dashboard provides a SOC-style overview of your mesh network. You can view top-nodes by signal strength, watch a live activity feed of all messages, and monitor your connection status in real-time.*
+
+### Demo
+Watch a complete walkthrough of the dashboard showcasing the interactive Map, Node details, Packet feed, Chat interface, and system configuration:
+[Watch the system in action](./mdfiles/demo.webm)
 
 ---
 
@@ -10,10 +18,12 @@
 
 | | |
 |---|---|
-| ![Chat](./mdfiles/screen_chat.svg) | ![Nodes](./mdfiles/screen_nodes.svg) |
-| **Chat** — per-channel & DM threads, ACK indicators, clickable sender names | **Nodes** — live node cards with signal, battery, GPS, detail panel |
-| ![Packets](./mdfiles/screen_packets.svg) | ![Config](./mdfiles/screen_config.svg) |
-| **Packets** — Wireshark-style feed with stats panel | **Config** — full hardware configuration via Meshtastic API |
+| ![Chat](./mdfiles/screen_chat.png) | ![Nodes](./mdfiles/screen_nodes.png) |
+| **Chat** — Engage in per-channel and per-node (DM) conversation threads. It features delivery ACK indicators (pending, delivered, failed) and clickable sender names that open detailed node profiles. History persists across restarts. | **Nodes** — View live node cards displaying SNR/RSSI, battery levels, GPS coordinates, and hop count. The detail panel includes signal/telemetry charts, a position trail on a mini-map, and traceroute history. |
+| ![Packets](./mdfiles/screen_packets.png) | ![Config](./mdfiles/screen_config.png) |
+| **Packets** — Monitor a Wireshark-style feed of raw packets with a real-time stats panel. Includes per-channel/type breakdowns, route tracing, and an auto-scroll toggle for continuous monitoring. | **Config** — Perform full hardware configuration via the Meshtastic API. Easily adjust LoRa region/preset, device role, position, network settings, and execute a one-click device reboot. |
+| ![Map](./mdfiles/screen_map.png) | |
+| **Map** — Explore a Leaflet.js interactive map featuring node markers color-coded by type and traceroute polylines visualizing intermediate hops. | |
 
 ---
 
@@ -106,7 +116,8 @@ The container restarts automatically on server reboot (`restart: unless-stopped`
 ### 3 — Update
 
 ```bash
-git pull
+git fetch --all
+git reset --hard origin/main
 docker compose up -d --build
 ```
 
