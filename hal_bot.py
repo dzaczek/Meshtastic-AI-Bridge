@@ -37,6 +37,17 @@ class HalBot:
         c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
         return R * c
 
+    @staticmethod
+    def _normalize_cmd(text: str) -> str:
+        """Strip !, backticks and extra whitespace from a command text."""
+        t = text.strip()
+        # Strip leading ! (but not !admin)
+        if t.startswith('!') and not t.lower().startswith('!admin'):
+            t = t[1:].strip()
+        # Strip backtick wrapping: `command` or `command args`
+        t = t.strip('`').strip()
+        return t
+
     def should_handle_message(self, text: str) -> bool:
         """Check if the message should be handled by the bot"""
         text = text.strip()
@@ -46,12 +57,15 @@ class HalBot:
         if text_lower.startswith("!admin"):
             return True
 
+        # Normalize (strip !, backticks) before checking commands
+        clean = self._normalize_cmd(text).lower()
+
         # Check for direct commands first
-        if text_lower in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl', 'distance', 'odleglosc', 'weather', 'pogoda']:
+        if clean in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl', 'distance', 'odleglosc', 'weather', 'pogoda']:
             return True
 
         # Check for bot prefixed commands
-        match = self.command_pattern.match(text)
+        match = self.command_pattern.match(clean)
         if match:
             command = match.group(1).lower()
             if command in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl', 'distance', 'odleglosc', 'weather', 'pogoda']:
@@ -488,7 +502,6 @@ class HalBot:
 
     def handle_command(self, text: str, sender_id: str, sender_name: str, channel_id: int = None, is_dm: bool = False) -> Optional[dict]:
         """Handle bot commands"""
-        # Clean up the text and check for direct commands
         text = text.strip()
         text_lower = text.lower()
 
@@ -499,13 +512,16 @@ class HalBot:
         if text_lower.startswith("!admin"):
             return self._handle_admin(text, sender_id, sender_name, channel_id)
 
+        # Normalize: strip !, backticks before matching
+        clean = self._normalize_cmd(text)
+        clean_lower = clean.lower()
+
         # Handle direct commands without bot prefix
-        if text_lower in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl', 'distance', 'odleglosc']:
-            command = text_lower
+        if clean_lower in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl', 'distance', 'odleglosc', 'weather', 'pogoda']:
+            command = clean_lower
             args = ""
         else:
-            # Handle bot prefixed commands
-            match = self.command_pattern.match(text)
+            match = self.command_pattern.match(clean)
             if not match:
                 return None
             command = match.group(1).lower()

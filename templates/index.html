@@ -491,6 +491,8 @@
     .msg-rx    {border-left-color:var(--rx);}
     .msg-tx    {border-left-color:var(--tx);}
     .msg-ai    {border-left-color:var(--ai);}
+    .msg.dm    {background:rgba(180,100,255,.07);border-left-color:#c98aff;border-left-width:3px;}
+    .msg.dm .msg-sender{color:#c98aff !important;font-weight:600;}
     .msg-system{border-left-color:var(--sys);}
     .msg-error {border-left-color:var(--err);}
     .msg-ts    {color:var(--muted);font-size:.75em;white-space:nowrap;flex-shrink:0;}
@@ -2534,7 +2536,7 @@ function appendMessage(msg) {
     ? `<span style="color:var(--muted);font-size:.7em">→${msg.destination_id.slice(-4)}</span>` : '';
 
   const d = document.createElement('div');
-  d.className = `msg msg-${esc(msg.type)}`;
+  d.className = `msg msg-${esc(msg.type)}${isDm ? ' dm' : ''}`;
   d.dataset.ts = msg.timestamp;
   d.dataset.ch = msg.channel;
   d.dataset.msgid = msg.id;
