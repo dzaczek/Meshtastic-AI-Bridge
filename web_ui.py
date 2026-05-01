@@ -107,7 +107,12 @@ _status: dict = {
     "ai_responses": 0,
     "reconnecting": False,
     "last_error": None,
+    "ai_enabled": True,
 }
+
+
+def is_ai_enabled() -> bool:
+    return _status.get("ai_enabled", True)
 _lock = threading.Lock()
 _send_callback  = None
 _meshtastic_handler = None
@@ -952,6 +957,19 @@ if _HAS_FLASK:
         with _lock:
             _status["last_error"] = None
         return jsonify({"ok": True})
+
+    @app.route("/api/ai/enabled")
+    @login_required
+    def api_ai_enabled():
+        return jsonify({"enabled": _status.get("ai_enabled", True)})
+
+    @app.route("/api/ai/toggle", methods=["POST"])
+    @login_required
+    def api_ai_toggle():
+        with _lock:
+            current = _status.get("ai_enabled", True)
+            _status["ai_enabled"] = not current
+        return jsonify({"enabled": _status["ai_enabled"]})
 
     # ------------------------------------------------------------------
     # Per-node history (node_db)

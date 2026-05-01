@@ -320,6 +320,9 @@ class MeshtasticAIAppConsole:
 
         # --- AI response needed ---
         if result.needs_ai_response:
+            if _HAS_WEB_UI and not web_ui.is_ai_enabled():
+                dprint(f"AI disabled — skipping response for {sender_name}")
+                return
             dprint(f"Generating AI response for {sender_name} in {result.conversation_id}...")
             ai_response = self.router.generate_ai_response(
                 result.conversation_id, text, sender_name, sender_id,

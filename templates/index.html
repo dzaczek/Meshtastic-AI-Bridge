@@ -1221,6 +1221,11 @@
   <button class="tab-btn"        onclick="switchTab('radar')">Radar</button>
   <button class="tab-btn"        onclick="switchTab('config')">Config</button>
   <div id="tab-meta">
+    <button id="btn-ai-toggle" onclick="toggleAI(this)" title="Enable/disable AI responses"
+      style="background:rgba(77,255,209,.12);border:1px solid rgba(77,255,209,.3);color:var(--ai);
+             border-radius:4px;cursor:pointer;padding:2px 8px;font-size:.72em;font-weight:600;letter-spacing:.05em;">
+      AI ON
+    </button>
     <span id="hdr-rx" style="color:var(--rx)">RX: 0</span>
     <span id="hdr-ai-cnt" style="color:var(--ai)">AI: 0</span>
     <span id="hdr-uptime2" style="color:var(--muted)"></span>
@@ -1349,17 +1354,30 @@
       </div>
       <div class="conv-section">Channels</div>
       <div id="conv-channels"></div>
-      <div class="conv-section" style="display:flex;align-items:center;justify-content:space-between;">
-        <span>Direct</span>
-        <div style="display:flex;gap:3px;">
-          <select class="tb-select" style="font-size:.6em;padding:1px 3px;" id="chat-hop-filter" onchange="setChatHopFilter(this.value)">
+      <!-- User search -->
+      <div style="padding:6px 8px 2px;">
+        <input id="chat-user-search" type="search" placeholder="🔍 Search nodes..."
+          oninput="setChatUserSearch(this.value)"
+          style="width:100%;box-sizing:border-box;background:var(--surf2);border:1px solid var(--border-s);
+                 color:var(--text);border-radius:4px;padding:5px 8px;font-size:.78em;outline:none;">
+      </div>
+
+      <!-- Direct Messages header + filters -->
+      <div class="conv-section" style="display:flex;flex-direction:column;gap:4px;padding-bottom:6px;">
+        <span style="font-size:.63em;text-transform:uppercase;letter-spacing:1.5px;color:var(--primary);">Direct Messages</span>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;">
+          <select class="tb-select" id="chat-hop-filter" onchange="setChatHopFilter(this.value)"
+            style="flex:1;font-size:.72em;padding:3px 5px;background:var(--surf2);border:1px solid var(--border);
+                   color:var(--text);border-radius:3px;">
             <option value="all">All hops</option>
             <option value="direct">Direct</option>
             <option value="1">1 hop</option>
             <option value="3+">3+ hops</option>
             <option value="mqtt">MQTT</option>
           </select>
-          <select class="tb-select" style="font-size:.6em;padding:1px 3px;" id="chat-seen-filter" onchange="setChatSeenFilter(parseInt(this.value))">
+          <select class="tb-select" id="chat-seen-filter" onchange="setChatSeenFilter(parseInt(this.value))"
+            style="flex:1;font-size:.72em;padding:3px 5px;background:var(--surf2);border:1px solid var(--border);
+                   color:var(--text);border-radius:3px;">
             <option value="0" selected>All time</option>
             <option value="3600">1h</option>
             <option value="21600">6h</option>
@@ -2716,6 +2734,12 @@ function renderDmList(nodes) {
     if (chatHopFilter === 'mqtt'   && !n.via_mqtt)        return false;
     if (chatSeenFilter > 0 && n.last_heard && (now - n.last_heard) > chatSeenFilter) return false;
     if (chatSeenFilter > 0 && !n.last_heard) return false;
+    if (chatUserSearch) {
+      const q = chatUserSearch;
+      if (!(n.long_name||'').toLowerCase().includes(q) &&
+          !(n.short_name||'').toLowerCase().includes(q) &&
+          !(n.id||'').toLowerCase().includes(q)) return false;
+    }
     return true;
   });
   // Sort: online first, then by last heard descending
@@ -3154,8 +3178,28 @@ function clearPackets() {
 }
 
 // ── CHAT SIDEBAR FILTERS ──────────────────────────────────────
-let chatHopFilter  = 'all';
-let chatSeenFilter = 0;     // default: show all nodes regardless of last seen
+let chatHopFilter   = 'all';
+let chatSeenFilter  = 0;
+let chatUserSearch  = '';
+
+async function toggleAI(btn) {
+  try {
+    const r = await fetch('/api/ai/toggle', {method:'POST'});
+    const d = await r.json();
+    _updateAIBtn(btn, d.enabled);
+  } catch(e) { console.error('AI toggle failed', e); }
+}
+
+function _updateAIBtn(btn, enabled) {
+  if (!btn) btn = document.getElementById('btn-ai-toggle');
+  if (!btn) return;
+  btn.textContent = enabled ? 'AI ON' : 'AI OFF';
+  btn.style.background    = enabled ? 'rgba(77,255,209,.12)' : 'rgba(255,80,80,.12)';
+  btn.style.borderColor   = enabled ? 'rgba(77,255,209,.3)'  : 'rgba(255,80,80,.3)';
+  btn.style.color         = enabled ? 'var(--ai)'            : 'var(--err)';
+}
+
+function setChatUserSearch(val) { chatUserSearch = val.toLowerCase().trim(); renderDmList(nodesCache); }
 let chatSenderFilter = null;  // null = show all, string = node id
 
 function setChatHopFilter(val)  { chatHopFilter = val;  renderDmList(nodesCache); }
@@ -5453,6 +5497,9 @@ async function fetchMyDeviceInfo() {
 (async function init(){
   // On mobile start with chat feed visible (not the sidebar)
   if (isMobile()) document.getElementById('tab-chat').classList.add('mob-conv');
+
+  // Init AI toggle button state
+  fetch('/api/ai/enabled').then(r=>r.json()).then(d=>_updateAIBtn(null, d.enabled)).catch(()=>{});
 
   await fetchStatus();
   await fetchChannels();
