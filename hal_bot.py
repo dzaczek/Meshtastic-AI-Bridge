@@ -6,6 +6,11 @@ import re
 from typing import Dict, Optional, Tuple
 import random
 import node_db
+try:
+    import requests as _requests
+    _HAS_REQUESTS = True
+except ImportError:
+    _HAS_REQUESTS = False
 
 class HalBot:
     def __init__(self, meshtastic_handler, app_config=None):
@@ -42,14 +47,14 @@ class HalBot:
             return True
 
         # Check for direct commands first
-        if text_lower in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl']:
+        if text_lower in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl', 'distance', 'odleglosc', 'weather', 'pogoda']:
             return True
 
         # Check for bot prefixed commands
         match = self.command_pattern.match(text)
         if match:
             command = match.group(1).lower()
-            if command in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl']:
+            if command in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl', 'distance', 'odleglosc', 'weather', 'pogoda']:
                 return True
 
         return False
@@ -328,6 +333,58 @@ class HalBot:
             'is_channel_message': not is_dm
         }
 
+    def _handle_distance(self, args: str, sender_id: str, sender_name: str, channel_id: int, is_dm: bool) -> dict:
+        if not args:
+            target_id = sender_id
+        else:
+            target = args.strip().lstrip('!')
+            if not target:
+                return {
+                    'response': f"[{self.bot_name}] Invalid target format.",
+                    'channel_id': channel_id,
+                    'is_channel_message': not is_dm
+                }
+            target_id = target
+            if not re.match(r'^[0-9a-f]+$', target.lower()):
+                target_id = self._find_node_by_name(target)
+                if not target_id:
+                    return {
+                        'response': f"[{self.bot_name}] Could not find a node matching '{target}'",
+                        'channel_id': channel_id,
+                        'is_channel_message': not is_dm
+                    }
+
+        target_info = self.get_node_info(target_id)
+        if not target_info:
+            return {
+                'response': f"[{self.bot_name}] Node !{target_id} not found",
+                'channel_id': channel_id,
+                'is_channel_message': not is_dm
+            }
+
+        target_lat = target_info.get('lat')
+        target_lon = target_info.get('lon')
+
+        if target_lat is None or target_lon is None:
+            return {
+                'response': f"[{self.bot_name}] Node !{target_info.get('node_id', target_id)} does not have GPS coordinates available.",
+                'channel_id': channel_id,
+                'is_channel_message': not is_dm
+            }
+
+        dist_str = self._get_distance_str(target_lat, target_lon)
+
+        if dist_str:
+            response = f"[DISTANCE] !{target_info.get('node_id', target_id)}\n{dist_str.strip()}"
+        else:
+            response = f"[{self.bot_name}] Could not calculate distance. Ensure my own GPS coordinates are available."
+
+        return {
+            'response': response,
+            'channel_id': channel_id,
+            'is_channel_message': not is_dm
+        }
+
     def _handle_traceroute(self, args: str, sender_id: str, sender_name: str, channel_id: int, is_dm: bool) -> dict:
         if not args:
             target_id = sender_id
@@ -389,6 +446,32 @@ class HalBot:
             'is_channel_message': not is_dm
         }
 
+    def _handle_weather(self, args: str, sender_id: str, sender_name: str, channel_id: int, is_dm: bool) -> dict:
+        """Fetch current weather from wttr.in and return compact response."""
+        city = args.strip() if args else "Warsaw"
+        if not city:
+            city = "Warsaw"
+        if not _HAS_REQUESTS:
+            return {'response': f"[WEATHER] Error: requests library not available.",
+                    'channel_id': channel_id, 'is_channel_message': not is_dm}
+        try:
+            from urllib.parse import quote_plus
+            url = f"https://wttr.in/{quote_plus(city)}?format=j1"
+            r = _requests.get(url, timeout=8)
+            data = r.json()
+            cur  = data['current_condition'][0]
+            temp = cur['temp_C']
+            desc = cur['weatherDesc'][0]['value']
+            tmrw = data['weather'][1] if len(data.get('weather', [])) > 1 else {}
+            tmax = tmrw.get('maxtempC', '?')
+            tmin = tmrw.get('mintempC', '?')
+            response = (f"[WEATHER] {city.capitalize()}\n"
+                        f"• Now: {temp}°C, {desc}\n"
+                        f"• 24h: {tmin}°C-{tmax}°C")
+        except Exception as e:
+            response = f"[WEATHER] Error: {str(e)[:60]}"
+        return {'response': response, 'channel_id': channel_id, 'is_channel_message': not is_dm}
+
     def handle_command(self, text: str, sender_id: str, sender_name: str, channel_id: int = None, is_dm: bool = False) -> Optional[dict]:
         """Handle bot commands"""
         # Clean up the text and check for direct commands
@@ -403,7 +486,7 @@ class HalBot:
             return self._handle_admin(text, sender_id, sender_name, channel_id)
 
         # Handle direct commands without bot prefix
-        if text_lower in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl']:
+        if text_lower in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl', 'distance', 'odleglosc']:
             command = text_lower
             args = ""
         else:
@@ -420,6 +503,10 @@ class HalBot:
             return self._handle_info_test(command, sender_id, sender_name, channel_id, is_dm)
         elif command in ['traceroute', 'gtraceroute']:
             return self._handle_traceroute(args, sender_id, sender_name, channel_id, is_dm)
+        elif command in ['distance', 'odleglosc']:
+            return self._handle_distance(args, sender_id, sender_name, channel_id, is_dm)
+        elif command in ['weather', 'pogoda']:
+            return self._handle_weather(args, sender_id, sender_name, channel_id, is_dm)
 
     def _start_traceroute_collection(self, target_id: str) -> None:
         """Start background traceroute collection"""
