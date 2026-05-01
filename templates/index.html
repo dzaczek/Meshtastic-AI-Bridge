@@ -5435,29 +5435,35 @@ let _mapPickCallback = null;
 function pickFromMap() {
   switchTab('map');
   initMap();
-  const hint = L.popup()
-    .setLatLng(leafMap.getCenter())
-    .setContent('<b>Click to set fixed position</b>')
-    .openOn(leafMap);
-  leafMap.getContainer().style.cursor = 'crosshair';
-  leafMap.once('click', e => {
-    leafMap.getContainer().style.cursor = '';
-    hint.remove();
-    const lat = e.latlng.lat.toFixed(6);
-    const lon = e.latlng.lng.toFixed(6);
-    document.getElementById('fix-lat').value = lat;
-    document.getElementById('fix-lon').value = lon;
-    // Show picked location marker
-    L.marker([lat, lon], {
-      icon: L.divIcon({
-        html: '<div style="width:12px;height:12px;background:#ffff00;border:2px solid #000;border-radius:50%;"></div>',
-        className: '', iconSize: [12,12], iconAnchor: [6,6],
-      })
-    }).addTo(leafMap).bindPopup(`Fixed: ${lat}, ${lon}`).openPopup();
-    switchTab('config');
-    showCfgSec('position');
-    _fixPosMsg(`Picked: ${lat}, ${lon} — click "Set Fixed Position" to apply`, true);
-  });
+  // Wait for GridStack + Leaflet to settle before registering click
+  // (GridStack may have repositioned the container, invalidateSize fixes coordinate math)
+  setTimeout(() => {
+    if (!leafMap) return;
+    leafMap.invalidateSize();
+    const hint = L.popup()
+      .setLatLng(leafMap.getCenter())
+      .setContent('<b>Kliknij mapę aby ustawić pozycję</b>')
+      .openOn(leafMap);
+    leafMap.getContainer().style.cursor = 'crosshair';
+    leafMap.once('click', e => {
+      leafMap.getContainer().style.cursor = '';
+      hint.remove();
+      // Use containerPointToLatLng for accuracy after layout changes
+      const lat = e.latlng.lat.toFixed(6);
+      const lon = e.latlng.lng.toFixed(6);
+      document.getElementById('fix-lat').value = lat;
+      document.getElementById('fix-lon').value = lon;
+      L.marker([lat, lon], {
+        icon: L.divIcon({
+          html: '<div style="width:14px;height:14px;background:#ffff00;border:2px solid #000;border-radius:50%;"></div>',
+          className: '', iconSize: [14,14], iconAnchor: [7,7],
+        })
+      }).addTo(leafMap).bindPopup(`Pozycja: ${lat}, ${lon}`).openPopup();
+      switchTab('config');
+      showCfgSec('position');
+      _fixPosMsg(`Wybrano: ${lat}, ${lon} — kliknij "Set Fixed Position" aby zastosować`, true);
+    });
+  }, 200);
 }
 
 // ── SHADER WALLPAPER ──────────────────────────────────────────────────────
