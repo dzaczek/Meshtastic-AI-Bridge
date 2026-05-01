@@ -217,16 +217,22 @@
     .ops-main-map .ops-body { display:block; }
     #ops-map { width:100%; height:100%; background:#07090c; }
     /* Stats grid */
-    .ops-stats .ops-body { padding:8px; display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; gap:8px; }
+    .ops-stats-body {
+      padding:8px; display:flex; flex-direction:column; gap:6px; height:100%; box-sizing:border-box;
+    }
+    .ops-stats-tiles {
+      display:grid; grid-template-columns:1fr 1fr; gap:6px; flex:1; min-height:0;
+    }
     .stat-tile {
       background:rgba(255,255,255,.02); border:1px solid var(--border);
-      border-radius:var(--r); padding:10px 12px;
-      display:flex; flex-direction:column; justify-content:space-between;
+      border-radius:var(--r); padding:8px 10px; min-height:0; overflow:hidden;
+      display:flex; flex-direction:column; justify-content:center;
     }
-    .stat-tile .lbl { font-family:var(--font-mono); font-size:.6em; color:var(--muted2); letter-spacing:.15em; text-transform:uppercase; }
-    .stat-tile .val { font-family:var(--font-mono); font-size:1.8em; font-weight:600; color:var(--text); line-height:1; margin-top:4px; }
-    .stat-tile .val small { font-size:.5em; color:var(--muted); margin-left:4px; }
-    .stat-tile .delta { font-family:var(--font-mono); font-size:.7em; margin-top:4px; color:var(--primary); }
+    .stat-tile .lbl { font-family:var(--font-mono); font-size:.58em; color:var(--muted2); letter-spacing:.12em; text-transform:uppercase; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .stat-tile .val { font-family:var(--font-mono); font-size:clamp(1em,3cqw,2em); font-weight:600; color:var(--text); line-height:1.1; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .stat-tile .val small { font-size:.5em; color:var(--muted); margin-left:3px; }
+    .stat-tile .delta { font-family:var(--font-mono); font-size:.65em; margin-top:2px; color:var(--primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .ops-stats-btns { display:flex; gap:5px; flex-shrink:0; }
     /* Activity feed */
     .ops-activity .ops-body { overflow-y:auto; }
     .feed-row {
@@ -1211,35 +1217,37 @@
 
     <!-- Stats -->
     <div class="grid-stack-item" gs-id="ops-stats-widget" gs-x="6" gs-y="0" gs-w="3" gs-h="2">
-      <div class="grid-stack-item-content ops-card" style="height:100%; display:flex; flex-direction:column;">
+      <div class="grid-stack-item-content ops-card" style="height:100%; display:flex; flex-direction:column; container-type:size;">
         <div class="ops-head"><h3>Mesh Status</h3></div>
-        <div class="ops-body" style="flex:1; overflow-y:auto;">
-        <div class="stat-tile">
-          <div class="lbl">Active Nodes</div>
-          <div class="val" id="ops-stat-nodes">--</div>
-          <div class="delta" id="ops-stat-nodes-d"></div>
-        </div>
-        <div class="stat-tile">
-          <div class="lbl">Messages</div>
-          <div class="val" id="ops-stat-msgs">--</div>
-          <div class="delta"></div>
-        </div>
-        <div class="stat-tile">
-          <div class="lbl">Packets / min</div>
-          <div class="val" id="ops-stat-ppm">--</div>
-          <div class="delta"></div>
-        </div>
-        <div class="stat-tile">
-          <div class="lbl">Avg SNR</div>
-          <div class="val" id="ops-stat-snr">-- <small>dB</small></div>
-          <div class="delta"></div>
-        </div>
-        <div style="grid-column:1/-1;display:flex;gap:5px;padding-top:4px;">
-          <button class="tb-btn" id="btn-reconnect" onclick="deviceReconnect()"
-            style="flex:1;color:var(--ai);border-color:rgba(77,255,209,.3);">↺ Reconnect</button>
-          <button class="tb-btn" id="btn-disconnect" onclick="deviceDisconnect()"
-            style="flex:1;color:var(--err);border-color:rgba(255,80,80,.3);">⏏ Disconnect</button>
-        </div>
+        <div class="ops-stats-body">
+          <div class="ops-stats-tiles">
+            <div class="stat-tile">
+              <div class="lbl">Active Nodes</div>
+              <div class="val" id="ops-stat-nodes">--</div>
+              <div class="delta" id="ops-stat-nodes-d"></div>
+            </div>
+            <div class="stat-tile">
+              <div class="lbl">Messages</div>
+              <div class="val" id="ops-stat-msgs">--</div>
+              <div class="delta"></div>
+            </div>
+            <div class="stat-tile">
+              <div class="lbl">Pkts / min</div>
+              <div class="val" id="ops-stat-ppm">--</div>
+              <div class="delta"></div>
+            </div>
+            <div class="stat-tile">
+              <div class="lbl">Avg SNR</div>
+              <div class="val" id="ops-stat-snr">-- <small>dB</small></div>
+              <div class="delta"></div>
+            </div>
+          </div>
+          <div class="ops-stats-btns">
+            <button class="tb-btn" id="btn-reconnect" onclick="deviceReconnect()"
+              style="flex:1;color:var(--ai);border-color:rgba(77,255,209,.3);">↺ Reconnect</button>
+            <button class="tb-btn" id="btn-disconnect" onclick="deviceDisconnect()"
+              style="flex:1;color:var(--err);border-color:rgba(255,80,80,.3);">⏏ Disconnect</button>
+          </div>
         </div>
       </div>
     </div>
@@ -1725,6 +1733,14 @@
       <div class="grid-stack-item-content stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md); display:flex; flex-direction:column; height:100%;">
         <div class="stat-title">Most Talkative Nodes (Heatmap)<button class="graph-expand-btn" onclick="openHeatmapFs()" title="Fullscreen">⤢</button></div>
         <div id="analytics-heatmap" style="flex:1; border-radius:var(--r-md); border:1px solid var(--border-s); position:relative; z-index:0;"></div>
+      </div>
+    </div>
+
+    <!-- Node Role vs Hop Radial Chart -->
+    <div class="grid-stack-item" gs-id="an-radial-widget" gs-x="0" gs-y="12" gs-w="6" gs-h="5">
+      <div class="grid-stack-item-content stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md); display:flex; flex-direction:column; height:100%;">
+        <div class="stat-title">Node Roles × Hops (Radial)<button class="graph-expand-btn" onclick="openGraphFs('d3-radial-roles','Node Roles × Hops')">⤢</button></div>
+        <div id="d3-radial-roles" style="flex:1; position:relative; overflow:hidden;"></div>
       </div>
     </div>
 
@@ -3936,6 +3952,150 @@ async function initAnalytics() {
     setTimeout(() => { if(analyticsHeatmap) analyticsHeatmap.invalidateSize(); }, 100);
 
   } catch(e) { console.error('Analytics load error:', e); }
+
+  // Radial chart uses live node cache — draw after analytics loads
+  drawRadialRolesChart('#d3-radial-roles');
+}
+
+// ── RADIAL ROLES × HOPS CHART ─────────────────────────────────────────────
+function drawRadialRolesChart(selector) {
+  const container = document.querySelector(selector);
+  if (!container || typeof d3 === 'undefined') return;
+
+  container.innerHTML = '';
+  const nodes = nodesCache.filter(n => !n.is_mine && n.role);
+  if (!nodes.length) {
+    container.innerHTML = '<div style="padding:20px;color:var(--muted);font-size:.8em">No node data.</div>';
+    return;
+  }
+
+  // Role normaliser
+  const roleLabel = r => {
+    const m = { CLIENT:'CLIENT', CLIENT_MUTE:'MUTE', MUTE_CLIENT:'MUTE',
+                ROUTER:'ROUTER', ROUTER_CLIENT:'ROUTER+', TRACKER:'TRACKER',
+                SENSOR:'SENSOR', TAK:'TAK', TAK_TRACKER:'TAK', CLIENT_HIDDEN:'HIDDEN',
+                LOST_AND_FOUND:'L&F' };
+    return m[(r||'').toUpperCase()] || (r||'?').slice(0,8);
+  };
+  const roleKey = r => roleLabel(r);
+
+  const hopColors = ['#00ff88','#4dffd1','#88aaff','#f0883e'];  // 0,1,2,3+
+
+  // Group nodes by role+hop
+  const roleSeen = new Set();
+  nodes.forEach(n => roleSeen.add(roleKey(n.role)));
+  const ROLE_ORDER = ['ROUTER','ROUTER+','CLIENT','MUTE','TRACKER','SENSOR','TAK','HIDDEN','L&F'];
+  const roles = ROLE_ORDER.filter(r => roleSeen.has(r));
+  // append any unseen roles
+  roleSeen.forEach(r => { if (!roles.includes(r)) roles.push(r); });
+
+  const hopOf = n => n.hops_away !== null && n.hops_away !== undefined ? Math.min(n.hops_away, 3) : 3;
+
+  // Count per role per hop
+  const counts = {};
+  roles.forEach(r => { counts[r] = [0,0,0,0]; });
+  nodes.forEach(n => { const r = roleKey(n.role); if(counts[r]) counts[r][hopOf(n)]++; });
+
+  const W = container.clientWidth  || 380;
+  const H = container.clientHeight || 360;
+  const cx = W / 2, cy = H / 2;
+  const outerR = Math.min(cx, cy) * 0.76;
+  const labelR = outerR + 22;
+
+  const svg = d3.select(container).append('svg').attr('width', W).attr('height', H);
+  const g   = svg.append('g').attr('transform', `translate(${cx},${cy})`);
+
+  const nRoles = roles.length;
+  const angleSlice = (Math.PI * 2) / nRoles;
+  const maxCount = d3.max(roles.map(r => d3.sum(counts[r]))) || 1;
+  const rScale = d3.scaleLinear().domain([0, maxCount]).range([0, outerR]);
+
+  // Background rings per hop level
+  [3,2,1,0].forEach(h => {
+    const r = outerR * (h + 1) / 4;
+    g.append('circle').attr('r', r)
+      .attr('fill', 'none').attr('stroke', 'rgba(255,255,255,.06)');
+    g.append('text').attr('x', 3).attr('y', -r + 10)
+      .attr('fill','rgba(255,255,255,.22)').attr('font-size', 9).attr('font-family','monospace')
+      .text(h === 3 ? '3+ hops' : `${h} hop${h===1?'':'s'}`);
+  });
+
+  // Spokes
+  roles.forEach((_, i) => {
+    const a = i * angleSlice - Math.PI / 2;
+    g.append('line').attr('x1',0).attr('y1',0)
+      .attr('x2', Math.cos(a)*outerR).attr('y2', Math.sin(a)*outerR)
+      .attr('stroke','rgba(255,255,255,.08)');
+  });
+
+  // Stacked radial area lines per hop (draw outermost first)
+  const curve = d3.curveCardinalClosed.tension(0.4);
+  [3,2,1,0].forEach(hop => {
+    const pts = roles.map((r, i) => {
+      const cumCount = d3.sum(counts[r].slice(0, hop + 1));
+      const a = i * angleSlice - Math.PI / 2;
+      const rv = rScale(cumCount);
+      return [Math.cos(a) * rv, Math.sin(a) * rv];
+    });
+
+    const lineGen = d3.line().curve(curve)(pts);
+    // filled area back to center
+    const areaGen = d3.area().curve(curve)
+      .x0(0).y0(0)
+      .x1((d,i) => pts[i][0]).y1((d,i) => pts[i][1]);
+
+    g.append('path').attr('d', lineGen + 'Z')
+      .attr('fill', hopColors[hop] + '22')
+      .attr('stroke', hopColors[hop])
+      .attr('stroke-width', 1.5)
+      .attr('stroke-linejoin', 'round');
+  });
+
+  // Role labels
+  roles.forEach((r, i) => {
+    const a = i * angleSlice - Math.PI / 2;
+    const x = Math.cos(a) * labelR, y = Math.sin(a) * labelR;
+    const anchor = Math.abs(x) < 5 ? 'middle' : x > 0 ? 'start' : 'end';
+    g.append('text').attr('x', x).attr('y', y + 4)
+      .attr('text-anchor', anchor)
+      .attr('fill','var(--text)').attr('font-size', 10).attr('font-family','var(--font-mono)')
+      .text(r);
+  });
+
+  // Individual node dots with jitter within their role sector
+  const jitterSeed = {};
+  nodes.forEach(n => {
+    const r = roleKey(n.role);
+    const i = roles.indexOf(r);
+    if (i < 0) return;
+    const hop = hopOf(n);
+    const baseA = i * angleSlice - Math.PI / 2;
+    // Jitter within ±35% of the sector and ±8% of the hop ring width
+    const jA = (Math.random() - 0.5) * angleSlice * 0.7;
+    const ringMin = outerR * hop / 4, ringMax = outerR * (hop + 1) / 4;
+    const rv = ringMin + Math.random() * (ringMax - ringMin) * 0.85 + (ringMax - ringMin) * 0.08;
+    const a = baseA + jA;
+    const dx = Math.cos(a) * rv, dy = Math.sin(a) * rv;
+
+    const dot = g.append('circle')
+      .attr('cx', dx).attr('cy', dy).attr('r', 4.5)
+      .attr('fill', hopColors[hop])
+      .attr('fill-opacity', 0.85)
+      .attr('stroke', 'var(--bg)').attr('stroke-width', 1)
+      .style('cursor', 'pointer');
+    dot.append('title').text(
+      `${n.long_name || '!'+n.id}\nRole: ${r}\nHops: ${hop === 3 && n.hops_away > 3 ? n.hops_away : hop}${n.via_mqtt ? ' (MQTT)' : ''}`
+    );
+  });
+
+  // Legend
+  const leg = svg.append('g').attr('transform', `translate(8,8)`);
+  hopColors.forEach((c, h) => {
+    leg.append('circle').attr('cx', 6).attr('cy', h*16+6).attr('r', 4).attr('fill', c);
+    leg.append('text').attr('x',14).attr('y', h*16+10)
+      .attr('fill','var(--muted)').attr('font-size', 9)
+      .text(h === 3 ? '3+ hops' : `${h} hop${h===1?'':'s'}`);
+  });
 }
 
 // ── CONFIG TAB ────────────────────────────────────────────────
