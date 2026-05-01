@@ -141,6 +141,11 @@ class AIBridge:
                 max_tokens=500 
             )
             summary = response.choices[0].message.content.strip()
+            if _HAS_NODE_DB and response.usage:
+                try:
+                    node_db.add_ai_token_usage(response.usage.prompt_tokens, response.usage.completion_tokens, "system")
+                except Exception:
+                    pass
             return summary
         except Exception as e:
             print(f"ERROR (ai_bridge): OpenAI vision analysis for {url}: {e}")
@@ -412,6 +417,11 @@ class AIBridge:
                 )
                 candidate_reply = completion.choices[0].message.content.strip()
                 if candidate_reply: ai_reply_text = candidate_reply
+                if _HAS_NODE_DB and completion.usage:
+                    try:
+                        node_db.add_ai_token_usage(completion.usage.prompt_tokens, completion.usage.completion_tokens, node_id)
+                    except Exception:
+                        pass
 
             elif self.current_ai_service == "gemini":
                 # print(f"DEBUG (ai_bridge): Sending to Gemini ({self.gemini_text_model_name}): '{messages_for_ai[-1]['content'][:200]}...'")
@@ -490,6 +500,11 @@ class AIBridge:
                               {"role": "user", "content": text_to_summarize}]
                 )
                 summary_text = completion.choices[0].message.content.strip()
+                if _HAS_NODE_DB and completion.usage:
+                    try:
+                        node_db.add_ai_token_usage(completion.usage.prompt_tokens, completion.usage.completion_tokens, "system_summary")
+                    except Exception:
+                        pass
             elif self.current_ai_service == "gemini" and self.gemini_text_model:
                  model_for_summary = genai.GenerativeModel(
                     model_name=self.gemini_text_model_name,
@@ -562,6 +577,11 @@ class AIBridge:
                     max_tokens=5, temperature=0.0
                 )
                 decision = completion.choices[0].message.content.strip().upper()
+                if _HAS_NODE_DB and completion.usage:
+                    try:
+                        node_db.add_ai_token_usage(completion.usage.prompt_tokens, completion.usage.completion_tokens, "system_triage")
+                    except Exception:
+                        pass
                 print(f"INFO (ai_bridge Triage): OpenAI Triage decision: '{decision}' for message from {newest_message_sender}")
                 return decision == "YES"
 

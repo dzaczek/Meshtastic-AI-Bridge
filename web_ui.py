@@ -1142,6 +1142,16 @@ if _HAS_FLASK:
             _status["ai_enabled"] = not current
         return jsonify({"enabled": _status["ai_enabled"]})
 
+    @app.route("/api/ai/token_stats")
+    @login_required
+    def api_ai_token_stats():
+        if not _HAS_NODE_DB:
+            return jsonify({"total": {"tokens_in": 0, "tokens_out": 0}, "month": {"tokens_in": 0, "tokens_out": 0}, "daily": [], "top_users": []})
+        try:
+            return jsonify(_node_db.get_token_stats())
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
     # ------------------------------------------------------------------
     # Dashboard layout persistence
     # ------------------------------------------------------------------

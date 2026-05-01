@@ -1176,6 +1176,7 @@
     </button>
     <span id="hdr-rx" style="color:var(--rx)">RX: 0</span>
     <span id="hdr-ai-cnt" style="color:var(--ai)">AI: 0</span>
+    <span id="hdr-tokens" title="Total AI tokens used (in/out)" style="color:var(--muted);cursor:default;display:none;">🪙<span id="hdr-tokens-val">0</span></span>
     <span id="hdr-uptime2" style="color:var(--muted)"></span>
   </div>
 </div>
@@ -1795,6 +1796,27 @@
     </div>
 
   </div> <!-- end per-node container -->
+
+  <!-- AI Token Statistics -->
+  <div id="ai-stats-section" class="panel" style="padding:14px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surf);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <h3 style="margin:0;font-size:.95em;color:var(--text);">🪙 AI Token Usage</h3>
+      <div id="ai-stats-summary" style="font-size:.78em;color:var(--muted);display:flex;gap:16px;">
+        <span>Total: <b id="ai-tok-total">—</b></span>
+        <span>This month: <b id="ai-tok-month">—</b></span>
+      </div>
+    </div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;">
+      <div style="flex:1;min-width:240px;">
+        <div style="font-size:.72em;color:var(--muted);margin-bottom:6px;">Daily tokens (last 7 days)</div>
+        <div id="ai-token-chart" style="height:140px;position:relative;"></div>
+      </div>
+      <div style="flex:0 0 220px;">
+        <div style="font-size:.72em;color:var(--muted);margin-bottom:6px;">Top AI users (this month)</div>
+        <div id="ai-top-users" style="font-size:.78em;"></div>
+      </div>
+    </div>
+  </div>
 
 </div>
 
@@ -2448,7 +2470,7 @@ function switchTab(name) {
   if (name==='ops')    { initOps(); setTimeout(()=>opsLeafMap&&opsLeafMap.invalidateSize(),150); }
   if (name==='map')    { initMap(); setTimeout(()=>leafMap&&leafMap.invalidateSize(),100); }
   if (name==='radar')  initRadar();
-  if (name==='analytics') initAnalytics();
+  if (name==='analytics') { initAnalytics(); fetchAITokenStats(); }
   if (name==='config') { cfgData = {}; initConfig(); _fillFixPosFromCache(); }
   // Let GridStack recalculate layout when tab becomes visible
   setTimeout(() => { if (grids[name]) grids[name].onParentResize(); }, 50);
@@ -5675,6 +5697,97 @@ async function fetchMyDeviceInfo() {
   } catch(e) { /* silent */ }
 }
 
+// ── AI TOKEN STATS ────────────────────────────────────────────────────────
+function _fmtTokens(n) {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + 'M';
+  if (n >= 1_000)     return (n / 1_000).toFixed(1) + 'k';
+  return String(n);
+}
+
+async function fetchAITokenStats() {
+  try {
+    const r = await fetch('/api/ai/token_stats'); if (!r.ok) return;
+    const d = await r.json();
+    if (d.error) return;
+
+    const totalIn  = (d.total?.tokens_in  || 0);
+    const totalOut = (d.total?.tokens_out || 0);
+    const totalAll = totalIn + totalOut;
+    const monthIn  = (d.month?.tokens_in  || 0);
+    const monthOut = (d.month?.tokens_out || 0);
+    const monthAll = monthIn + monthOut;
+
+    // Header counter
+    const hdr = document.getElementById('hdr-tokens');
+    const hdrVal = document.getElementById('hdr-tokens-val');
+    if (totalAll > 0) {
+      hdrVal.textContent = _fmtTokens(totalAll);
+      hdr.style.display = '';
+      hdr.title = `Total tokens — in: ${_fmtTokens(totalIn)} / out: ${_fmtTokens(totalOut)}`;
+    }
+
+    // Analytics section summary
+    const elTotal = document.getElementById('ai-tok-total');
+    const elMonth = document.getElementById('ai-tok-month');
+    if (elTotal) elTotal.textContent = `${_fmtTokens(totalIn)}↑ ${_fmtTokens(totalOut)}↓`;
+    if (elMonth) elMonth.textContent = `${_fmtTokens(monthIn)}↑ ${_fmtTokens(monthOut)}↓`;
+
+    // Daily bar chart (D3)
+    const chartEl = document.getElementById('ai-token-chart');
+    if (chartEl && typeof d3 !== 'undefined' && d.daily?.length) {
+      chartEl.innerHTML = '';
+      const margin = {top:6, right:8, bottom:28, left:36};
+      const W = chartEl.clientWidth  || 280;
+      const H = chartEl.clientHeight || 140;
+      const w = W - margin.left - margin.right;
+      const h = H - margin.top - margin.bottom;
+      const svg = d3.select(chartEl).append('svg').attr('width',W).attr('height',H);
+      const g   = svg.append('g').attr('transform',`translate(${margin.left},${margin.top})`);
+      const x   = d3.scaleBand().domain(d.daily.map(r=>r.label)).range([0,w]).padding(0.25);
+      const yMax= d3.max(d.daily, r=>(r.tokens_in||0)+(r.tokens_out||0)) || 1;
+      const y   = d3.scaleLinear().domain([0,yMax]).range([h,0]);
+      // stacked bars: in + out
+      d.daily.forEach(r => {
+        const inTok  = r.tokens_in  || 0;
+        const outTok = r.tokens_out || 0;
+        const total  = inTok + outTok;
+        if (!total) return;
+        const bx = x(r.label);
+        const bw = x.bandwidth();
+        g.append('rect').attr('x',bx).attr('y',y(total)).attr('width',bw).attr('height',h-y(total))
+          .attr('fill','rgba(77,255,209,.25)').attr('rx',2);
+        g.append('rect').attr('x',bx).attr('y',y(outTok)).attr('width',bw).attr('height',h-y(outTok))
+          .attr('fill','rgba(77,255,209,.7)').attr('rx',2);
+      });
+      g.append('g').attr('transform',`translate(0,${h})`)
+        .call(d3.axisBottom(x).tickFormat(l=>l.slice(5)))
+        .selectAll('text').style('font-size','9px').style('fill','var(--muted)');
+      g.append('g').call(d3.axisLeft(y).ticks(4).tickFormat(_fmtTokens))
+        .selectAll('text').style('font-size','9px').style('fill','var(--muted)');
+      g.selectAll('.domain,.tick line').attr('stroke','var(--border)');
+    } else if (chartEl && !d.daily?.length) {
+      chartEl.innerHTML = '<div style="color:var(--muted);font-size:.78em;padding:8px;">No token data yet.</div>';
+    }
+
+    // Top users leaderboard
+    const topEl = document.getElementById('ai-top-users');
+    if (topEl && d.top_users?.length) {
+      const nodeNames = {};
+      nodesCache.forEach(n => { nodeNames[n.id] = n.long_name || n.short_name || n.id; });
+      topEl.innerHTML = d.top_users.map((u,i) => {
+        const sysTags = ['system','system_summary','system_triage'];
+        const label = sysTags.includes(u.node_id) ? `[${u.node_id}]` : (nodeNames[u.node_id] || `!${u.node_id}`);
+        return `<div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid var(--border);">
+          <span style="color:var(--text)">${i+1}. ${esc(label)}</span>
+          <span style="color:var(--ai)">${_fmtTokens(u.total_tokens)}</span>
+        </div>`;
+      }).join('');
+    } else if (topEl) {
+      topEl.innerHTML = '<span style="color:var(--muted);font-size:.78em;">No data yet.</span>';
+    }
+  } catch(e) { /* silent */ }
+}
+
 // ── BOOTSTRAP ─────────────────────────────────────────────────────────────
 (async function init(){
   // On mobile start with chat feed visible (not the sidebar)
@@ -5694,6 +5807,8 @@ async function fetchMyDeviceInfo() {
   initOps();   // show ops dashboard on load
   initGridStack(); // init gridstack layout
 
+  fetchAITokenStats();
+
   setInterval(fetchMessages,      2000);
 
   setInterval(fetchStatus,        5000);
@@ -5703,6 +5818,7 @@ async function fetchMyDeviceInfo() {
   setInterval(fetchMyDeviceInfo, 30000);
   setInterval(fetchChannels,    30000);
   setInterval(fetchTraceroutes, 10000);
+  setInterval(fetchAITokenStats, 60000);
 })();
 
 // ── GridStack Layout Management ──────────────────────────────────────────────
