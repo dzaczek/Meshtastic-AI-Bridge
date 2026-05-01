@@ -36,3 +36,4 @@ pytest>=7.4.0  # For testing
 black>=23.7.0  # For code formatting
 flake8>=6.1.0  # For linting
 mypy>=1.5.0  # For type checking
+qrcode[pil]>=7.4.2
