@@ -37,6 +37,12 @@ except ImportError:
     except ImportError:
         AI_WEB_AGENT_AVAILABLE = False
 
+try:
+    import node_db
+    _HAS_NODE_DB = True
+except ImportError:
+    _HAS_NODE_DB = False
+
 
 class AIBridge:
     def __init__(self, app_config):

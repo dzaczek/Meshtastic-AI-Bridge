@@ -3926,7 +3926,7 @@ async function initAnalytics() {
 
     // Clear old layers
     analyticsHeatmap.eachLayer(layer => {
-      if (layer instanceof L.HeatLayer) {
+      if (layer._heat || (typeof L.HeatLayer !== 'undefined' && layer instanceof L.HeatLayer)) {
         analyticsHeatmap.removeLayer(layer);
       }
     });
