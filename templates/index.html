@@ -229,7 +229,7 @@
       display:flex; flex-direction:column; justify-content:center;
     }
     .stat-tile .lbl { font-family:var(--font-mono); font-size:.58em; color:var(--muted2); letter-spacing:.12em; text-transform:uppercase; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .stat-tile .val { font-family:var(--font-mono); font-size:clamp(1em,3cqw,2em); font-weight:600; color:var(--text); line-height:1.1; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .stat-tile .val { font-family:var(--font-mono); font-size:clamp(1em,5cqw,2em); font-weight:600; color:var(--text); line-height:1.1; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .stat-tile .val small { font-size:.5em; color:var(--muted); margin-left:3px; }
     .stat-tile .delta { font-family:var(--font-mono); font-size:.65em; margin-top:2px; color:var(--primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .ops-stats-btns { display:flex; gap:5px; flex-shrink:0; }
@@ -1217,7 +1217,7 @@
 
     <!-- Stats -->
     <div class="grid-stack-item" gs-id="ops-stats-widget" gs-x="6" gs-y="0" gs-w="3" gs-h="2">
-      <div class="grid-stack-item-content ops-card" style="height:100%; display:flex; flex-direction:column; container-type:size;">
+      <div class="grid-stack-item-content ops-card" style="height:100%; display:flex; flex-direction:column; container-type:inline-size;">
         <div class="ops-head"><h3>Mesh Status</h3></div>
         <div class="ops-stats-body">
           <div class="ops-stats-tiles">
