@@ -73,6 +73,7 @@ _packets:  deque = deque(maxlen=1000)
 
 _CHAT_HISTORY_PATH = os.path.join("data", "chat_history.json")
 _WEBAUTHN_CREDENTIALS_PATH = os.path.join("data", "webauthn_credentials.json")
+_LAYOUTS_PATH = os.path.join("data", "layouts.json")
 _save_pending = False
 
 
@@ -1129,6 +1130,40 @@ if _HAS_FLASK:
             current = _status.get("ai_enabled", True)
             _status["ai_enabled"] = not current
         return jsonify({"enabled": _status["ai_enabled"]})
+
+    # ------------------------------------------------------------------
+    # Dashboard layout persistence
+    # ------------------------------------------------------------------
+
+    @app.route("/api/layout/<layout_id>")
+    @login_required
+    def api_layout_get(layout_id):
+        try:
+            if os.path.exists(_LAYOUTS_PATH):
+                with open(_LAYOUTS_PATH) as f:
+                    layouts = json.load(f)
+                return jsonify({"layout": layouts.get(layout_id, [])})
+        except Exception:
+            pass
+        return jsonify({"layout": []})
+
+    @app.route("/api/layout/<layout_id>", methods=["POST"])
+    @login_required
+    def api_layout_save(layout_id):
+        data = request.get_json(silent=True) or {}
+        layout = data.get("layout", [])
+        try:
+            layouts = {}
+            if os.path.exists(_LAYOUTS_PATH):
+                with open(_LAYOUTS_PATH) as f:
+                    layouts = json.load(f)
+            layouts[layout_id] = layout
+            os.makedirs(os.path.dirname(_LAYOUTS_PATH), exist_ok=True)
+            with open(_LAYOUTS_PATH, "w") as f:
+                json.dump(layouts, f)
+            return jsonify({"ok": True})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
 
     # ------------------------------------------------------------------
     # Per-node history (node_db)

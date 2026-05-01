@@ -8,6 +8,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/gridstack.js/10.1.2/gridstack.min.css" rel="stylesheet"/>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/gridstack.js/10.1.2/gridstack-extra.min.css" rel="stylesheet"/>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -186,17 +188,7 @@
 
     /* ── OPS DASHBOARD ── */
     #tab-ops { flex-direction:column; gap:0; }
-    .ops-grid {
-      flex:1; display:grid; min-height:0;
-      grid-template-columns: minmax(0,1.6fr) minmax(0,1fr) minmax(0,0.9fr);
-      grid-template-rows: minmax(0,1.1fr) minmax(0,0.9fr);
-      gap:8px; padding:8px;
-    }
-    @media (max-width:1200px){
-      .ops-grid { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr 180px; }
-      .ops-main-map { grid-column:1 / -1; }
       .ops-side { grid-column:1 / -1; flex-direction:row; }
-    }
     .ops-card {
       background: var(--surf); border:1px solid var(--border);
       border-radius: var(--r-lg);
@@ -204,6 +196,12 @@
       -webkit-backdrop-filter: blur(18px) saturate(140%);
       box-shadow: var(--shadow);
       display:flex; flex-direction:column; min-height:0; overflow:hidden;
+    }
+    .grid-stack-item-content {
+      background: transparent !important;
+    }
+    .grid-edit-mode .grid-stack-item-content {
+      border: 1px dashed var(--primary);
     }
     .ops-head {
       padding:8px 12px; border-bottom:1px solid var(--border);
@@ -216,12 +214,10 @@
     .ops-head .corner { margin-left:auto; font-family:var(--font-mono); font-size:.65em; color:var(--muted2); display:flex; gap:8px; }
     .ops-head .corner b { color:var(--primary); }
     .ops-body { flex:1; min-height:0; overflow:hidden; position:relative; }
-    /* Main map spans col1, both rows */
-    .ops-main-map { grid-column:1; grid-row:1 / span 2; }
+    /* Main map */
     .ops-main-map .ops-body { display:block; }
     #ops-map { width:100%; height:100%; background:#07090c; }
     /* Stats grid */
-    .ops-stats { grid-column:2; grid-row:1; }
     .ops-stats .ops-body { padding:8px; display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; gap:8px; }
     .stat-tile {
       background:rgba(255,255,255,.02); border:1px solid var(--border);
@@ -233,7 +229,6 @@
     .stat-tile .val small { font-size:.5em; color:var(--muted); margin-left:4px; }
     .stat-tile .delta { font-family:var(--font-mono); font-size:.7em; margin-top:4px; color:var(--primary); }
     /* Activity feed */
-    .ops-activity { grid-column:2; grid-row:2; }
     .ops-activity .ops-body { overflow-y:auto; }
     .feed-row {
       display:grid; grid-template-columns:52px 72px 1fr;
@@ -251,7 +246,6 @@
     .feed-row .fb { color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .feed-row .fb b { color:var(--text); font-weight:500; }
     /* Side column */
-    .ops-side { grid-column:3; grid-row:1 / span 2; display:flex; flex-direction:column; gap:8px; min-height:0; }
     .ops-side .ops-card { flex:1; }
     /* My Device card */
     .mydev-row { display:flex; justify-content:space-between; border-bottom:1px solid rgba(255,255,255,.04); padding:1px 0; }
@@ -491,8 +485,6 @@
     .msg-rx    {border-left-color:var(--rx);}
     .msg-tx    {border-left-color:var(--tx);}
     .msg-ai    {border-left-color:var(--ai);}
-    .msg.dm    {background:rgba(180,100,255,.07);border-left-color:#c98aff;border-left-width:3px;}
-    .msg.dm .msg-sender{color:#c98aff !important;font-weight:600;}
     .msg-system{border-left-color:var(--sys);}
     .msg-error {border-left-color:var(--err);}
     .msg-ts    {color:var(--muted);font-size:.75em;white-space:nowrap;flex-shrink:0;}
@@ -505,6 +497,8 @@
     .msg-ai     .msg-sender{color:var(--ai);}
     .msg-system .msg-sender{color:var(--sys);}
     .msg-error  .msg-sender{color:var(--err);}
+    .msg.dm    {background:rgba(180,100,255,.07);border-left-color:#c98aff;border-left-width:3px;}
+    .msg.dm .msg-sender{color:#c98aff !important;font-weight:600;}
     .msg-text{font-size:.88em;word-break:break-word;flex:1;}
 
     #send-bar{
@@ -1056,18 +1050,6 @@
         border-left:1px solid var(--border)!important;border-top:none!important;
       }
 
-      /* ── OPS: single column ── */
-      .ops-grid{
-        grid-template-columns:1fr!important;
-        grid-template-rows:auto!important;
-        gap:6px!important;
-      }
-      .ops-main-map,.ops-bottom,.ops-side{
-        grid-column:1!important;grid-row:auto!important;
-      }
-      .ops-main-map{min-height:220px!important;}
-      .ops-side{max-height:180px!important;flex-direction:row!important;overflow:hidden;}
-      .ops-stat-row{display:none!important;}
 
       /* ── Node panel: full width overlay ── */
       #node-panel{width:100%!important;border-radius:0!important;}
@@ -1103,6 +1085,7 @@
   </style>
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <script src="https://leaflet.github.io/Leaflet.heat/dist/leaflet-heat.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gridstack.js/10.1.2/gridstack-all.js"></script>
 </head>
 <body>
 
@@ -1238,22 +1221,36 @@
 <!-- ══════════════════════════════════════════════════════════════
      OPS DASHBOARD TAB
 ════════════════════════════════════════════════════════════════ -->
-<div id="tab-ops" class="tab-pane active">
-  <div class="ops-grid">
+<div id="tab-ops" class="tab-pane active" style="display:flex; flex-direction:column; padding:15px; overflow-y:auto; gap:15px;">
+  <div class="dashboard-toolbar" style="display:flex; justify-content:space-between; align-items:center; background:var(--surf); padding:8px 12px; border:1px solid var(--border); border-radius:var(--r-md);">
+    <h2 style="color:var(--text); margin:0;">OPS Dashboard</h2>
+    <div class="toolbar-actions" style="display:flex; gap:10px;">
+      <button id="ops-edit-btn" onclick="toggleEditMode('ops')" class="tb-btn" style="border:1px solid var(--border); background:var(--surf2); color:var(--text); padding:4px 8px; border-radius:4px; cursor:pointer;">Edit Layout</button>
+      <button id="ops-add-btn" class="tb-btn" style="display:none; border:1px solid var(--border); background:var(--surf2); color:var(--text); padding:4px 8px; border-radius:4px; cursor:pointer;" onclick="alert('Feature coming soon')">Add Widget</button>
+      <button id="ops-save-btn" onclick="saveLayout('ops')" class="tb-btn" style="display:none; border:1px solid rgba(77,255,209,.3); background:var(--surf2); color:var(--tx); padding:4px 8px; border-radius:4px; cursor:pointer;">Save Layout</button>
+      <button id="ops-cancel-btn" onclick="cancelLayout('ops')" class="tb-btn" style="display:none; border:1px solid var(--border); background:var(--surf2); color:var(--muted); padding:4px 8px; border-radius:4px; cursor:pointer;">Cancel</button>
+      <button id="ops-reset-btn" onclick="resetLayout('ops')" class="tb-btn" style="display:none; border:1px solid rgba(255,80,80,.3); background:var(--surf2); color:var(--err); padding:4px 8px; border-radius:4px; cursor:pointer;">Reset</button>
+    </div>
+  </div>
 
-    <!-- Main map (col 1, rows 1-2) -->
-    <div class="ops-card ops-main-map">
-      <div class="ops-head">
-        <h3>Network Map</h3>
-        <div class="corner"><span>Nodes: </span><b id="ops-node-count">--</b><span style="margin-left:8px;">Routes: </span><b id="ops-route-count">--</b></div>
+  <div class="grid-stack ops-grid-stack">
+
+    <!-- Main map -->
+    <div class="grid-stack-item" gs-id="ops-map-widget" gs-x="0" gs-y="0" gs-w="6" gs-h="4">
+      <div class="grid-stack-item-content ops-card" style="height:100%; display:flex; flex-direction:column;">
+        <div class="ops-head">
+          <h3>Network Map</h3>
+          <div class="corner"><span>Nodes: </span><b id="ops-node-count">--</b><span style="margin-left:8px;">Routes: </span><b id="ops-route-count">--</b></div>
+        </div>
+        <div class="ops-body" style="flex:1;"><div id="ops-map"></div></div>
       </div>
-      <div class="ops-body"><div id="ops-map"></div></div>
     </div>
 
-    <!-- Stats (col 2, row 1) -->
-    <div class="ops-card ops-stats">
-      <div class="ops-head"><h3>Mesh Status</h3></div>
-      <div class="ops-body">
+    <!-- Stats -->
+    <div class="grid-stack-item" gs-id="ops-stats-widget" gs-x="6" gs-y="0" gs-w="3" gs-h="2">
+      <div class="grid-stack-item-content ops-card" style="height:100%; display:flex; flex-direction:column;">
+        <div class="ops-head"><h3>Mesh Status</h3></div>
+        <div class="ops-body" style="flex:1; overflow-y:auto;">
         <div class="stat-tile">
           <div class="lbl">Active Nodes</div>
           <div class="val" id="ops-stat-nodes">--</div>
@@ -1280,23 +1277,25 @@
           <button class="tb-btn" id="btn-disconnect" onclick="deviceDisconnect()"
             style="flex:1;color:var(--err);border-color:rgba(255,80,80,.3);">⏏ Disconnect</button>
         </div>
+        </div>
       </div>
     </div>
 
-    <!-- Activity feed (col 2, row 2) -->
-    <div class="ops-card ops-activity">
-      <div class="ops-head"><h3>Activity Feed</h3><div class="corner"><span id="ops-feed-count">0</span>&nbsp;events</div></div>
-      <div class="ops-body"><div id="ops-feed"></div></div>
+    <!-- Activity feed -->
+    <div class="grid-stack-item" gs-id="ops-activity-widget" gs-x="6" gs-y="2" gs-w="3" gs-h="2">
+      <div class="grid-stack-item-content ops-card" style="height:100%; display:flex; flex-direction:column;">
+        <div class="ops-head"><h3>Activity Feed</h3><div class="corner"><span id="ops-feed-count">0</span>&nbsp;events</div></div>
+        <div class="ops-body" style="flex:1; overflow-y:auto;"><div id="ops-feed"></div></div>
+      </div>
     </div>
 
-    <!-- Side column (col 3, rows 1-2) -->
-    <div class="ops-side">
-      <!-- Mini radar -->
-      <div class="ops-card" style="flex:1.2;">
+    <!-- Mini radar -->
+    <div class="grid-stack-item" gs-id="ops-radar-widget" gs-x="9" gs-y="0" gs-w="3" gs-h="2">
+      <div class="grid-stack-item-content ops-card" style="height:100%; display:flex; flex-direction:column;">
         <div class="ops-head">
           <h3>Signal Radar</h3>
           <div class="corner" style="gap:4px;">
-            <select id="ops-radar-age" onchange="opsRadarAgeFilter=parseInt(this.value);updateOpsRadarBlips()" style="background:rgba(0,0,0,.4);border:1px solid var(--border);color:var(--muted);font-family:var(--font-mono);font-size:.62em;padding:1px 4px;border-radius:4px;outline:none;">
+            <select id="ops-radar-age" onchange="opsRadarAgeFilter=parseInt(this.value);localStorage.setItem('ops-radar-age', this.value);updateOpsRadarBlips()" style="background:rgba(0,0,0,.4);border:1px solid var(--border);color:var(--muted);font-family:var(--font-mono);font-size:.62em;padding:1px 4px;border-radius:4px;outline:none;">
               <option value="300">5 min</option>
               <option value="1800">30 min</option>
               <option value="3600" selected>1 hour</option>
@@ -1307,19 +1306,25 @@
             <span id="ops-radar-mode" style="font-family:var(--font-mono);">--</span>
           </div>
         </div>
-        <div class="ops-body" style="display:flex;align-items:center;justify-content:center;padding:6px;">
+        <div class="ops-body" style="flex:1; display:flex;align-items:center;justify-content:center;padding:6px; overflow:hidden;">
           <canvas id="ops-radar" style="max-width:100%;max-height:100%;display:block;"></canvas>
         </div>
       </div>
-      <!-- Top nodes -->
-      <div class="ops-card ops-topnodes" style="flex:1.6;">
+    </div>
+    
+    <!-- Top nodes -->
+    <div class="grid-stack-item" gs-id="ops-topnodes-widget" gs-x="9" gs-y="2" gs-w="3" gs-h="2">
+      <div class="grid-stack-item-content ops-card" style="height:100%; display:flex; flex-direction:column;">
         <div class="ops-head"><h3>Top Nodes</h3><div class="corner">by packet count</div></div>
-        <div class="ops-body"><div id="ops-topnodes"></div></div>
+        <div class="ops-body" style="flex:1; overflow-y:auto;"><div id="ops-topnodes"></div></div>
       </div>
-      <!-- My Device -->
-      <div class="ops-card" style="flex-shrink:0;">
+    </div>
+    
+    <!-- My Device -->
+    <div class="grid-stack-item" gs-id="ops-mydevice-widget" gs-x="0" gs-y="4" gs-w="6" gs-h="1">
+      <div class="grid-stack-item-content ops-card" style="height:100%; display:flex; flex-direction:column;">
         <div class="ops-head"><h3>My Device</h3><div class="corner" id="mydev-hw" style="font-family:var(--font-mono);"></div></div>
-        <div class="ops-body" id="mydev-body" style="padding:6px 10px;font-size:.74em;line-height:1.7;"></div>
+        <div class="ops-body" id="mydev-body" style="flex:1; padding:6px 10px;font-size:.74em;line-height:1.7; overflow-y:auto;"></div>
       </div>
     </div>
 
@@ -1567,8 +1572,15 @@
      ANALYTICS TAB
 ════════════════════════════════════════════════════════════════ -->
 <div id="tab-analytics" class="tab-pane" style="flex-direction:column; padding: 15px; overflow-y:auto; gap: 15px;">
-  <div style="display:flex; justify-content:space-between; align-items:center;">
-    <h2 style="color:var(--text); margin:0;">Packet Analytics</h2>
+  <div class="dashboard-toolbar" style="display:flex; justify-content:space-between; align-items:center; background:var(--surf); padding:8px 12px; border:1px solid var(--border); border-radius:var(--r-md);">
+    <div style="display:flex; gap:10px; align-items:center;">
+      <h2 style="color:var(--text); margin:0;">Packet Analytics</h2>
+      <button id="an-edit-btn" onclick="toggleEditMode('analytics')" class="tb-btn" style="border:1px solid var(--border); background:var(--surf2); color:var(--text); padding:4px 8px; border-radius:4px; cursor:pointer;">Edit Layout</button>
+      <button id="an-add-btn" class="tb-btn" style="display:none; border:1px solid var(--border); background:var(--surf2); color:var(--text); padding:4px 8px; border-radius:4px; cursor:pointer;" onclick="alert('Feature coming soon')">Add Widget</button>
+      <button id="an-save-btn" onclick="saveLayout('analytics')" class="tb-btn" style="display:none; border:1px solid rgba(77,255,209,.3); background:var(--surf2); color:var(--tx); padding:4px 8px; border-radius:4px; cursor:pointer;">Save Layout</button>
+      <button id="an-cancel-btn" onclick="cancelLayout('analytics')" class="tb-btn" style="display:none; border:1px solid var(--border); background:var(--surf2); color:var(--muted); padding:4px 8px; border-radius:4px; cursor:pointer;">Cancel</button>
+      <button id="an-reset-btn" onclick="resetLayout('analytics')" class="tb-btn" style="display:none; border:1px solid rgba(255,80,80,.3); background:var(--surf2); color:var(--err); padding:4px 8px; border-radius:4px; cursor:pointer;">Reset</button>
+    </div>
     <div style="font-size:0.8em; color:var(--muted); display:flex; gap:10px; flex-wrap:wrap;">
       <select id="analytics-node-select" onchange="handleNodeSelectChange()" style="background:var(--surf); color:var(--text); border:1px solid var(--border); padding:4px; max-width: 200px;">
         <option value="all">All Nodes</option>
@@ -1580,7 +1592,7 @@
         style="background:var(--surf);color:var(--muted);border:1px solid var(--border);padding:4px 8px;border-radius:4px;cursor:pointer;font-size:.8em;">
         Hide Broadcast
       </button>
-      <select id="analytics-hours" onchange="handleNodeSelectChange()" style="background:var(--surf); color:var(--text); border:1px solid var(--border); padding:4px;">
+      <select id="analytics-hours" onchange="localStorage.setItem('analytics-hours', this.value);handleNodeSelectChange()" style="background:var(--surf); color:var(--text); border:1px solid var(--border); padding:4px;">
         <option value="0.08333333333333333">Last 5m</option>
         <option value="0.16666666666666666">Last 10m</option>
         <option value="0.5">Last 30m</option>
@@ -1598,60 +1610,78 @@
     </div>
   </div>
 
-  <div id="analytics-global-container" style="display:flex; flex-direction:column; gap:15px;">
-  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:15px;">
+  <div id="analytics-global-container" class="grid-stack analytics-grid-stack">
 
-    <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
-      <div class="stat-title">Hourly Activity<button class="graph-expand-btn" onclick="openGraphFs('d3-an-hourly','Hourly Activity')">⤢</button></div>
-      <div id="d3-an-hourly" style="height:150px; position:relative;"></div>
-    </div>
-
-    <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
-      <div class="stat-title">Top App Types<button class="graph-expand-btn" onclick="openGraphFs('d3-an-types','Top App Types')">⤢</button></div>
-      <div id="d3-an-types" style="height:150px; position:relative;"></div>
-    </div>
-
-    <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md); display:flex; align-items:center;">
-      <div style="flex:1;">
-          <div class="stat-title">Destinations<button class="graph-expand-btn" onclick="openGraphFs('d3-an-dest','Destinations')">⤢</button></div>
-          <div id="d3-an-dest" style="height:130px; position:relative;"></div>
-      </div>
-      <div style="flex:1;">
-          <div class="stat-title">Encryption<button class="graph-expand-btn" onclick="openGraphFs('d3-an-enc','Encryption')">⤢</button></div>
-          <div id="d3-an-enc" style="height:130px; position:relative;"></div>
+    <!-- Hourly Activity -->
+    <div class="grid-stack-item" gs-id="an-hourly-widget" gs-x="0" gs-y="0" gs-w="4" gs-h="2">
+      <div class="grid-stack-item-content stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md); display:flex; flex-direction:column; height:100%;">
+        <div class="stat-title">Hourly Activity<button class="graph-expand-btn" onclick="openGraphFs('d3-an-hourly','Hourly Activity')">⤢</button></div>
+        <div id="d3-an-hourly" style="flex:1; position:relative;"></div>
       </div>
     </div>
 
-  </div>
-
-  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(400px, 1fr)); gap:15px;">
-
-    <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
-      <div class="stat-title">Top Senders (Bubble Chart)<button class="graph-expand-btn" onclick="openGraphFs('d3-an-senders-bubble','Top Senders')">⤢</button></div>
-      <div id="d3-an-senders-bubble" style="height:350px; position:relative; overflow:hidden;"></div>
+    <!-- Top App Types -->
+    <div class="grid-stack-item" gs-id="an-types-widget" gs-x="4" gs-y="0" gs-w="4" gs-h="2">
+      <div class="grid-stack-item-content stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md); display:flex; flex-direction:column; height:100%;">
+        <div class="stat-title">Top App Types<button class="graph-expand-btn" onclick="openGraphFs('d3-an-types','Top App Types')">⤢</button></div>
+        <div id="d3-an-types" style="flex:1; position:relative;"></div>
+      </div>
     </div>
 
-    <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
-      <div class="stat-title">Encrypted Senders (Bubble Chart)<button class="graph-expand-btn" onclick="openGraphFs('d3-an-encrypted-senders-bubble','Encrypted Senders')">⤢</button></div>
-      <div id="d3-an-encrypted-senders-bubble" style="height:350px; position:relative; overflow:hidden;"></div>
+    <!-- Destinations & Encryption -->
+    <div class="grid-stack-item" gs-id="an-dest-enc-widget" gs-x="8" gs-y="0" gs-w="4" gs-h="2">
+      <div class="grid-stack-item-content stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md); display:flex; height:100%;">
+        <div style="flex:1; display:flex; flex-direction:column;">
+            <div class="stat-title">Destinations<button class="graph-expand-btn" onclick="openGraphFs('d3-an-dest','Destinations')">⤢</button></div>
+            <div id="d3-an-dest" style="flex:1; position:relative;"></div>
+        </div>
+        <div style="flex:1; display:flex; flex-direction:column;">
+            <div class="stat-title">Encryption<button class="graph-expand-btn" onclick="openGraphFs('d3-an-enc','Encryption')">⤢</button></div>
+            <div id="d3-an-enc" style="flex:1; position:relative;"></div>
+        </div>
+      </div>
     </div>
 
-    <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
-      <div class="stat-title">All Unicast Packets (Force-Directed Graph)<button class="graph-expand-btn" onclick="openGraphFs('d3-an-dm-graph','All Unicast Packets')">⤢</button></div>
-      <div id="d3-an-dm-graph" style="height:350px; position:relative; overflow:hidden;"></div>
+    <!-- Top Senders -->
+    <div class="grid-stack-item" gs-id="an-senders-widget" gs-x="0" gs-y="2" gs-w="6" gs-h="3">
+      <div class="grid-stack-item-content stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md); display:flex; flex-direction:column; height:100%;">
+        <div class="stat-title">Top Senders (Bubble Chart)<button class="graph-expand-btn" onclick="openGraphFs('d3-an-senders-bubble','Top Senders')">⤢</button></div>
+        <div id="d3-an-senders-bubble" style="flex:1; position:relative; overflow:hidden;"></div>
+      </div>
     </div>
 
-    <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
-      <div class="stat-title">P2P Conversations — Text Only (Force-Directed Graph)<button class="graph-expand-btn" onclick="openGraphFs('d3-an-dm-text-graph','P2P Text Conversations')">⤢</button></div>
-      <div id="d3-an-dm-text-graph" style="height:350px; position:relative; overflow:hidden;"></div>
+    <!-- Encrypted Senders -->
+    <div class="grid-stack-item" gs-id="an-enc-senders-widget" gs-x="6" gs-y="2" gs-w="6" gs-h="3">
+      <div class="grid-stack-item-content stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md); display:flex; flex-direction:column; height:100%;">
+        <div class="stat-title">Encrypted Senders (Bubble Chart)<button class="graph-expand-btn" onclick="openGraphFs('d3-an-encrypted-senders-bubble','Encrypted Senders')">⤢</button></div>
+        <div id="d3-an-encrypted-senders-bubble" style="flex:1; position:relative; overflow:hidden;"></div>
+      </div>
     </div>
 
-  </div>
+    <!-- All Unicast Packets -->
+    <div class="grid-stack-item" gs-id="an-dm-graph-widget" gs-x="0" gs-y="5" gs-w="6" gs-h="3">
+      <div class="grid-stack-item-content stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md); display:flex; flex-direction:column; height:100%;">
+        <div class="stat-title">All Unicast Packets (Force-Directed Graph)<button class="graph-expand-btn" onclick="openGraphFs('d3-an-dm-graph','All Unicast Packets')">⤢</button></div>
+        <div id="d3-an-dm-graph" style="flex:1; position:relative; overflow:hidden;"></div>
+      </div>
+    </div>
 
-  <div class="stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md);">
-    <div class="stat-title">Most Talkative Nodes (Heatmap)<button class="graph-expand-btn" onclick="openHeatmapFs()" title="Fullscreen">⤢</button></div>
-    <div id="analytics-heatmap" style="height:400px; border-radius:var(--r-md); border:1px solid var(--border-s); position:relative; z-index:0;"></div>
-  </div>
+    <!-- P2P Text Conversations -->
+    <div class="grid-stack-item" gs-id="an-dm-text-graph-widget" gs-x="6" gs-y="5" gs-w="6" gs-h="3">
+      <div class="grid-stack-item-content stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md); display:flex; flex-direction:column; height:100%;">
+        <div class="stat-title">P2P Conversations — Text Only (Force-Directed Graph)<button class="graph-expand-btn" onclick="openGraphFs('d3-an-dm-text-graph','P2P Text Conversations')">⤢</button></div>
+        <div id="d3-an-dm-text-graph" style="flex:1; position:relative; overflow:hidden;"></div>
+      </div>
+    </div>
+
+    <!-- Heatmap -->
+    <div class="grid-stack-item" gs-id="an-heatmap-widget" gs-x="0" gs-y="8" gs-w="12" gs-h="4">
+      <div class="grid-stack-item-content stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md); display:flex; flex-direction:column; height:100%;">
+        <div class="stat-title">Most Talkative Nodes (Heatmap)<button class="graph-expand-btn" onclick="openHeatmapFs()" title="Fullscreen">⤢</button></div>
+        <div id="analytics-heatmap" style="flex:1; border-radius:var(--r-md); border:1px solid var(--border-s); position:relative; z-index:0;"></div>
+      </div>
+    </div>
+
   </div> <!-- end global container -->
 
   <!-- Per-Node Analytics Container -->
@@ -3674,6 +3704,11 @@ async function loadPerNodeAnalytics(nodeId) {
 }
 
 async function initAnalytics() {
+  const savedHours = localStorage.getItem('analytics-hours');
+  if (savedHours) {
+    const sel = document.getElementById('analytics-hours');
+    if (sel) sel.value = savedHours;
+  }
   const select = document.getElementById('analytics-node-select');
   if (select && select.value !== 'all') {
     handleNodeSelectChange();
@@ -4890,7 +4925,14 @@ let opsRadarAngle = 0, opsRadarFrame = null;
 let opsRadarAgeFilter = 3600;   // seconds; 0 = all
 let opsRadarBlips = [];
 
+
 function initOps() {
+  const savedRadarAge = localStorage.getItem('ops-radar-age');
+  if (savedRadarAge) {
+    opsRadarAgeFilter = parseInt(savedRadarAge);
+    const sel = document.getElementById('ops-radar-age');
+    if (sel) sel.value = savedRadarAge;
+  }
   if (!opsMapInited) {
     opsMapInited = true;
     opsLeafMap = L.map('ops-map', {zoomControl:false, attributionControl:false})
@@ -5514,15 +5556,165 @@ async function fetchMyDeviceInfo() {
   await fetchNodes();
   await fetchPackets();
   await fetchPacketStats();
+
   await fetchMyDeviceInfo();
   initOps();   // show ops dashboard on load
+  initGridStack(); // init gridstack layout
 
   setInterval(fetchMessages,      2000);
+
   setInterval(fetchStatus,        5000);
   setInterval(fetchNodes,        10000);
   setInterval(fetchPackets,       2000);
   setInterval(fetchPacketStats,   5000);
   setInterval(fetchMyDeviceInfo, 30000);
+  setInterval(fetchChannels,    30000);
+  setInterval(fetchTraceroutes, 10000);
+})();
+
+// ── GridStack Layout Management ──────────────────────────────────────────────
+let grids = {};
+let gridDefaults = {};
+
+function initGridStack() {
+  if (typeof GridStack === 'undefined') return;
+  
+  // Initialize OPS grid
+  grids['ops'] = GridStack.init({
+    cellHeight: 120,
+    staticGrid: true, // Read-only by default
+    margin: 8,
+    float: true
+  }, '.ops-grid-stack');
+  
+  // Initialize Analytics grid
+  grids['analytics'] = GridStack.init({
+    cellHeight: 120,
+    staticGrid: true,
+    margin: 8,
+    float: true
+  }, '.analytics-grid-stack');
+
+  // Save default layouts
+  gridDefaults['ops'] = grids['ops'].save();
+  gridDefaults['analytics'] = grids['analytics'].save();
+
+  // Resize charts on layout change
+  const resizeCharts = () => {
+    if (window.opsLeafMap) window.opsLeafMap.invalidateSize();
+    if (window.heatmapLeafMap) window.heatmapLeafMap.invalidateSize();
+  };
+
+  grids['ops'].on('change', resizeCharts);
+  grids['analytics'].on('change', resizeCharts);
+
+  // Load layouts from backend
+  loadLayout('ops');
+  loadLayout('analytics');
+}
+
+async function loadLayout(id) {
+  // Use localStorage as fallback if API doesn't exist
+  try {
+    const res = await fetch(`/api/layout/${id}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.layout && data.layout.length > 0) {
+        grids[id].load(data.layout);
+        return;
+      }
+    }
+  } catch (err) {
+    console.error(`Failed to load layout from API for ${id}, trying localStorage`, err);
+  }
+  
+  // Fallback to localStorage
+  try {
+    const localData = localStorage.getItem(`dashboard-layout-${id}`);
+    if (localData) {
+      grids[id].load(JSON.parse(localData));
+    }
+  } catch (err) {
+    console.error(`Failed to load layout from localStorage for ${id}`, err);
+  }
+}
+
+async function saveLayout(id) {
+  if (!grids[id]) return;
+  const layout = grids[id].save();
+  let savedToApi = false;
+  
+  try {
+    const res = await fetch(`/api/layout/${id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ layout })
+    });
+    if (res.ok) {
+        savedToApi = true;
+    }
+  } catch (err) {
+    console.error(`Failed to save layout to API for ${id}`, err);
+  }
+  
+  // Always save to localStorage as a fallback
+  localStorage.setItem(`dashboard-layout-${id}`, JSON.stringify(layout));
+
+  toggleEditMode(id, false); // Turn off edit mode
+  // Show short success notification
+  const btn = document.getElementById(`${id === 'ops' ? 'ops' : 'an'}-save-btn`);
+  if (btn) {
+      const oldText = btn.textContent;
+      btn.textContent = 'Saved!';
+      setTimeout(() => btn.textContent = oldText, 2000);
+  }
+}
+
+function cancelLayout(id) {
+  loadLayout(id).then(() => {
+    toggleEditMode(id, false);
+  });
+}
+
+async function resetLayout(id) {
+  if (!grids[id]) return;
+  grids[id].load(gridDefaults[id]);
+  await saveLayout(id);
+}
+
+function toggleEditMode(id, forceState) {
+  if (!grids[id]) return;
+  
+  const isCurrentlyStatic = grids[id].getGridItems()[0]?.grid?.opts?.staticGrid;
+  const newState = forceState !== undefined ? forceState : !isCurrentlyStatic;
+  
+  grids[id].setStatic(!newState);
+  
+  const prefix = id === 'ops' ? 'ops' : 'an';
+  const editBtn = document.getElementById(`${prefix}-edit-btn`);
+  const saveBtn = document.getElementById(`${prefix}-save-btn`);
+  const cancelBtn = document.getElementById(`${prefix}-cancel-btn`);
+  const resetBtn = document.getElementById(`${prefix}-reset-btn`);
+  
+  if (newState) { // Edit mode ON
+    if (editBtn) editBtn.style.display = 'none';
+    if (saveBtn) saveBtn.style.display = 'inline-block';
+    if (cancelBtn) cancelBtn.style.display = 'inline-block';
+    if (resetBtn) resetBtn.style.display = 'inline-block';
+    const addBtn = document.getElementById(`${prefix}-add-btn`);
+    if (addBtn) addBtn.style.display = 'inline-block';
+    document.querySelector(`.${id}-grid-stack`).classList.add('grid-edit-mode');
+  } else { // Edit mode OFF
+    if (editBtn) editBtn.style.display = 'inline-block';
+    if (saveBtn) saveBtn.style.display = 'none';
+    if (cancelBtn) cancelBtn.style.display = 'none';
+    if (resetBtn) resetBtn.style.display = 'none';
+    const addBtn = document.getElementById(`${prefix}-add-btn`);
+    if (addBtn) addBtn.style.display = 'none';
+    document.querySelector(`.${id}-grid-stack`).classList.remove('grid-edit-mode');
+  }
+}
+
 // ── CHANNELS EXPORT / IMPORT ───────────────────────────────────────────────
 
 async function exportChannels() {
@@ -5692,9 +5884,6 @@ function closeModal() {
   if (modal) modal.style.display = 'none';
 }
 
-  setInterval(fetchChannels,    30000);
-  setInterval(fetchTraceroutes, 10000);
-})();
 </script>
 <script src="https://unpkg.com/@simplewebauthn/browser/dist/bundle/index.umd.min.js"></script>
 <script>
