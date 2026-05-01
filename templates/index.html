@@ -152,36 +152,35 @@
 
     /* ── TAB PANES ── */
     .tab-pane{display:none;flex:1;overflow:hidden; margin:6px 10px 10px;}
-    .tab-pane.active{display:flex;}
+    .tab-pane.active{display:flex;overflow:auto;}
     /* Glass effect on all main panels */
     #chat-sidebar, #chat-main, #cfg-sidebar, #cfg-main,
-    #pkt-feed-wrap, #pkt-stats, #tab-map, #tab-radar, #tab-analytics,
-    #nodes-grid, #tab-config {
+    #pkt-feed-wrap, #pkt-stats, #tab-analytics,
+    #nodes-grid {
       backdrop-filter: blur(18px) saturate(140%);
       -webkit-backdrop-filter: blur(18px) saturate(140%);
     }
     #chat-sidebar, #cfg-sidebar {
       background: var(--surf); border: 1px solid var(--border);
-      border-radius: var(--r-lg) 0 0 var(--r-lg);
+      border-radius: var(--r-lg);
     }
     #chat-main, #cfg-main {
       background: var(--surf3); border: 1px solid var(--border);
-      border-left:none; border-radius: 0 var(--r-lg) var(--r-lg) 0;
+      border-radius: var(--r-lg);
     }
-    /* Packets: stats LEFT, feed RIGHT */
+    /* Packets: stats and feed now inside GridStack items */
     #pkt-stats {
-      width:230px; flex-shrink:0;
       background: var(--surf); border: 1px solid var(--border-s);
-      border-radius: var(--r-lg) 0 0 var(--r-lg); border-right:none;
-      padding:12px; overflow-y:auto;
+      border-radius: var(--r-lg);
+      padding:12px;
       display:flex; flex-direction:column; gap:12px;
     }
     #pkt-feed-wrap {
-      flex:1; display:flex; flex-direction:column; overflow:hidden;
+      display:flex; flex-direction:column; overflow:hidden;
       background: var(--surf3); border: 1px solid var(--border-s);
-      border-left:none; border-radius: 0 var(--r-lg) var(--r-lg) 0;
+      border-radius: var(--r-lg);
     }
-    #tab-map, #tab-radar, #tab-analytics {
+    #tab-analytics {
       background: rgba(7,9,12,.85); border: 1px solid var(--border);
       border-radius: var(--r-lg);
     }
@@ -454,8 +453,8 @@
 
     /* ── CHAT TAB ── */
     #chat-sidebar{
-      width:195px;flex-shrink:0;background:var(--surf);
-      border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;
+      background:var(--surf);
+      display:flex;flex-direction:column;overflow:hidden;
     }
     .sb-sec{padding:8px 10px;border-bottom:1px solid var(--border);}
     .sb-title{color:var(--primary);font-size:.67em;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:5px;}
@@ -474,7 +473,7 @@
     #dm-list{flex:1;overflow-y:auto;padding:4px;}
     .dm-hops{margin-left:auto;font-size:.68em;color:var(--muted);}
 
-    #chat-main{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+    #chat-main{display:flex;flex-direction:column;overflow:hidden;}
     #chat-title{color:var(--primary);font-size:.82em;font-weight:bold;}
     #feed{flex:1;overflow-y:auto;padding:4px 2px;}
     .msg{
@@ -616,7 +615,7 @@
 
     /* ── MAP TAB ── */
     #tab-map{position:relative;}
-    #leaflet-map{width:100%;height:100%;background:#111;}
+    #leaflet-map{width:100%;height:100%;min-height:300px;background:#111;}
     #map-legend{
       position:absolute;bottom:16px;left:12px;z-index:1000;
       background:rgba(17,17,17,.92);border:1px solid var(--border);
@@ -625,9 +624,8 @@
     .ml-row{display:flex;align-items:center;gap:6px;margin:2px 0;}
     .ml-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
 
-    /* ── PACKETS TAB — stats LEFT, feed RIGHT ── */
-    #tab-packets { flex-direction:row; }
-    #pkt-feed-wrap { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+    /* ── PACKETS TAB ── */
+    #pkt-feed-wrap { display:flex; flex-direction:column; overflow:hidden; }
     #pkt-feed{flex:1;overflow-y:auto;padding:4px 2px;}
     .pkt{
       display:grid;
@@ -718,10 +716,9 @@
     ::-webkit-scrollbar-thumb{background:#2a2a2a;border-radius:2px;}
 
     /* ── CONFIG TAB ── */
-    #tab-config{flex-direction:row;}
     #cfg-sidebar{
-      width:160px;flex-shrink:0;background:var(--surf);
-      border-right:1px solid var(--border);padding:8px 0;overflow-y:auto;
+      background:var(--surf);
+      padding:8px 0;overflow-y:auto;
     }
     .cfg-sec{
       display:block;width:100%;background:none;border:none;
@@ -733,7 +730,7 @@
     .cfg-sec.active{color:var(--primary);border-left-color:var(--primary);background:#0a2e1a;}
     .cfg-sec-group{color:#333;font-size:.6em;text-transform:uppercase;
       padding:10px 14px 3px;letter-spacing:1.5px;}
-    #cfg-main{flex:1;overflow-y:auto;padding:0;}
+    #cfg-main{overflow-y:auto;padding:0;}
     .cfgs{display:none;padding:16px 20px;max-width:680px;}
     .cfgs.active{display:block;}
     .cfg-title{
@@ -781,7 +778,7 @@
     .ch-prec-val{font-size:.72em;color:var(--primary);font-family:var(--font-mono);min-width:70px;text-align:right;}
 
     /* ── RADAR TAB ── */
-    #tab-radar{position:relative;background:#050f05;flex-direction:column;}
+    #tab-radar{position:relative;}
     #radar-wrap{flex:1;position:relative;display:flex;align-items:center;justify-content:center;}
     #radar-canvas{display:block;}
     #radar-legend{
@@ -989,66 +986,31 @@
       /* ── Generic pane ── */
       .tab-pane{margin:4px;}
 
-      /* ── CHAT: slide navigation (sidebar ↔ feed) ── */
-      #tab-chat{position:relative;overflow:hidden;}
-      #chat-sidebar{
-        position:absolute;inset:0;z-index:5;width:100%;max-width:100%;
-        border-right:none;border-bottom:none;
-        transform:translateX(0);transition:transform .22s ease;
-        border-radius:var(--r-lg);
-      }
-      #chat-main{
-        position:absolute;inset:0;z-index:4;width:100%;
-        transform:translateX(100%);transition:transform .22s ease;
-        border-radius:var(--r-lg);
-      }
-      #tab-chat.mob-conv #chat-sidebar{transform:translateX(-110%);}
-      #tab-chat.mob-conv #chat-main   {transform:translateX(0);}
+      /* ── CHAT: mobile layout — GridStack stacks; toggle sidebar/main via mob-conv ── */
       #mob-back{display:flex!important;}
       .conv-item{padding:10px 14px;}
       .conv-section{padding:8px 14px 4px;}
+      /* Default mobile: show sidebar widget, hide main */
+      #tab-chat [gs-id="chat-sidebar-widget"]{display:block!important;}
+      #tab-chat [gs-id="chat-main-widget"]{display:none!important;}
+      /* After conv selected: show main, hide sidebar */
+      #tab-chat.mob-conv [gs-id="chat-sidebar-widget"]{display:none!important;}
+      #tab-chat.mob-conv [gs-id="chat-main-widget"]{display:block!important;}
 
       /* ── NODES: single column ── */
       #nodes-grid{grid-template-columns:1fr!important;gap:8px!important;}
 
-      /* ── PACKETS: stack vertically ── */
-      #tab-packets{flex-direction:column!important;}
-      #pkt-stats{
-        width:100%!important;max-height:170px;
-        border-radius:var(--r-lg) var(--r-lg) 0 0!important;
-        border-right:1px solid var(--border-s)!important;border-bottom:none!important;
-      }
-      #pkt-feed-wrap{
-        border-radius:0 0 var(--r-lg) var(--r-lg)!important;
-        border-left:1px solid var(--border-s)!important;border-top:none!important;
-      }
+      /* ── PACKETS: mobile stacks via GridStack ── */
       .pkt-header{display:none;}  /* too wide for mobile */
       .pkt{grid-template-columns:50px 1fr 50px;grid-template-rows:auto auto;}
       .pkt>span:nth-child(3),.pkt>span:nth-child(4){display:none;}
 
-      /* ── CONFIG: sidebar → horizontal scroll strip ── */
-      #tab-config{flex-direction:column!important;}
+      /* ── CONFIG: sidebar → horizontal scroll strip on mobile ── */
       #cfg-sidebar{
-        width:100%!important;max-height:44px;min-height:44px;
-        flex-direction:row!important;flex-wrap:nowrap;
         overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;
-        padding:0;border-right:none;
-        border-radius:var(--r-lg) var(--r-lg) 0 0!important;
-        border-bottom:1px solid var(--border)!important;
       }
       #cfg-sidebar::-webkit-scrollbar{display:none;}
-      .cfg-sec{
-        white-space:nowrap;flex-shrink:0;
-        border-left:none!important;border-bottom:2px solid transparent;
-        border-radius:0!important;padding:0 14px;
-        display:flex;align-items:center;height:44px;
-      }
-      .cfg-sec.active{border-bottom-color:var(--primary)!important;background:rgba(77,255,209,.08);}
       .cfg-sec-group{display:none;}
-      #cfg-main{
-        border-radius:0 0 var(--r-lg) var(--r-lg)!important;
-        border-left:1px solid var(--border)!important;border-top:none!important;
-      }
 
 
       /* ── Node panel: full width overlay ── */
@@ -1067,7 +1029,7 @@
       .tb-btn{white-space:nowrap;flex-shrink:0;padding:3px 8px;}
 
       /* ── Map & Radar full height ── */
-      #tab-map,#tab-radar,#tab-analytics{min-height:calc(100vh - 120px);}
+      #tab-analytics{min-height:calc(100vh - 120px);}
 
       /* ── Traceroute modal ── */
       #tr-box{width:98vw!important;max-height:90vh!important;}
@@ -1221,7 +1183,7 @@
 <!-- ══════════════════════════════════════════════════════════════
      OPS DASHBOARD TAB
 ════════════════════════════════════════════════════════════════ -->
-<div id="tab-ops" class="tab-pane active" style="display:flex; flex-direction:column; padding:15px; overflow-y:auto; gap:15px;">
+<div id="tab-ops" class="tab-pane active" style="display:flex; flex-direction:column; padding:15px; overflow-y:auto; gap:15px; max-height:100%;">
   <div class="dashboard-toolbar" style="display:flex; justify-content:space-between; align-items:center; background:var(--surf); padding:8px 12px; border:1px solid var(--border); border-radius:var(--r-md);">
     <h2 style="color:var(--text); margin:0;">OPS Dashboard</h2>
     <div class="toolbar-actions" style="display:flex; gap:10px;">
@@ -1350,221 +1312,304 @@
 <!-- ══════════════════════════════════════════════════════════════
      CHAT TAB
 ════════════════════════════════════════════════════════════════ -->
-<div id="tab-chat" class="tab-pane">
-  <div id="chat-sidebar">
-    <div id="conv-list" style="overflow-y:auto;flex:1;">
-      <div class="conv-section">All</div>
-      <div class="conv-item active" data-conv="all" onclick="switchConv('all')">
-        💬 All conversations
-      </div>
-      <div class="conv-item" data-conv="admin" onclick="switchConv('admin')">
-        ⚙ Admin
-      </div>
-      <div class="conv-section">Channels</div>
-      <div id="conv-channels"></div>
-      <!-- User search -->
-      <div style="padding:6px 8px 2px;">
-        <input id="chat-user-search" type="search" placeholder="🔍 Search nodes..."
-          oninput="setChatUserSearch(this.value)"
-          style="width:100%;box-sizing:border-box;background:var(--surf2);border:1px solid var(--border-s);
-                 color:var(--text);border-radius:4px;padding:5px 8px;font-size:.78em;outline:none;">
-      </div>
-
-      <!-- Direct Messages header + filters -->
-      <div class="conv-section" style="display:flex;flex-direction:column;gap:4px;padding-bottom:6px;">
-        <span style="font-size:.63em;text-transform:uppercase;letter-spacing:1.5px;color:var(--primary);">Direct Messages</span>
-        <div style="display:flex;gap:4px;flex-wrap:wrap;">
-          <select class="tb-select" id="chat-hop-filter" onchange="setChatHopFilter(this.value)"
-            style="flex:1;font-size:.72em;padding:3px 5px;background:var(--surf2);border:1px solid var(--border);
-                   color:var(--text);border-radius:3px;">
-            <option value="all">All hops</option>
-            <option value="direct">Direct</option>
-            <option value="1">1 hop</option>
-            <option value="3+">3+ hops</option>
-            <option value="mqtt">MQTT</option>
-          </select>
-          <select class="tb-select" id="chat-seen-filter" onchange="setChatSeenFilter(parseInt(this.value))"
-            style="flex:1;font-size:.72em;padding:3px 5px;background:var(--surf2);border:1px solid var(--border);
-                   color:var(--text);border-radius:3px;">
-            <option value="0" selected>All time</option>
-            <option value="3600">1h</option>
-            <option value="21600">6h</option>
-            <option value="86400">24h</option>
-          </select>
-        </div>
-      </div>
-      <div id="conv-nodes"></div>
+<div id="tab-chat" class="tab-pane" style="flex-direction:column; padding:15px; gap:15px; overflow-y:auto; max-height:100%;">
+  <div class="dashboard-toolbar" style="display:flex; justify-content:space-between; align-items:center; background:var(--surf); padding:8px 12px; border:1px solid var(--border); border-radius:var(--r-md); flex-shrink:0;">
+    <h2 style="color:var(--text); margin:0;">Chat</h2>
+    <div class="toolbar-actions" style="display:flex; gap:10px;">
+      <button id="chat-edit-btn" onclick="toggleEditMode('chat')" class="tb-btn" style="border:1px solid var(--border); background:var(--surf2); color:var(--text); padding:4px 8px; border-radius:4px; cursor:pointer;">Edit Layout</button>
+      <button id="chat-save-btn" onclick="saveLayout('chat')" class="tb-btn" style="display:none; border:1px solid rgba(77,255,209,.3); background:var(--surf2); color:var(--tx); padding:4px 8px; border-radius:4px; cursor:pointer;">Save Layout</button>
+      <button id="chat-cancel-btn" onclick="cancelLayout('chat')" class="tb-btn" style="display:none; border:1px solid var(--border); background:var(--surf2); color:var(--muted); padding:4px 8px; border-radius:4px; cursor:pointer;">Cancel</button>
+      <button id="chat-reset-btn" onclick="resetLayout('chat')" class="tb-btn" style="display:none; border:1px solid rgba(255,80,80,.3); background:var(--surf2); color:var(--err); padding:4px 8px; border-radius:4px; cursor:pointer;">Reset</button>
     </div>
   </div>
 
-  <div id="chat-main">
-    <div class="toolbar">
-      <button id="mob-back" onclick="mobChatBack()"
-        style="display:none;background:none;border:none;color:var(--primary);font-size:1.1em;cursor:pointer;padding:0 6px 0 0;flex-shrink:0;">←</button>
-      <span id="chat-title">All channels</span>
-      <div class="tb-sep"></div>
-      <span class="tb-lbl">Time:</span>
-      <button class="tb-btn" onclick="setTimeFilter(this,3600)">1h</button>
-      <button class="tb-btn" onclick="setTimeFilter(this,21600)">6h</button>
-      <button class="tb-btn active" onclick="setTimeFilter(this,86400)">24h</button>
-      <button class="tb-btn" onclick="setTimeFilter(this,0)">All</button>
-      <div class="tb-sep"></div>
-      <button class="tb-btn active" id="btn-as" onclick="toggleAutoScroll()">Auto-scroll</button>
-      <button class="tb-btn active" id="btn-sys" onclick="toggleSystemMsgs()" title="Show/hide system messages">System</button>
-      <button class="tb-btn" onclick="clearFeed()">Clear</button>
-      <div class="legend">
-        <div class="leg"><div class="leg-dot" style="background:var(--rx)"></div>RX</div>
-        <div class="leg"><div class="leg-dot" style="background:var(--tx)"></div>TX</div>
-        <div class="leg"><div class="leg-dot" style="background:var(--ai)"></div>AI</div>
+  <div class="grid-stack chat-grid-stack" style="flex:1; min-height:400px;">
+
+    <div class="grid-stack-item" gs-id="chat-sidebar-widget" gs-x="0" gs-y="0" gs-w="3" gs-h="8">
+      <div class="grid-stack-item-content" style="height:100%; overflow:hidden;">
+        <div id="chat-sidebar" style="height:100%; display:flex; flex-direction:column;">
+          <div id="conv-list" style="overflow-y:auto;flex:1;">
+            <div class="conv-section">All</div>
+            <div class="conv-item active" data-conv="all" onclick="switchConv('all')">
+              💬 All conversations
+            </div>
+            <div class="conv-item" data-conv="admin" onclick="switchConv('admin')">
+              ⚙ Admin
+            </div>
+            <div class="conv-section">Channels</div>
+            <div id="conv-channels"></div>
+            <!-- User search -->
+            <div style="padding:6px 8px 2px;">
+              <input id="chat-user-search" type="search" placeholder="🔍 Search nodes..."
+                oninput="setChatUserSearch(this.value)"
+                style="width:100%;box-sizing:border-box;background:var(--surf2);border:1px solid var(--border-s);
+                       color:var(--text);border-radius:4px;padding:5px 8px;font-size:.78em;outline:none;">
+            </div>
+
+            <!-- Direct Messages header + filters -->
+            <div class="conv-section" style="display:flex;flex-direction:column;gap:4px;padding-bottom:6px;">
+              <span style="font-size:.63em;text-transform:uppercase;letter-spacing:1.5px;color:var(--primary);">Direct Messages</span>
+              <div style="display:flex;gap:4px;flex-wrap:wrap;">
+                <select class="tb-select" id="chat-hop-filter" onchange="setChatHopFilter(this.value)"
+                  style="flex:1;font-size:.72em;padding:3px 5px;background:var(--surf2);border:1px solid var(--border);
+                         color:var(--text);border-radius:3px;">
+                  <option value="all">All hops</option>
+                  <option value="direct">Direct</option>
+                  <option value="1">1 hop</option>
+                  <option value="3+">3+ hops</option>
+                  <option value="mqtt">MQTT</option>
+                </select>
+                <select class="tb-select" id="chat-seen-filter" onchange="setChatSeenFilter(parseInt(this.value))"
+                  style="flex:1;font-size:.72em;padding:3px 5px;background:var(--surf2);border:1px solid var(--border);
+                         color:var(--text);border-radius:3px;">
+                  <option value="0" selected>All time</option>
+                  <option value="3600">1h</option>
+                  <option value="21600">6h</option>
+                  <option value="86400">24h</option>
+                </select>
+              </div>
+            </div>
+            <div id="conv-nodes"></div>
+          </div>
+        </div>
       </div>
     </div>
-    <div id="feed"></div>
-    <div id="admin-panel" style="display:none;flex:1;overflow-y:auto;padding:12px 16px;">
-      <div style="color:var(--primary);font-size:.7em;font-family:var(--font-mono);letter-spacing:.15em;text-transform:uppercase;margin-bottom:10px;">Node List — click to start DM</div>
-      <div id="admin-node-list"></div>
-    </div>
-    <div id="send-bar">
-      <div id="dm-indicator">
-        <span>📨 DM → </span><span id="dm-name"></span>
-        <button onclick="clearDm()" title="Back to channel">✕</button>
+
+    <div class="grid-stack-item" gs-id="chat-main-widget" gs-x="3" gs-y="0" gs-w="9" gs-h="8">
+      <div class="grid-stack-item-content" style="height:100%; overflow:hidden; display:flex; flex-direction:column;">
+        <div id="chat-main" style="height:100%; display:flex; flex-direction:column;">
+          <div class="toolbar">
+            <button id="mob-back" onclick="mobChatBack()"
+              style="display:none;background:none;border:none;color:var(--primary);font-size:1.1em;cursor:pointer;padding:0 6px 0 0;flex-shrink:0;">←</button>
+            <span id="chat-title">All channels</span>
+            <div class="tb-sep"></div>
+            <span class="tb-lbl">Time:</span>
+            <button class="tb-btn" onclick="setTimeFilter(this,3600)">1h</button>
+            <button class="tb-btn" onclick="setTimeFilter(this,21600)">6h</button>
+            <button class="tb-btn active" onclick="setTimeFilter(this,86400)">24h</button>
+            <button class="tb-btn" onclick="setTimeFilter(this,0)">All</button>
+            <div class="tb-sep"></div>
+            <button class="tb-btn active" id="btn-as" onclick="toggleAutoScroll()">Auto-scroll</button>
+            <button class="tb-btn active" id="btn-sys" onclick="toggleSystemMsgs()" title="Show/hide system messages">System</button>
+            <button class="tb-btn" onclick="clearFeed()">Clear</button>
+            <div class="legend">
+              <div class="leg"><div class="leg-dot" style="background:var(--rx)"></div>RX</div>
+              <div class="leg"><div class="leg-dot" style="background:var(--tx)"></div>TX</div>
+              <div class="leg"><div class="leg-dot" style="background:var(--ai)"></div>AI</div>
+            </div>
+          </div>
+          <div id="feed"></div>
+          <div id="admin-panel" style="display:none;flex:1;overflow-y:auto;padding:12px 16px;">
+            <div style="color:var(--primary);font-size:.7em;font-family:var(--font-mono);letter-spacing:.15em;text-transform:uppercase;margin-bottom:10px;">Node List — click to start DM</div>
+            <div id="admin-node-list"></div>
+          </div>
+          <div id="send-bar">
+            <div id="dm-indicator">
+              <span>📨 DM → </span><span id="dm-name"></span>
+              <button onclick="clearDm()" title="Back to channel">✕</button>
+            </div>
+            <select id="sel-channel"><option value="0">Ch 0</option></select>
+            <textarea id="msg-text" placeholder="Type a message… (Enter = send, Shift+Enter = newline)" maxlength="194"></textarea>
+            <button id="send-btn" onclick="sendMessage()">Send</button>
+          </div>
+        </div>
       </div>
-      <select id="sel-channel"><option value="0">Ch 0</option></select>
-      <textarea id="msg-text" placeholder="Type a message… (Enter = send, Shift+Enter = newline)" maxlength="194"></textarea>
-      <button id="send-btn" onclick="sendMessage()">Send</button>
     </div>
+
   </div>
 </div>
 
 <!-- ══════════════════════════════════════════════════════════════
      NODES TAB
 ════════════════════════════════════════════════════════════════ -->
-<div id="tab-nodes" class="tab-pane" style="flex-direction:column;">
-  <div class="toolbar">
-    <span class="tb-lbl">Type:</span>
-    <button class="tb-btn active" onclick="setNodeFilter(this,'all')">All</button>
-    <button class="tb-btn" onclick="setNodeFilter(this,'radio')">Radio</button>
-    <button class="tb-btn" onclick="setNodeFilter(this,'mqtt')">MQTT</button>
-    <div class="tb-sep"></div>
-    <span class="tb-lbl">Hops:</span>
-    <select class="tb-select" id="hop-select" onchange="setHopFilterSel(this.value)">
-      <option value="all">All</option>
-      <option value="direct">Direct (0)</option>
-      <option value="1">1 hop</option>
-      <option value="2">2 hops</option>
-      <option value="3">3 hops</option>
-      <option value="4">4 hops</option>
-      <option value="5">5 hops</option>
-      <option value="6">6 hops</option>
-      <option value="7+">7+ hops</option>
-    </select>
-    <div class="tb-sep"></div>
-    <span class="tb-lbl">Last seen:</span>
-    <select class="tb-select" id="seen-select" onchange="setSeenFilterSel(parseInt(this.value))">
-      <option value="300">5 min</option>
-      <option value="1800">30 min</option>
-      <option value="3600">1 hour</option>
-      <option value="21600">6 hours</option>
-      <option value="86400" selected>24 hours</option>
-      <option value="604800">7 days</option>
-      <option value="0">All time</option>
-    </select>
-    <div class="tb-sep"></div>
-    <span class="tb-lbl">Sort:</span>
-    <select class="tb-select" id="sort-select" onchange="setSortBy(this.value)">
-      <option value="last_seen">Last seen</option>
-      <option value="name">Name A→Z</option>
-      <option value="snr">Best SNR</option>
-      <option value="hops">Fewest hops</option>
-      <option value="battery">Battery</option>
-    </select>
-    <div class="tb-sep"></div>
-    <input id="node-search" type="search" placeholder="🔍 name / ID / type…"
-      oninput="nodeSearch=this.value.trim().toLowerCase();renderNodes(nodesCache)"
-      style="background:var(--bg);border:1px solid var(--border);color:var(--text);
-             font-family:inherit;font-size:.78em;padding:4px 8px;outline:none;
-             border-radius:3px;width:160px;transition:border-color .15s;"
-      onfocus="this.style.borderColor='var(--primary)'"
-      onblur="this.style.borderColor='var(--border)'">
+<div id="tab-nodes" class="tab-pane" style="flex-direction:column; padding:15px; gap:15px; overflow-y:auto; max-height:100%;">
+  <div class="dashboard-toolbar" style="display:flex; justify-content:space-between; align-items:center; background:var(--surf); padding:8px 12px; border:1px solid var(--border); border-radius:var(--r-md); flex-shrink:0;">
+    <h2 style="color:var(--text); margin:0;">Nodes</h2>
+    <div class="toolbar-actions" style="display:flex; gap:10px;">
+      <button id="nodes-edit-btn" onclick="toggleEditMode('nodes')" class="tb-btn" style="border:1px solid var(--border); background:var(--surf2); color:var(--text); padding:4px 8px; border-radius:4px; cursor:pointer;">Edit Layout</button>
+      <button id="nodes-save-btn" onclick="saveLayout('nodes')" class="tb-btn" style="display:none; border:1px solid rgba(77,255,209,.3); background:var(--surf2); color:var(--tx); padding:4px 8px; border-radius:4px; cursor:pointer;">Save Layout</button>
+      <button id="nodes-cancel-btn" onclick="cancelLayout('nodes')" class="tb-btn" style="display:none; border:1px solid var(--border); background:var(--surf2); color:var(--muted); padding:4px 8px; border-radius:4px; cursor:pointer;">Cancel</button>
+      <button id="nodes-reset-btn" onclick="resetLayout('nodes')" class="tb-btn" style="display:none; border:1px solid rgba(255,80,80,.3); background:var(--surf2); color:var(--err); padding:4px 8px; border-radius:4px; cursor:pointer;">Reset</button>
+    </div>
   </div>
-  <div id="nodes-grid"></div>
+
+  <div class="grid-stack nodes-grid-stack" style="flex:1; min-height:400px;">
+
+    <div class="grid-stack-item" gs-id="nodes-toolbar-widget" gs-x="0" gs-y="0" gs-w="12" gs-h="1">
+      <div class="grid-stack-item-content" style="height:100%; overflow:hidden;">
+        <div class="toolbar" style="height:100%; display:flex; align-items:center; flex-wrap:wrap; padding:4px 8px;">
+          <span class="tb-lbl">Type:</span>
+          <button class="tb-btn active" onclick="setNodeFilter(this,'all')">All</button>
+          <button class="tb-btn" onclick="setNodeFilter(this,'radio')">Radio</button>
+          <button class="tb-btn" onclick="setNodeFilter(this,'mqtt')">MQTT</button>
+          <div class="tb-sep"></div>
+          <span class="tb-lbl">Hops:</span>
+          <select class="tb-select" id="hop-select" onchange="setHopFilterSel(this.value)">
+            <option value="all">All</option>
+            <option value="direct">Direct (0)</option>
+            <option value="1">1 hop</option>
+            <option value="2">2 hops</option>
+            <option value="3">3 hops</option>
+            <option value="4">4 hops</option>
+            <option value="5">5 hops</option>
+            <option value="6">6 hops</option>
+            <option value="7+">7+ hops</option>
+          </select>
+          <div class="tb-sep"></div>
+          <span class="tb-lbl">Last seen:</span>
+          <select class="tb-select" id="seen-select" onchange="setSeenFilterSel(parseInt(this.value))">
+            <option value="300">5 min</option>
+            <option value="1800">30 min</option>
+            <option value="3600">1 hour</option>
+            <option value="21600">6 hours</option>
+            <option value="86400" selected>24 hours</option>
+            <option value="604800">7 days</option>
+            <option value="0">All time</option>
+          </select>
+          <div class="tb-sep"></div>
+          <span class="tb-lbl">Sort:</span>
+          <select class="tb-select" id="sort-select" onchange="setSortBy(this.value)">
+            <option value="last_seen">Last seen</option>
+            <option value="name">Name A→Z</option>
+            <option value="snr">Best SNR</option>
+            <option value="hops">Fewest hops</option>
+            <option value="battery">Battery</option>
+          </select>
+          <div class="tb-sep"></div>
+          <input id="node-search" type="search" placeholder="🔍 name / ID / type…"
+            oninput="nodeSearch=this.value.trim().toLowerCase();renderNodes(nodesCache)"
+            style="background:var(--bg);border:1px solid var(--border);color:var(--text);
+                   font-family:inherit;font-size:.78em;padding:4px 8px;outline:none;
+                   border-radius:3px;width:160px;transition:border-color .15s;"
+            onfocus="this.style.borderColor='var(--primary)'"
+            onblur="this.style.borderColor='var(--border)'">
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-stack-item" gs-id="nodes-grid-widget" gs-x="0" gs-y="1" gs-w="12" gs-h="7">
+      <div class="grid-stack-item-content" style="height:100%; overflow-y:auto;">
+        <div id="nodes-grid" style="height:100%;"></div>
+      </div>
+    </div>
+
+  </div>
 </div>
 
 <!-- ══════════════════════════════════════════════════════════════
      MAP TAB
 ════════════════════════════════════════════════════════════════ -->
-<div id="tab-map" class="tab-pane">
-  <div id="leaflet-map"></div>
-  <div id="map-legend">
-    <div class="ml-row"><div class="ml-dot" style="background:#ffff00"></div>My node</div>
-    <div class="ml-row"><div class="ml-dot" style="background:var(--primary)"></div>Direct (0 hops)</div>
-    <div class="ml-row"><div class="ml-dot" style="background:#88aaff"></div>Via hops</div>
-    <div class="ml-row"><div class="ml-dot" style="background:var(--mqtt)"></div>MQTT</div>
+<div id="tab-map" class="tab-pane" style="flex-direction:column; padding:15px; gap:15px; overflow-y:auto; max-height:100%;">
+  <div class="dashboard-toolbar" style="display:flex; justify-content:space-between; align-items:center; background:var(--surf); padding:8px 12px; border:1px solid var(--border); border-radius:var(--r-md); flex-shrink:0;">
+    <h2 style="color:var(--text); margin:0;">Map</h2>
+    <div class="toolbar-actions" style="display:flex; gap:10px;">
+      <button id="map-edit-btn" onclick="toggleEditMode('map')" class="tb-btn" style="border:1px solid var(--border); background:var(--surf2); color:var(--text); padding:4px 8px; border-radius:4px; cursor:pointer;">Edit Layout</button>
+      <button id="map-save-btn" onclick="saveLayout('map')" class="tb-btn" style="display:none; border:1px solid rgba(77,255,209,.3); background:var(--surf2); color:var(--tx); padding:4px 8px; border-radius:4px; cursor:pointer;">Save Layout</button>
+      <button id="map-cancel-btn" onclick="cancelLayout('map')" class="tb-btn" style="display:none; border:1px solid var(--border); background:var(--surf2); color:var(--muted); padding:4px 8px; border-radius:4px; cursor:pointer;">Cancel</button>
+      <button id="map-reset-btn" onclick="resetLayout('map')" class="tb-btn" style="display:none; border:1px solid rgba(255,80,80,.3); background:var(--surf2); color:var(--err); padding:4px 8px; border-radius:4px; cursor:pointer;">Reset</button>
+    </div>
+  </div>
+
+  <div class="grid-stack map-grid-stack" style="flex:1; min-height:400px;">
+
+    <div class="grid-stack-item" gs-id="map-main-widget" gs-x="0" gs-y="0" gs-w="12" gs-h="8">
+      <div class="grid-stack-item-content" style="height:100%; overflow:hidden; position:relative;">
+        <div id="leaflet-map" style="width:100%; height:100%;"></div>
+        <div id="map-legend">
+          <div class="ml-row"><div class="ml-dot" style="background:#ffff00"></div>My node</div>
+          <div class="ml-row"><div class="ml-dot" style="background:var(--primary)"></div>Direct (0 hops)</div>
+          <div class="ml-row"><div class="ml-dot" style="background:#88aaff"></div>Via hops</div>
+          <div class="ml-row"><div class="ml-dot" style="background:var(--mqtt)"></div>MQTT</div>
+        </div>
+      </div>
+    </div>
+
   </div>
 </div>
 
 <!-- ══════════════════════════════════════════════════════════════
      PACKETS TAB
 ════════════════════════════════════════════════════════════════ -->
-<div id="tab-packets" class="tab-pane">
-
-  <!-- Stats LEFT -->
-  <div id="pkt-stats">
-    <div class="stat-block">
-      <div class="stat-title">Total Packets</div>
-      <div class="stat-big" id="stat-total">0</div>
-      <div class="stat-sub" id="stat-rate">0 /min</div>
+<div id="tab-packets" class="tab-pane" style="flex-direction:column; padding:15px; gap:15px; overflow-y:auto; max-height:100%;">
+  <div class="dashboard-toolbar" style="display:flex; justify-content:space-between; align-items:center; background:var(--surf); padding:8px 12px; border:1px solid var(--border); border-radius:var(--r-md); flex-shrink:0;">
+    <h2 style="color:var(--text); margin:0;">Packets</h2>
+    <div class="toolbar-actions" style="display:flex; gap:10px;">
+      <button id="packets-edit-btn" onclick="toggleEditMode('packets')" class="tb-btn" style="border:1px solid var(--border); background:var(--surf2); color:var(--text); padding:4px 8px; border-radius:4px; cursor:pointer;">Edit Layout</button>
+      <button id="packets-save-btn" onclick="saveLayout('packets')" class="tb-btn" style="display:none; border:1px solid rgba(77,255,209,.3); background:var(--surf2); color:var(--tx); padding:4px 8px; border-radius:4px; cursor:pointer;">Save Layout</button>
+      <button id="packets-cancel-btn" onclick="cancelLayout('packets')" class="tb-btn" style="display:none; border:1px solid var(--border); background:var(--surf2); color:var(--muted); padding:4px 8px; border-radius:4px; cursor:pointer;">Cancel</button>
+      <button id="packets-reset-btn" onclick="resetLayout('packets')" class="tb-btn" style="display:none; border:1px solid rgba(255,80,80,.3); background:var(--surf2); color:var(--err); padding:4px 8px; border-radius:4px; cursor:pointer;">Reset</button>
     </div>
-    <div class="stat-block">
-      <div class="stat-title">Activity (5 min)</div>
-      <div id="activity-dots">
-        <div class="act-dot" id="ad0"></div><div class="act-dot" id="ad1"></div>
-        <div class="act-dot" id="ad2"></div><div class="act-dot" id="ad3"></div>
-        <div class="act-dot" id="ad4"></div><div class="act-dot active" id="ad5"></div>
+  </div>
+
+  <div class="grid-stack packets-grid-stack" style="flex:1; min-height:400px;">
+
+    <!-- Stats widget -->
+    <div class="grid-stack-item" gs-id="packets-stats-widget" gs-x="0" gs-y="0" gs-w="3" gs-h="8">
+      <div class="grid-stack-item-content" style="height:100%; overflow:hidden;">
+        <div id="pkt-stats" style="height:100%; display:flex; flex-direction:column; overflow-y:auto; width:unset; border-radius:var(--r-lg); border:1px solid var(--border-s);">
+          <div class="stat-block">
+            <div class="stat-title">Total Packets</div>
+            <div class="stat-big" id="stat-total">0</div>
+            <div class="stat-sub" id="stat-rate">0 /min</div>
+          </div>
+          <div class="stat-block">
+            <div class="stat-title">Activity (5 min)</div>
+            <div id="activity-dots">
+              <div class="act-dot" id="ad0"></div><div class="act-dot" id="ad1"></div>
+              <div class="act-dot" id="ad2"></div><div class="act-dot" id="ad3"></div>
+              <div class="act-dot" id="ad4"></div><div class="act-dot active" id="ad5"></div>
+            </div>
+          </div>
+          <div class="stat-block">
+            <div class="stat-title">By Channel</div>
+            <div id="stat-by-ch"></div>
+          </div>
+          <div class="stat-block">
+            <div class="stat-title">By Type</div>
+            <div id="stat-by-type"></div>
+          </div>
+          <div class="stat-block">
+            <div class="stat-title">Top Nodes</div>
+            <div id="pkt-neighbour"></div>
+          </div>
+          <div class="stat-block">
+            <div class="stat-title">Recent Routes</div>
+            <div id="stat-routes" style="font-size:.72em;"></div>
+          </div>
+        </div>
       </div>
     </div>
-    <div class="stat-block">
-      <div class="stat-title">By Channel</div>
-      <div id="stat-by-ch"></div>
-    </div>
-    <div class="stat-block">
-      <div class="stat-title">By Type</div>
-      <div id="stat-by-type"></div>
-    </div>
-    <div class="stat-block">
-      <div class="stat-title">Top Nodes</div>
-      <div id="pkt-neighbour"></div>
-    </div>
-    <div class="stat-block">
-      <div class="stat-title">Recent Routes</div>
-      <div id="stat-routes" style="font-size:.72em;"></div>
-    </div>
-  </div>
 
-  <!-- Feed RIGHT -->
-  <div id="pkt-feed-wrap">
-    <div class="toolbar">
-      <span class="tb-lbl">Filter:</span>
-      <button class="tb-btn active" onclick="setPktFilter(this,'all')">All</button>
-      <button class="tb-btn" onclick="setPktFilter(this,'TEXT MESSAGE')">Text</button>
-      <button class="tb-btn" onclick="setPktFilter(this,'POSITION')">Position</button>
-      <button class="tb-btn" onclick="setPktFilter(this,'TELEMETRY')">Telemetry</button>
-      <button class="tb-btn" onclick="setPktFilter(this,'NODEINFO')">Node Info</button>
-      <button class="tb-btn" onclick="setPktFilter(this,'ROUTING')">Routing</button>
-      <button class="tb-btn" id="btn-routes" onclick="toggleRoutesView(this)">Routes</button>
-      <button class="tb-btn" id="btn-hide-bcast" onclick="toggleHideBroadcast(this)">Hide Broadcast</button>
-      <div class="tb-sep"></div>
-      <button class="tb-btn active" id="btn-pkt-as" onclick="togglePktScroll()">Auto-scroll</button>
-      <button class="tb-btn" onclick="clearPackets()">Clear</button>
-      <span id="pkt-feed-count" style="margin-left:auto;color:var(--muted);font-size:.75em;"></span>
+    <!-- Feed widget -->
+    <div class="grid-stack-item" gs-id="packets-feed-widget" gs-x="3" gs-y="0" gs-w="9" gs-h="8">
+      <div class="grid-stack-item-content" style="height:100%; overflow:hidden; display:flex; flex-direction:column;">
+        <div id="pkt-feed-wrap" style="height:100%; display:flex; flex-direction:column; overflow:hidden; border-radius:var(--r-lg); border:1px solid var(--border-s);">
+          <div class="toolbar">
+            <span class="tb-lbl">Filter:</span>
+            <button class="tb-btn active" onclick="setPktFilter(this,'all')">All</button>
+            <button class="tb-btn" onclick="setPktFilter(this,'TEXT MESSAGE')">Text</button>
+            <button class="tb-btn" onclick="setPktFilter(this,'POSITION')">Position</button>
+            <button class="tb-btn" onclick="setPktFilter(this,'TELEMETRY')">Telemetry</button>
+            <button class="tb-btn" onclick="setPktFilter(this,'NODEINFO')">Node Info</button>
+            <button class="tb-btn" onclick="setPktFilter(this,'ROUTING')">Routing</button>
+            <button class="tb-btn" id="btn-routes" onclick="toggleRoutesView(this)">Routes</button>
+            <button class="tb-btn" id="btn-hide-bcast" onclick="toggleHideBroadcast(this)">Hide Broadcast</button>
+            <div class="tb-sep"></div>
+            <button class="tb-btn active" id="btn-pkt-as" onclick="togglePktScroll()">Auto-scroll</button>
+            <button class="tb-btn" onclick="clearPackets()">Clear</button>
+            <span id="pkt-feed-count" style="margin-left:auto;color:var(--muted);font-size:.75em;"></span>
+          </div>
+          <div class="pkt-header">
+            <span>Time</span><span>Type</span><span>From</span><span>To</span>
+            <span>Ch</span><span>SNR/RSSI</span><span>Summary</span>
+          </div>
+          <div id="pkt-feed"></div>
+          <div id="route-feed"></div>
+        </div>
+      </div>
     </div>
-    <div class="pkt-header">
-      <span>Time</span><span>Type</span><span>From</span><span>To</span>
-      <span>Ch</span><span>SNR/RSSI</span><span>Summary</span>
-    </div>
-    <div id="pkt-feed"></div>
-    <div id="route-feed"></div>
-  </div>
 
+  </div>
 </div>
 
 
@@ -1756,93 +1801,130 @@
 <!-- ══════════════════════════════════════════════════════════════
      RADAR TAB
 ════════════════════════════════════════════════════════════════ -->
-<div id="tab-radar" class="tab-pane">
-  <div id="radar-wrap">
-    <canvas id="radar-canvas"></canvas>
-    <div id="radar-legend">
-      <div class="rl-row"><div class="rl-dot" style="background:#ffff00"></div>My node</div>
-      <div class="rl-row"><div class="rl-dot" style="background:#00ff88"></div>Direct (GPS)</div>
-      <div class="rl-row"><div class="rl-dot" style="background:#88aaff"></div>Via hops</div>
-      <div class="rl-row"><div class="rl-dot" style="background:#f0883e"></div>MQTT</div>
-      <div style="margin-top:6px;color:#333;font-size:.85em">Click blip for info</div>
-    </div>
-    <div id="radar-info">
-      <div style="margin-bottom:4px">Mode: <span id="radar-mode-label">SNR</span></div>
-      <div id="radar-node-info" style="color:var(--muted)">Hover a blip</div>
+<div id="tab-radar" class="tab-pane" style="flex-direction:column; padding:15px; gap:15px; overflow-y:auto; max-height:100%;">
+  <div class="dashboard-toolbar" style="display:flex; justify-content:space-between; align-items:center; background:var(--surf); padding:8px 12px; border:1px solid var(--border); border-radius:var(--r-md); flex-shrink:0;">
+    <h2 style="color:var(--text); margin:0;">Signal Radar</h2>
+    <div class="toolbar-actions" style="display:flex; gap:10px;">
+      <button id="radar-edit-btn" onclick="toggleEditMode('radar')" class="tb-btn" style="border:1px solid var(--border); background:var(--surf2); color:var(--text); padding:4px 8px; border-radius:4px; cursor:pointer;">Edit Layout</button>
+      <button id="radar-save-btn" onclick="saveLayout('radar')" class="tb-btn" style="display:none; border:1px solid rgba(77,255,209,.3); background:var(--surf2); color:var(--tx); padding:4px 8px; border-radius:4px; cursor:pointer;">Save Layout</button>
+      <button id="radar-cancel-btn" onclick="cancelLayout('radar')" class="tb-btn" style="display:none; border:1px solid var(--border); background:var(--surf2); color:var(--muted); padding:4px 8px; border-radius:4px; cursor:pointer;">Cancel</button>
+      <button id="radar-reset-btn" onclick="resetLayout('radar')" class="tb-btn" style="display:none; border:1px solid rgba(255,80,80,.3); background:var(--surf2); color:var(--err); padding:4px 8px; border-radius:4px; cursor:pointer;">Reset</button>
     </div>
   </div>
-  <div id="radar-mode-bar">
-    <span>Range:</span>
-    <select id="radar-range" onchange="radarMaxKm=parseInt(this.value);refreshRadarBlips()">
-      <option value="5">5 km</option><option value="10">10 km</option>
-      <option value="25" selected>25 km</option><option value="50">50 km</option>
-      <option value="100">100 km</option>
-    </select>
-    <span>Speed:</span>
-    <select id="radar-speed" onchange="radarSpeed=parseFloat(this.value)">
-      <option value="0.5">Slow</option><option value="1.5" selected>Normal</option>
-      <option value="3">Fast</option>
-    </select>
-    <span>Last seen:</span>
-    <select id="radar-age" onchange="radarMaxAge=parseInt(this.value);refreshRadarBlips()">
-      <option value="0">Any</option><option value="300">5 min</option>
-      <option value="900">15 min</option><option value="1800">30 min</option>
-      <option value="3600" selected>1 hour</option><option value="21600">6 hours</option>
-      <option value="86400">24 hours</option>
-    </select>
-    <span>Max hops:</span>
-    <select id="radar-hops" onchange="radarMaxHops=this.value;refreshRadarBlips()">
-      <option value="all">All</option><option value="direct">Direct only</option>
-      <option value="1">≤ 1 hop</option><option value="2">≤ 2 hops</option>
-      <option value="3">≤ 3 hops</option><option value="no_mqtt">No MQTT</option>
-    </select>
-    <span>Min SNR:</span>
-    <select id="radar-snr" onchange="radarMinSnr=parseInt(this.value);refreshRadarBlips()">
-      <option value="-999">Any</option><option value="-20">&gt; -20 dB</option>
-      <option value="-10">&gt; -10 dB</option><option value="0">&gt; 0 dB</option>
-      <option value="5">&gt; 5 dB</option><option value="10">&gt; 10 dB</option>
-    </select>
-    <span id="radar-stats" style="margin-left:auto;color:#1a6a1a"></span>
+
+  <div class="grid-stack radar-grid-stack" style="flex:1; min-height:400px;">
+
+    <div class="grid-stack-item" gs-id="radar-main-widget" gs-x="0" gs-y="0" gs-w="12" gs-h="9">
+      <div class="grid-stack-item-content" style="height:100%; overflow:hidden; display:flex; flex-direction:column;">
+        <div id="radar-wrap" style="flex:1; min-height:0; position:relative;">
+          <canvas id="radar-canvas"></canvas>
+          <div id="radar-legend">
+            <div class="rl-row"><div class="rl-dot" style="background:#ffff00"></div>My node</div>
+            <div class="rl-row"><div class="rl-dot" style="background:#00ff88"></div>Direct (GPS)</div>
+            <div class="rl-row"><div class="rl-dot" style="background:#88aaff"></div>Via hops</div>
+            <div class="rl-row"><div class="rl-dot" style="background:#f0883e"></div>MQTT</div>
+            <div style="margin-top:6px;color:#333;font-size:.85em">Click blip for info</div>
+          </div>
+          <div id="radar-info">
+            <div style="margin-bottom:4px">Mode: <span id="radar-mode-label">SNR</span></div>
+            <div id="radar-node-info" style="color:var(--muted)">Hover a blip</div>
+          </div>
+        </div>
+        <div id="radar-mode-bar" style="flex-shrink:0;">
+          <span>Range:</span>
+          <select id="radar-range" onchange="radarMaxKm=parseInt(this.value);refreshRadarBlips()">
+            <option value="5">5 km</option><option value="10">10 km</option>
+            <option value="25" selected>25 km</option><option value="50">50 km</option>
+            <option value="100">100 km</option>
+          </select>
+          <span>Speed:</span>
+          <select id="radar-speed" onchange="radarSpeed=parseFloat(this.value)">
+            <option value="0.5">Slow</option><option value="1.5" selected>Normal</option>
+            <option value="3">Fast</option>
+          </select>
+          <span>Last seen:</span>
+          <select id="radar-age" onchange="radarMaxAge=parseInt(this.value);refreshRadarBlips()">
+            <option value="0">Any</option><option value="300">5 min</option>
+            <option value="900">15 min</option><option value="1800">30 min</option>
+            <option value="3600" selected>1 hour</option><option value="21600">6 hours</option>
+            <option value="86400">24 hours</option>
+          </select>
+          <span>Max hops:</span>
+          <select id="radar-hops" onchange="radarMaxHops=this.value;refreshRadarBlips()">
+            <option value="all">All</option><option value="direct">Direct only</option>
+            <option value="1">≤ 1 hop</option><option value="2">≤ 2 hops</option>
+            <option value="3">≤ 3 hops</option><option value="no_mqtt">No MQTT</option>
+          </select>
+          <span>Min SNR:</span>
+          <select id="radar-snr" onchange="radarMinSnr=parseInt(this.value);refreshRadarBlips()">
+            <option value="-999">Any</option><option value="-20">&gt; -20 dB</option>
+            <option value="-10">&gt; -10 dB</option><option value="0">&gt; 0 dB</option>
+            <option value="5">&gt; 5 dB</option><option value="10">&gt; 10 dB</option>
+          </select>
+          <span id="radar-stats" style="margin-left:auto;color:#1a6a1a"></span>
+        </div>
+      </div>
+    </div>
+
   </div>
 </div>
 
 <!-- ══════════════════════════════════════════════════════════════
      CONFIG TAB
 ════════════════════════════════════════════════════════════════ -->
-<div id="tab-config" class="tab-pane">
-  <div id="cfg-sidebar">
-    <div style="padding:8px 10px;border-bottom:1px solid var(--border);">
-      <button id="cfg-reload-btn" onclick="cfgData={};loadCfg()" style="width:100%;background:#0a2e1a;color:var(--primary);border:1px solid var(--primary);font-family:inherit;font-size:.72em;padding:5px;cursor:pointer;text-transform:uppercase;">
-        Reload from device
-      </button>
-      <div id="cfg-status" style="font-size:.65em;margin-top:5px;color:var(--muted);word-break:break-word;"></div>
-      <button onclick="showCfgDebug()" style="width:100%;background:none;color:#333;border:1px solid #222;font-family:inherit;font-size:.65em;padding:3px;cursor:pointer;margin-top:4px;text-transform:uppercase;">
-        Show raw debug
-      </button>
-      <button onclick="rebootDevice()" id="cfg-reboot-btn" style="width:100%;background:#2e0a0a;color:var(--err);border:1px solid var(--err);font-family:inherit;font-size:.7em;padding:5px;cursor:pointer;margin-top:6px;text-transform:uppercase;font-weight:bold;">
-        ⚡ Reboot device
-      </button>
+<div id="tab-config" class="tab-pane" style="flex-direction:column; padding:15px; gap:15px; overflow-y:auto; max-height:100%;">
+  <div class="dashboard-toolbar" style="display:flex; justify-content:space-between; align-items:center; background:var(--surf); padding:8px 12px; border:1px solid var(--border); border-radius:var(--r-md); flex-shrink:0;">
+    <h2 style="color:var(--text); margin:0;">Configuration</h2>
+    <div class="toolbar-actions" style="display:flex; gap:10px;">
+      <button id="config-edit-btn" onclick="toggleEditMode('config')" class="tb-btn" style="border:1px solid var(--border); background:var(--surf2); color:var(--text); padding:4px 8px; border-radius:4px; cursor:pointer;">Edit Layout</button>
+      <button id="config-save-btn" onclick="saveLayout('config')" class="tb-btn" style="display:none; border:1px solid rgba(77,255,209,.3); background:var(--surf2); color:var(--tx); padding:4px 8px; border-radius:4px; cursor:pointer;">Save Layout</button>
+      <button id="config-cancel-btn" onclick="cancelLayout('config')" class="tb-btn" style="display:none; border:1px solid var(--border); background:var(--surf2); color:var(--muted); padding:4px 8px; border-radius:4px; cursor:pointer;">Cancel</button>
+      <button id="config-reset-btn" onclick="resetLayout('config')" class="tb-btn" style="display:none; border:1px solid rgba(255,80,80,.3); background:var(--surf2); color:var(--err); padding:4px 8px; border-radius:4px; cursor:pointer;">Reset</button>
     </div>
-    <div class="cfg-sec-group">Radio</div>
-    <button class="cfg-sec active" data-sec="lora"     onclick="showCfgSec('lora')">LoRa</button>
-    <button class="cfg-sec"        data-sec="channels"  onclick="showCfgSec('channels')">Channels</button>
-    <div class="cfg-sec-group">Device</div>
-    <button class="cfg-sec"        data-sec="owner"     onclick="showCfgSec('owner')">Owner</button>
-    <button class="cfg-sec"        data-sec="device"    onclick="showCfgSec('device')">Device</button>
-    <button class="cfg-sec"        data-sec="position"  onclick="showCfgSec('position')">Position</button>
-    <button class="cfg-sec"        data-sec="power"     onclick="showCfgSec('power')">Power</button>
-    <button class="cfg-sec"        data-sec="display"   onclick="showCfgSec('display')">Display</button>
-    <button class="cfg-sec"        data-sec="bluetooth" onclick="showCfgSec('bluetooth')">Bluetooth</button>
-    <button class="cfg-sec"        data-sec="network"   onclick="showCfgSec('network')">Network</button>
-    <div class="cfg-sec-group">Modules</div>
-    <button class="cfg-sec"        data-sec="mqtt"      onclick="showCfgSec('mqtt')">MQTT</button>
-    <button class="cfg-sec"        data-sec="telemetry" onclick="showCfgSec('telemetry')">Telemetry</button>
-    <button class="cfg-sec"        data-sec="range_test"    onclick="showCfgSec('range_test')">Range Test</button>
-    <button class="cfg-sec"        data-sec="store_forward"  onclick="showCfgSec('store_forward')">Store&amp;Forward</button>
-    <button class="cfg-sec"        data-sec="neighbor_info"  onclick="showCfgSec('neighbor_info')">Neighbor Info</button>
-    <button class="cfg-sec"        data-sec="external_notification" onclick="showCfgSec('external_notification')">Ext. Notify</button>
   </div>
-  <div id="cfg-main">
+
+  <div class="grid-stack config-grid-stack" style="flex:1; min-height:400px;">
+
+    <div class="grid-stack-item" gs-id="config-sidebar-widget" gs-x="0" gs-y="0" gs-w="3" gs-h="9">
+      <div class="grid-stack-item-content" style="height:100%; overflow:hidden;">
+        <div id="cfg-sidebar" style="height:100%; display:flex; flex-direction:column; overflow-y:auto;">
+          <div style="padding:8px 10px;border-bottom:1px solid var(--border);">
+            <button id="cfg-reload-btn" onclick="cfgData={};loadCfg()" style="width:100%;background:#0a2e1a;color:var(--primary);border:1px solid var(--primary);font-family:inherit;font-size:.72em;padding:5px;cursor:pointer;text-transform:uppercase;">
+              Reload from device
+            </button>
+            <div id="cfg-status" style="font-size:.65em;margin-top:5px;color:var(--muted);word-break:break-word;"></div>
+            <button onclick="showCfgDebug()" style="width:100%;background:none;color:#333;border:1px solid #222;font-family:inherit;font-size:.65em;padding:3px;cursor:pointer;margin-top:4px;text-transform:uppercase;">
+              Show raw debug
+            </button>
+            <button onclick="rebootDevice()" id="cfg-reboot-btn" style="width:100%;background:#2e0a0a;color:var(--err);border:1px solid var(--err);font-family:inherit;font-size:.7em;padding:5px;cursor:pointer;margin-top:6px;text-transform:uppercase;font-weight:bold;">
+              ⚡ Reboot device
+            </button>
+          </div>
+          <div class="cfg-sec-group">Radio</div>
+          <button class="cfg-sec active" data-sec="lora"     onclick="showCfgSec('lora')">LoRa</button>
+          <button class="cfg-sec"        data-sec="channels"  onclick="showCfgSec('channels')">Channels</button>
+          <div class="cfg-sec-group">Device</div>
+          <button class="cfg-sec"        data-sec="owner"     onclick="showCfgSec('owner')">Owner</button>
+          <button class="cfg-sec"        data-sec="device"    onclick="showCfgSec('device')">Device</button>
+          <button class="cfg-sec"        data-sec="position"  onclick="showCfgSec('position')">Position</button>
+          <button class="cfg-sec"        data-sec="power"     onclick="showCfgSec('power')">Power</button>
+          <button class="cfg-sec"        data-sec="display"   onclick="showCfgSec('display')">Display</button>
+          <button class="cfg-sec"        data-sec="bluetooth" onclick="showCfgSec('bluetooth')">Bluetooth</button>
+          <button class="cfg-sec"        data-sec="network"   onclick="showCfgSec('network')">Network</button>
+          <div class="cfg-sec-group">Modules</div>
+          <button class="cfg-sec"        data-sec="mqtt"      onclick="showCfgSec('mqtt')">MQTT</button>
+          <button class="cfg-sec"        data-sec="telemetry" onclick="showCfgSec('telemetry')">Telemetry</button>
+          <button class="cfg-sec"        data-sec="range_test"    onclick="showCfgSec('range_test')">Range Test</button>
+          <button class="cfg-sec"        data-sec="store_forward"  onclick="showCfgSec('store_forward')">Store&amp;Forward</button>
+          <button class="cfg-sec"        data-sec="neighbor_info"  onclick="showCfgSec('neighbor_info')">Neighbor Info</button>
+          <button class="cfg-sec"        data-sec="external_notification" onclick="showCfgSec('external_notification')">Ext. Notify</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-stack-item" gs-id="config-main-widget" gs-x="3" gs-y="0" gs-w="9" gs-h="9">
+      <div class="grid-stack-item-content" style="height:100%; overflow:hidden;">
+        <div id="cfg-main" style="height:100%; overflow-y:auto;">
     <!-- Loaded by JS -->
     <div class="cfgs active" id="cfgs-lora">
       <div class="cfg-title">LoRa Radio Config</div>
@@ -2163,8 +2245,12 @@
       <button class="cfg-save" onclick="saveCfg('external_notification')">Save Ext.Notify</button>
       <span class="cfg-msg" id="cfgmsg-external_notification"></span>
     </div>
-  </div>
-</div>
+        </div><!-- end cfg-main -->
+      </div><!-- end grid-stack-item-content -->
+    </div><!-- end config-main grid-stack-item -->
+
+  </div><!-- end config-grid-stack -->
+</div><!-- end tab-config -->
 
 <!-- Node detail panel -->
 <div id="panel-overlay" onclick="closeNodeDetail()"></div>
@@ -5578,15 +5664,16 @@ let gridDefaults = {};
 
 function initGridStack() {
   if (typeof GridStack === 'undefined') return;
-  
+
   // Initialize OPS grid
   grids['ops'] = GridStack.init({
     cellHeight: 120,
     staticGrid: true, // Read-only by default
     margin: 8,
+    minRow: 5,
     float: true
   }, '.ops-grid-stack');
-  
+
   // Initialize Analytics grid
   grids['analytics'] = GridStack.init({
     cellHeight: 120,
@@ -5595,22 +5682,84 @@ function initGridStack() {
     float: true
   }, '.analytics-grid-stack');
 
+  // Initialize Chat grid
+  grids['chat'] = GridStack.init({
+    cellHeight: 60,
+    staticGrid: true,
+    margin: 4,
+    float: false
+  }, '.chat-grid-stack');
+
+  // Initialize Nodes grid
+  grids['nodes'] = GridStack.init({
+    cellHeight: 60,
+    staticGrid: true,
+    margin: 4,
+    float: false
+  }, '.nodes-grid-stack');
+
+  // Initialize Map grid
+  grids['map'] = GridStack.init({
+    cellHeight: 60,
+    staticGrid: true,
+    margin: 4,
+    float: false
+  }, '.map-grid-stack');
+
+  // Initialize Packets grid
+  grids['packets'] = GridStack.init({
+    cellHeight: 60,
+    staticGrid: true,
+    margin: 4,
+    float: false
+  }, '.packets-grid-stack');
+
+  // Initialize Radar grid
+  grids['radar'] = GridStack.init({
+    cellHeight: 60,
+    staticGrid: true,
+    margin: 4,
+    float: false
+  }, '.radar-grid-stack');
+
+  // Initialize Config grid
+  grids['config'] = GridStack.init({
+    cellHeight: 60,
+    staticGrid: true,
+    margin: 4,
+    float: false
+  }, '.config-grid-stack');
+
   // Save default layouts
   gridDefaults['ops'] = grids['ops'].save();
   gridDefaults['analytics'] = grids['analytics'].save();
+  gridDefaults['chat'] = grids['chat'].save();
+  gridDefaults['nodes'] = grids['nodes'].save();
+  gridDefaults['map'] = grids['map'].save();
+  gridDefaults['packets'] = grids['packets'].save();
+  gridDefaults['radar'] = grids['radar'].save();
+  gridDefaults['config'] = grids['config'].save();
 
   // Resize charts on layout change
   const resizeCharts = () => {
     if (window.opsLeafMap) window.opsLeafMap.invalidateSize();
     if (window.heatmapLeafMap) window.heatmapLeafMap.invalidateSize();
+    if (window.leafMap) window.leafMap.invalidateSize();
   };
 
   grids['ops'].on('change', resizeCharts);
   grids['analytics'].on('change', resizeCharts);
+  grids['map'].on('change', resizeCharts);
 
   // Load layouts from backend
   loadLayout('ops');
   loadLayout('analytics');
+  loadLayout('chat');
+  loadLayout('nodes');
+  loadLayout('map');
+  loadLayout('packets');
+  loadLayout('radar');
+  loadLayout('config');
 }
 
 async function loadLayout(id) {
@@ -5662,7 +5811,8 @@ async function saveLayout(id) {
 
   toggleEditMode(id, false); // Turn off edit mode
   // Show short success notification
-  const btn = document.getElementById(`${id === 'ops' ? 'ops' : 'an'}-save-btn`);
+  const prefix = id === 'analytics' ? 'an' : id;
+  const btn = document.getElementById(`${prefix}-save-btn`);
   if (btn) {
       const oldText = btn.textContent;
       btn.textContent = 'Saved!';
@@ -5684,34 +5834,36 @@ async function resetLayout(id) {
 
 function toggleEditMode(id, forceState) {
   if (!grids[id]) return;
-  
+
   const isCurrentlyStatic = grids[id].getGridItems()[0]?.grid?.opts?.staticGrid;
   const newState = forceState !== undefined ? forceState : !isCurrentlyStatic;
-  
+
   grids[id].setStatic(!newState);
-  
-  const prefix = id === 'ops' ? 'ops' : 'an';
-  const editBtn = document.getElementById(`${prefix}-edit-btn`);
-  const saveBtn = document.getElementById(`${prefix}-save-btn`);
+
+  // Map grid id to button prefix (analytics uses 'an', all others use their own id)
+  const prefix = id === 'analytics' ? 'an' : id;
+  const editBtn   = document.getElementById(`${prefix}-edit-btn`);
+  const saveBtn   = document.getElementById(`${prefix}-save-btn`);
   const cancelBtn = document.getElementById(`${prefix}-cancel-btn`);
-  const resetBtn = document.getElementById(`${prefix}-reset-btn`);
-  
+  const resetBtn  = document.getElementById(`${prefix}-reset-btn`);
+  const addBtn    = document.getElementById(`${prefix}-add-btn`);
+
   if (newState) { // Edit mode ON
-    if (editBtn) editBtn.style.display = 'none';
-    if (saveBtn) saveBtn.style.display = 'inline-block';
+    if (editBtn)   editBtn.style.display = 'none';
+    if (saveBtn)   saveBtn.style.display = 'inline-block';
     if (cancelBtn) cancelBtn.style.display = 'inline-block';
-    if (resetBtn) resetBtn.style.display = 'inline-block';
-    const addBtn = document.getElementById(`${prefix}-add-btn`);
-    if (addBtn) addBtn.style.display = 'inline-block';
-    document.querySelector(`.${id}-grid-stack`).classList.add('grid-edit-mode');
+    if (resetBtn)  resetBtn.style.display = 'inline-block';
+    if (addBtn)    addBtn.style.display = 'inline-block';
+    const gs = document.querySelector(`.${id}-grid-stack`);
+    if (gs) gs.classList.add('grid-edit-mode');
   } else { // Edit mode OFF
-    if (editBtn) editBtn.style.display = 'inline-block';
-    if (saveBtn) saveBtn.style.display = 'none';
+    if (editBtn)   editBtn.style.display = 'inline-block';
+    if (saveBtn)   saveBtn.style.display = 'none';
     if (cancelBtn) cancelBtn.style.display = 'none';
-    if (resetBtn) resetBtn.style.display = 'none';
-    const addBtn = document.getElementById(`${prefix}-add-btn`);
-    if (addBtn) addBtn.style.display = 'none';
-    document.querySelector(`.${id}-grid-stack`).classList.remove('grid-edit-mode');
+    if (resetBtn)  resetBtn.style.display = 'none';
+    if (addBtn)    addBtn.style.display = 'none';
+    const gs = document.querySelector(`.${id}-grid-stack`);
+    if (gs) gs.classList.remove('grid-edit-mode');
   }
 }
 
