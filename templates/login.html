@@ -70,10 +70,34 @@
       </label>
 
       <button type="submit">Login</button>
+      <button type="button" id="passkeyLoginBtn">Login with passkey</button>
 
       {% if error %}<div class="error">{{ error }}</div>{% endif %}
     </form>
     <div class="footer">Meshtastic AI Bridge &bull; LAN Panel</div>
   </div>
+  <script>
+    async function passkeyLogin() {
+      const username = document.getElementById('username').value || "{{ username }}";
+      const begin = await fetch('/api/auth/passkey/login/begin', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({username})
+      });
+      const beginData = await begin.json();
+      if (!begin.ok) { alert(beginData.error || 'Passkey login failed'); return; }
+      const credential = await SimpleWebAuthnBrowser.startAuthentication(beginData.options);
+      const finish = await fetch('/api/auth/passkey/login/finish', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(credential)
+      });
+      const finishData = await finish.json();
+      if (finish.ok && finishData.ok) { window.location.href = finishData.redirect || '/'; return; }
+      alert(finishData.error || 'Passkey verification failed');
+    }
+    document.getElementById('passkeyLoginBtn').addEventListener('click', passkeyLogin);
+  </script>
+  <script src="https://unpkg.com/@simplewebauthn/browser/dist/bundle/index.umd.min.js"></script>
 </body>
 </html>

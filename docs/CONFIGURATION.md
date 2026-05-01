@@ -94,6 +94,24 @@ ACTIVE_MESHTASTIC_CHANNEL_INDEX = 0
 
 ## Advanced Configuration
 
+### Web UI Passkey (WebAuthn)
+
+Password login remains the default, but you can register and use passkeys as a safer fallback-resistant second method.
+
+Environment variables for WebAuthn in Web UI:
+
+```bash
+WEB_UI_WEBAUTHN_RP_ID=localhost
+WEB_UI_WEBAUTHN_RP_NAME="Meshtastic AI Bridge"
+WEB_UI_WEBAUTHN_ORIGIN=http://localhost:8080
+```
+
+Notes:
+- WebAuthn requires a secure context (`https://`) or `localhost`.
+- In LAN deployments, set `WEB_UI_WEBAUTHN_ORIGIN` to the exact browser origin (scheme + host + port).
+- Registered passkeys are stored in `data/webauthn_credentials.json`.
+- Username/password login is still supported for compatibility and recovery.
+
 ### 1. AI Persona Customization
 
 The AI persona defines how the AI behaves and responds:

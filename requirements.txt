@@ -26,6 +26,7 @@ aiohttp>=3.9.0  # For async HTTP requests
 # Web UI
 flask>=3.0.0
 werkzeug>=3.0.0
+webauthn>=2.1.0
 
 # Matrix bridge (bidirectional mesh<->Matrix)
 matrix-nio[e2e]>=0.20.0

@@ -1158,6 +1158,7 @@
       </div>
     </div>
     <button onclick="toggleAbout()" title="About" style="background:none;border:1px solid var(--border-s);color:var(--muted);font-family:var(--font-mono);font-size:.7em;padding:3px 9px;cursor:pointer;border-radius:4px;">ℹ</button>
+    <button onclick="registerPasskey()" title="Register passkey" style="background:none;border:1px solid var(--border-s);color:var(--muted);font-family:var(--font-mono);font-size:.7em;padding:3px 9px;cursor:pointer;border-radius:4px;">passkey</button>
     <a href="/logout">logout</a>
   </div>
 </div>
@@ -5519,6 +5520,23 @@ async function fetchMyDeviceInfo() {
   setInterval(fetchChannels,    30000);
   setInterval(fetchTraceroutes, 10000);
 })();
+</script>
+<script src="https://unpkg.com/@simplewebauthn/browser/dist/bundle/index.umd.min.js"></script>
+<script>
+async function registerPasskey(){
+  try{
+    const begin = await fetch('/api/auth/passkey/register/begin', {method:'POST'});
+    const beginData = await begin.json();
+    if(!begin.ok){ alert(beginData.error||'Passkey registration failed'); return; }
+    const credential = await SimpleWebAuthnBrowser.startRegistration(beginData.options);
+    const finish = await fetch('/api/auth/passkey/register/finish', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(credential)
+    });
+    const finishData = await finish.json();
+    if(finish.ok && finishData.ok){ alert('Passkey registered successfully'); return; }
+    alert(finishData.error || 'Passkey registration failed');
+  }catch(e){ alert('Passkey registration cancelled or unsupported.'); }
+}
 </script>
 <!-- Graph Fullscreen Overlay -->
 <div id="graph-fs-overlay" onclick="if(event.target===this)closeGraphFs()">

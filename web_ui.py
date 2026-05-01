@@ -16,6 +16,7 @@ Environment variables:
 """
 
 import json
+import base64
 import logging
 import os
 import threading
@@ -42,6 +43,25 @@ except ImportError:
     _HAS_FLASK = False
     logger.warning("web_ui: Flask not installed — web interface disabled")
 
+try:
+    from webauthn import (
+        generate_registration_options,
+        verify_registration_response,
+        generate_authentication_options,
+        verify_authentication_response,
+    )
+    from webauthn.helpers.structs import (
+        AuthenticatorSelectionCriteria,
+        PublicKeyCredentialDescriptor,
+        RegistrationCredential,
+        AuthenticationCredential,
+        ResidentKeyRequirement,
+        UserVerificationRequirement,
+    )
+    _HAS_WEBAUTHN = True
+except ImportError:
+    _HAS_WEBAUTHN = False
+
 
 # ---------------------------------------------------------------------------
 # Shared state
@@ -51,7 +71,38 @@ _messages: deque = deque(maxlen=500)
 _packets:  deque = deque(maxlen=1000)
 
 _CHAT_HISTORY_PATH = os.path.join("data", "chat_history.json")
+_WEBAUTHN_CREDENTIALS_PATH = os.path.join("data", "webauthn_credentials.json")
 _save_pending = False
+
+
+def _b64url_encode(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("utf-8")
+
+
+def _b64url_decode(data: str) -> bytes:
+    padding = "=" * ((4 - len(data) % 4) % 4)
+    return base64.urlsafe_b64decode(data + padding)
+
+
+def _load_webauthn_credentials() -> list[dict]:
+    if not os.path.exists(_WEBAUTHN_CREDENTIALS_PATH):
+        return []
+    try:
+        with open(_WEBAUTHN_CREDENTIALS_PATH, "r", encoding="utf-8") as f:
+            creds = json.load(f)
+        return creds if isinstance(creds, list) else []
+    except Exception as e:
+        logger.warning(f"webauthn: could not load credentials: {e}")
+        return []
+
+
+def _save_webauthn_credentials(creds: list[dict]) -> None:
+    try:
+        os.makedirs(os.path.dirname(_WEBAUTHN_CREDENTIALS_PATH), exist_ok=True)
+        with open(_WEBAUTHN_CREDENTIALS_PATH, "w", encoding="utf-8") as f:
+            json.dump(creds, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.warning(f"webauthn: could not save credentials: {e}")
 
 
 def _load_chat_history() -> None:
@@ -630,6 +681,9 @@ if _HAS_FLASK:
 
     WEB_UI_PASSWORD = os.environ.get("WEB_UI_PASSWORD", "")
     WEB_UI_USERNAME = os.environ.get("WEB_UI_USERNAME", "admin")
+    WEB_UI_RP_ID = os.environ.get("WEB_UI_WEBAUTHN_RP_ID", "localhost")
+    WEB_UI_RP_NAME = os.environ.get("WEB_UI_WEBAUTHN_RP_NAME", "Meshtastic AI Bridge")
+    WEB_UI_ORIGIN = os.environ.get("WEB_UI_WEBAUTHN_ORIGIN", f"http://{WEB_UI_RP_ID}:8080")
 
     # ------------------------------------------------------------------
     # Auth
@@ -655,7 +709,109 @@ if _HAS_FLASK:
                 session["logged_in"] = True
                 return redirect(url_for("index"))
             error = "Invalid credentials"
-        return render_template("login.html", error=error)
+        return render_template("login.html", error=error, username=WEB_UI_USERNAME)
+
+    @app.route("/api/auth/passkey/register/begin", methods=["POST"])
+    @login_required
+    def passkey_register_begin():
+        if not _HAS_WEBAUTHN:
+            return jsonify({"ok": False, "error": "WebAuthn backend not installed"}), 501
+        user_handle = WEB_UI_USERNAME.encode("utf-8")
+        creds = _load_webauthn_credentials()
+        exclude_creds = [PublicKeyCredentialDescriptor(id=_b64url_decode(c["credential_id"])) for c in creds]
+        options = generate_registration_options(
+            rp_id=WEB_UI_RP_ID,
+            rp_name=WEB_UI_RP_NAME,
+            user_id=user_handle,
+            user_name=WEB_UI_USERNAME,
+            authenticator_selection=AuthenticatorSelectionCriteria(
+                resident_key=ResidentKeyRequirement.PREFERRED,
+                user_verification=UserVerificationRequirement.PREFERRED,
+            ),
+            exclude_credentials=exclude_creds,
+        )
+        session["webauthn_registration_challenge"] = _b64url_encode(options.challenge)
+        return jsonify({"ok": True, "options": options.model_dump()})
+
+    @app.route("/api/auth/passkey/register/finish", methods=["POST"])
+    @login_required
+    def passkey_register_finish():
+        if not _HAS_WEBAUTHN:
+            return jsonify({"ok": False, "error": "WebAuthn backend not installed"}), 501
+        payload = request.get_json(silent=True) or {}
+        challenge = session.get("webauthn_registration_challenge")
+        if not challenge:
+            return jsonify({"ok": False, "error": "Missing registration challenge"}), 400
+        try:
+            verification = verify_registration_response(
+                credential=RegistrationCredential.parse_obj(payload),
+                expected_challenge=_b64url_decode(challenge),
+                expected_rp_id=WEB_UI_RP_ID,
+                expected_origin=WEB_UI_ORIGIN,
+            )
+            creds = _load_webauthn_credentials()
+            creds.append({
+                "credential_id": _b64url_encode(verification.credential_id),
+                "public_key": _b64url_encode(verification.credential_public_key),
+                "sign_count": verification.sign_count,
+                "transports": payload.get("response", {}).get("transports", []),
+            })
+            _save_webauthn_credentials(creds)
+            session.pop("webauthn_registration_challenge", None)
+            return jsonify({"ok": True})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 400
+
+    @app.route("/api/auth/passkey/login/begin", methods=["POST"])
+    def passkey_login_begin():
+        if not _HAS_WEBAUTHN:
+            return jsonify({"ok": False, "error": "WebAuthn backend not installed"}), 501
+        payload = request.get_json(silent=True) or {}
+        username = payload.get("username", WEB_UI_USERNAME)
+        if username != WEB_UI_USERNAME:
+            return jsonify({"ok": False, "error": "Invalid credentials"}), 401
+        creds = _load_webauthn_credentials()
+        if not creds:
+            return jsonify({"ok": False, "error": "Passkey not configured"}), 400
+        allow_creds = [PublicKeyCredentialDescriptor(id=_b64url_decode(c["credential_id"])) for c in creds]
+        options = generate_authentication_options(
+            rp_id=WEB_UI_RP_ID,
+            allow_credentials=allow_creds,
+            user_verification=UserVerificationRequirement.PREFERRED,
+        )
+        session["webauthn_auth_challenge"] = _b64url_encode(options.challenge)
+        return jsonify({"ok": True, "options": options.model_dump()})
+
+    @app.route("/api/auth/passkey/login/finish", methods=["POST"])
+    def passkey_login_finish():
+        if not _HAS_WEBAUTHN:
+            return jsonify({"ok": False, "error": "WebAuthn backend not installed"}), 501
+        payload = request.get_json(silent=True) or {}
+        challenge = session.get("webauthn_auth_challenge")
+        if not challenge:
+            return jsonify({"ok": False, "error": "Missing authentication challenge"}), 400
+        creds = _load_webauthn_credentials()
+        cred_id = payload.get("id")
+        match = next((c for c in creds if c["credential_id"] == cred_id), None)
+        if not match:
+            return jsonify({"ok": False, "error": "Invalid credentials"}), 401
+        try:
+            verification = verify_authentication_response(
+                credential=AuthenticationCredential.parse_obj(payload),
+                expected_challenge=_b64url_decode(challenge),
+                expected_rp_id=WEB_UI_RP_ID,
+                expected_origin=WEB_UI_ORIGIN,
+                credential_public_key=_b64url_decode(match["public_key"]),
+                credential_current_sign_count=int(match.get("sign_count", 0)),
+            )
+            match["sign_count"] = verification.new_sign_count
+            _save_webauthn_credentials(creds)
+            session.pop("webauthn_auth_challenge", None)
+            session["logged_in"] = True
+            session.permanent = True
+            return jsonify({"ok": True, "redirect": url_for("index")})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 401
 
     @app.route("/logout")
     def logout():
