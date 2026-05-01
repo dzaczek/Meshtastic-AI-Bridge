@@ -7,7 +7,7 @@ from typing import Dict, Optional, Tuple
 import random
 import node_db
 try:
-    import requests as _requests
+    import requests
     _HAS_REQUESTS = True
 except ImportError:
     _HAS_REQUESTS = False
@@ -244,18 +244,28 @@ class HalBot:
             path_lines = []
             for i, hop in enumerate(hops):
                 node_id = hop.get('node_id', 'unknown')
+                node_name = hop.get('node_name', 'Unknown')
                 rssi = hop.get('rssi')
                 snr = hop.get('snr')
                 
                 # Format signal info
-                sig_str = f"{rssi}dBm/{snr}dB" if rssi is not None and snr is not None else "N/A"
-                
-                if i == 0:
-                    path_lines.append(f"!{node_id}")
-                elif i == len(hops) - 1:
-                    path_lines.append(f"↳!{node_id}")
+                if rssi != 'N/A' and rssi is not None and snr != 'N/A' and snr is not None:
+                    sig_str = f"[{rssi}dBm/{snr}dB]"
+                elif snr != 'N/A' and snr is not None:
+                    sig_str = f"[{snr}dB]"
                 else:
-                    path_lines.append(f"↳!{node_id}[{sig_str}]")
+                    sig_str = ""
+                
+                # Ensure node name is short enough
+                display_name = node_name[:8] if node_name != 'Unknown' else ''
+                node_label = f"!{node_id}" + (f"({display_name})" if display_name else "")
+
+                if i == 0:
+                    path_lines.append(f"{node_label}")
+                elif i == len(hops) - 1:
+                    path_lines.append(f"↳{node_label}{sig_str}")
+                else:
+                    path_lines.append(f"↳{node_label}{sig_str}")
             
             path_str = "\n".join(path_lines)
             
@@ -433,6 +443,10 @@ class HalBot:
             'is_dm': is_dm,
         }
 
+        # Initiate an actual traceroute over the mesh network
+        if self.meshtastic_handler and hasattr(self.meshtastic_handler, 'send_traceroute') and not is_mqtt:
+            self.meshtastic_handler.send_traceroute(target_id)
+
         self._start_traceroute_collection(target_id)
 
         if not args:
@@ -457,7 +471,7 @@ class HalBot:
         try:
             from urllib.parse import quote_plus
             url = f"https://wttr.in/{quote_plus(city)}?format=j1"
-            r = _requests.get(url, timeout=8)
+            r = requests.get(url, timeout=8)
             data = r.json()
             cur  = data['current_condition'][0]
             temp = cur['temp_C']
@@ -558,8 +572,62 @@ class HalBot:
         target_info = self.get_node_info(target_id)
         if target_info:
             path_info['target_name'] = target_info.get('long_name', 'Unknown')
-        
-        # Build path based on node's parent nodes
+
+        bot_node_id = f"{self.meshtastic_handler.node_id:x}" if self.meshtastic_handler.node_id else None
+
+        # 1) Check node_db for a real traceroute
+        recent_traces = node_db.get_traceroutes(bot_node_id, limit=20) if bot_node_id else []
+        best_trace = None
+        for tr in recent_traces:
+            # We want a trace FROM bot TO target
+            if tr.get('from_id') == bot_node_id and tr.get('to_id') == target_id:
+                # Make sure it's somewhat recent (e.g. within 5 minutes of now)
+                # Note: tr['ts'] might be from the past, we allow up to 300s window
+                # Alternatively just pick the most recent one since limit=20 is ordered by ts DESC
+                if time.time() - tr.get('ts', 0) < 300:
+                    best_trace = tr
+                    break
+
+        if best_trace:
+            # Reconstruct hops from the real trace
+            # route format is usually just the intermediate node IDs
+            route_ids = best_trace.get('route', [])
+            snrs = best_trace.get('snr_towards', [])
+
+            # Start with the bot itself
+            path_info['hops'].append({
+                'node_id': bot_node_id,
+                'node_name': self.bot_name,
+                'rssi': 'N/A',
+                'snr': 'N/A'
+            })
+
+            # Add intermediate nodes
+            for i, hop_id in enumerate(route_ids):
+                hop_info = self.get_node_info(hop_id) or {}
+                hop_name = hop_info.get('short_name') or hop_info.get('long_name') or 'Unknown'
+                # get snr if available
+                snr_val = snrs[i] if i < len(snrs) else 'N/A'
+                path_info['hops'].append({
+                    'node_id': hop_id,
+                    'node_name': hop_name,
+                    'rssi': 'N/A', # not reliably available in basic traceroute
+                    'snr': snr_val
+                })
+
+            # Add the target node
+            final_snr = snrs[-1] if len(snrs) > len(route_ids) else 'N/A'
+            target_name = target_info.get('short_name') or target_info.get('long_name') or 'Unknown'
+            path_info['hops'].append({
+                'node_id': target_id,
+                'node_name': target_name,
+                'rssi': target_info.get('rssi', 'N/A'),
+                'snr': final_snr
+            })
+
+            return path_info
+
+        # 2) Fallback: Build path based on node's parent nodes
         current_id = target_id
         max_hops = 10  # Prevent infinite loops
         visited = set()
@@ -573,7 +641,7 @@ class HalBot:
             if node_info:
                 path_info['hops'].insert(0, {
                     'node_id': current_id,
-                    'node_name': node_info.get('long_name', 'Unknown'),
+                    'node_name': node_info.get('short_name') or node_info.get('long_name') or 'Unknown',
                     'rssi': node_info.get('rssi', 'N/A'),
                     'snr': node_info.get('snr', 'N/A')
                 })
@@ -592,9 +660,9 @@ class HalBot:
                 break
         
         # Add bot node as the first hop if not already present
-        if not path_info['hops'] or path_info['hops'][0]['node_id'] != f"{self.meshtastic_handler.node_id:x}":
+        if not path_info['hops'] or path_info['hops'][0]['node_id'] != bot_node_id:
             path_info['hops'].insert(0, {
-                'node_id': f"{self.meshtastic_handler.node_id:x}",
+                'node_id': bot_node_id,
                 'node_name': self.bot_name,
                 'rssi': 'N/A',
                 'snr': 'N/A'
