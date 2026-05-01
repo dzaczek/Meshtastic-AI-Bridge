@@ -1,0 +1,12 @@
+--- web_ui.py
++++ web_ui.py
+@@ -1341,8 +1341,9 @@
+             import qrcode
+             import io
+             from flask import send_file
+             qr = qrcode.QRCode(
+                 version=1,
+                 error_correction=qrcode.constants.ERROR_CORRECT_L,
+                 box_size=5,
+                 border=4,
+             )

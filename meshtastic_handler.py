@@ -412,6 +412,27 @@ class MeshtasticHandler:
                 self.is_connected = False
             return (False, str(e))
 
+    def get_channels_url(self) -> str:
+        if not self.interface or not self.is_connected:
+            return ""
+        try:
+            node = self.interface.getNode('^local')
+            return node.getURL()
+        except Exception as e:
+            log_error(f"Error getting channels URL: {e}")
+            return ""
+
+    def set_channels_url(self, url: str) -> tuple:
+        if not self.interface or not self.is_connected:
+            return False, "Not connected"
+        try:
+            node = self.interface.getNode('^local')
+            node.setURL(url)
+            return True, "Channels imported from URL"
+        except Exception as e:
+            log_error(f"Error setting channels URL: {e}")
+            return False, f"Error: {e}"
+
     def list_channels(self):
         if not self.interface or not self.is_connected:
             return []

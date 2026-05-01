@@ -1285,6 +1285,77 @@ if _HAS_FLASK:
         ok, msg = _meshtastic_handler.set_device_config(section, data)
         return jsonify({"ok": ok, "message": msg})
 
+    @app.route("/api/config/export_url")
+    @login_required
+    def api_config_export_url():
+        if not _meshtastic_handler:
+            return jsonify({"ok": False, "error": "Not connected"}), 503
+        url = _meshtastic_handler.get_channels_url()
+        return jsonify({"ok": True, "url": url})
+
+    @app.route("/api/config/import_url", methods=["POST"])
+    @login_required
+    def api_config_import_url():
+        if not _meshtastic_handler:
+            return jsonify({"ok": False, "error": "Not connected"}), 503
+        data = request.get_json(silent=True) or {}
+        url = data.get("url", "")
+        if not url:
+            return jsonify({"ok": False, "error": "No URL provided"}), 400
+        ok, msg = _meshtastic_handler.set_channels_url(url)
+        return jsonify({"ok": ok, "message": msg})
+
+    @app.route("/api/config/import_channels", methods=["POST"])
+    @login_required
+    def api_config_import_channels():
+        if not _meshtastic_handler:
+            return jsonify({"ok": False, "error": "Not connected"}), 503
+        data = request.get_json(silent=True) or {}
+        channels = data.get("channels", [])
+        if not channels:
+            return jsonify({"ok": False, "error": "No channels provided"}), 400
+
+        success_count = 0
+        errors = []
+        for ch in channels:
+            ok, msg = _meshtastic_handler.set_device_config("channel", ch)
+            if ok:
+                success_count += 1
+            else:
+                errors.append(f"Ch {ch.get('index', '?')}: {msg}")
+
+        if errors:
+            return jsonify({"ok": False, "message": f"Imported {success_count} channels. Errors: " + ", ".join(errors)})
+        return jsonify({"ok": True, "message": f"Imported {success_count} channels successfully"})
+
+    @app.route("/api/qrcode")
+    @login_required
+    def api_qrcode():
+        data = request.args.get("data", "")
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        try:
+            import qrcode
+            import io
+            from flask import send_file
+            qr = qrcode.QRCode(
+                version=1,
+                error_correction=qrcode.constants.ERROR_CORRECT_L,
+                box_size=5,
+                border=4,
+            )
+            qr.add_data(data)
+            qr.make(fit=True)
+            img = qr.make_image(fill_color="black", back_color="white")
+            img_io = io.BytesIO()
+            img.save(img_io, 'PNG')
+            img_io.seek(0)
+            return send_file(img_io, mimetype='image/png')
+        except ImportError:
+            return jsonify({"error": "qrcode library not installed"}), 500
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
 
 # ---------------------------------------------------------------------------
 # Server lifecycle

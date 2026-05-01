@@ -10,7 +10,7 @@ def bot():
     app_config.BOT_NAME = "Eva"
     return HalBot(meshtastic_handler, app_config)
 
-@patch('hal_bot.requests.get')
+@patch('hal_bot._requests.get')
 def test_handle_weather_success(mock_get, bot):
     # Setup mock response
     mock_response = MagicMock()
@@ -32,7 +32,7 @@ def test_handle_weather_success(mock_get, bot):
     assert '24h: 10°C-20°C' in result['response']
     assert mock_get.called
 
-@patch('hal_bot.requests.get')
+@patch('hal_bot._requests.get')
 def test_handle_weather_error(mock_get, bot):
     mock_get.side_effect = Exception("API Error")
 
