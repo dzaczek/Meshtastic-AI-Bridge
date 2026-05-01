@@ -156,6 +156,11 @@ class AIBridge:
             prompt_text = f"This is a screenshot of the webpage at {url}. Please provide a detailed analysis including: main headlines, key articles, navigation structure, and any notable content visible. Focus on information that would be useful for answering follow-up questions about the page content. Keep it under {getattr(self.config, 'MAX_WEB_SUMMARY_LENGTH', 800)} characters."
             
             response = self.gemini_vision_model.generate_content([prompt_text, image_part])
+            if _HAS_NODE_DB and hasattr(response, "usage_metadata") and response.usage_metadata:
+                try:
+                    node_db.add_ai_token_usage(response.usage_metadata.prompt_token_count, response.usage_metadata.candidates_token_count, "system")
+                except Exception:
+                    pass
             summary = response.text.strip()
             return summary
         except Exception as e:
@@ -448,6 +453,11 @@ class AIBridge:
 
                 chat_session = active_gemini_model.start_chat(history=gemini_chat_history_for_api)
                 response = chat_session.send_message(current_user_prompt_parts)
+                if _HAS_NODE_DB and hasattr(response, "usage_metadata") and response.usage_metadata:
+                    try:
+                        node_db.add_ai_token_usage(response.usage_metadata.prompt_token_count, response.usage_metadata.candidates_token_count, node_id)
+                    except Exception:
+                        pass
                 candidate_reply = response.text.strip()
                 if candidate_reply: ai_reply_text = candidate_reply
 
@@ -486,6 +496,11 @@ class AIBridge:
                     system_instruction=summary_persona
                 )
                  response = model_for_summary.generate_content(text_to_summarize) # Let persona guide summary length
+                 if _HAS_NODE_DB and hasattr(response, "usage_metadata") and response.usage_metadata:
+                     try:
+                         node_db.add_ai_token_usage(response.usage_metadata.prompt_token_count, response.usage_metadata.candidates_token_count, "system_summary")
+                     except Exception:
+                         pass
                  summary_text = response.text.strip()
             
             if len(summary_text) > max_length + 30: # Allow more leeway for summary models
@@ -557,6 +572,11 @@ class AIBridge:
                     system_instruction=triage_system_prompt_filled
                 )
                 response = triage_gemini_instance.generate_content(full_triage_query)
+                if _HAS_NODE_DB and hasattr(response, "usage_metadata") and response.usage_metadata:
+                    try:
+                        node_db.add_ai_token_usage(response.usage_metadata.prompt_token_count, response.usage_metadata.candidates_token_count, "system_triage")
+                    except Exception:
+                        pass
                 decision = response.text.strip().upper()
                 print(f"INFO (ai_bridge Triage): Gemini Triage decision: '{decision}' for message from {newest_message_sender}")
                 return decision == "YES"
