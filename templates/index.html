@@ -1867,8 +1867,8 @@
           <span>Last seen:</span>
           <select id="radar-age" onchange="radarMaxAge=parseInt(this.value);refreshRadarBlips()">
             <option value="0">Any</option><option value="300">5 min</option>
-            <option value="900">15 min</option><option value="1800">30 min</option>
-            <option value="3600" selected>1 hour</option><option value="21600">6 hours</option>
+            <option value="900">15 min</option><option value="1800" selected>30 min</option>
+            <option value="3600">1 hour</option><option value="21600">6 hours</option>
             <option value="86400">24 hours</option>
           </select>
           <span>Max hops:</span>
@@ -4261,7 +4261,7 @@ let radarBlips    = [];
 let radarMaxKm    = 25;
 let radarSpeed    = 1.5;
 let radarMyNode   = null;
-let radarMaxAge   = 3600;   // seconds, 0=any
+let radarMaxAge   = 1800;   // seconds, 0=any
 let radarMaxHops  = 'all';  // 'all','direct','1','2','3','no_mqtt'
 let radarMinSnr   = -999;   // dB threshold, -999=any
 
@@ -6027,6 +6027,42 @@ function toggleEditMode(id, forceState) {
     if (addBtn)    addBtn.style.display = 'none';
     const gs = document.querySelector(`.${id}-grid-stack`);
     if (gs) gs.classList.remove('grid-edit-mode');
+
+    // GridStack drag mode leaves pointer-events:none on items — reset it,
+    // then re-enable Leaflet handlers and force-resize canvases.
+    setTimeout(() => {
+      if (gs) {
+        gs.querySelectorAll('.grid-stack-item, .grid-stack-item-content').forEach(el => {
+          el.style.pointerEvents = '';
+          el.style.userSelect    = '';
+          el.style.touchAction   = '';
+        });
+      }
+      if (id === 'ops') {
+        if (opsLeafMap) {
+          opsLeafMap.dragging.enable();
+          opsLeafMap.scrollWheelZoom.enable();
+          if (opsLeafMap.doubleClickZoom) opsLeafMap.doubleClickZoom.enable();
+          if (opsLeafMap.touchZoom)       opsLeafMap.touchZoom.enable();
+          opsLeafMap.invalidateSize();
+        }
+        // OPS radar canvas
+        const oc = document.getElementById('ops-radar');
+        if (oc) { const ow = oc.parentElement; oc.width = (ow?.clientWidth||200)-12; oc.height = (ow?.clientHeight||200)-12; }
+      }
+      if (id === 'map' && leafMap) {
+        leafMap.dragging.enable();
+        leafMap.scrollWheelZoom.enable();
+        if (leafMap.doubleClickZoom) leafMap.doubleClickZoom.enable();
+        if (leafMap.touchZoom)       leafMap.touchZoom.enable();
+        leafMap.invalidateSize();
+      }
+      if (id === 'radar') {
+        const rc = document.getElementById('radar-canvas');
+        const rw = document.getElementById('radar-wrap');
+        if (rc && rw) { rc.width = rw.clientWidth; rc.height = rw.clientHeight; }
+      }
+    }, 200);
   }
 }
 
