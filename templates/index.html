@@ -3971,19 +3971,20 @@ function drawRadialRolesChart(selector) {
   if (!container || typeof d3 === 'undefined') return;
 
   container.innerHTML = '';
-  const nodes = nodesCache.filter(n => !n.is_mine && n.role);
+  // Include ALL non-mine nodes; empty/null role defaults to CLIENT
+  const nodes = nodesCache.filter(n => !n.is_mine);
   if (!nodes.length) {
-    container.innerHTML = '<div style="padding:20px;color:var(--muted);font-size:.8em">No node data.</div>';
+    container.innerHTML = '<div style="padding:20px;color:var(--muted);font-size:.8em">No node data yet.</div>';
     return;
   }
 
-  // Role normaliser
+  // Role normaliser — empty/unknown → CLIENT
   const roleLabel = r => {
     const m = { CLIENT:'CLIENT', CLIENT_MUTE:'MUTE', MUTE_CLIENT:'MUTE',
                 ROUTER:'ROUTER', ROUTER_CLIENT:'ROUTER+', TRACKER:'TRACKER',
                 SENSOR:'SENSOR', TAK:'TAK', TAK_TRACKER:'TAK', CLIENT_HIDDEN:'HIDDEN',
                 LOST_AND_FOUND:'L&F' };
-    return m[(r||'').toUpperCase()] || (r||'?').slice(0,8);
+    return m[(r||'').toUpperCase()] || 'CLIENT';
   };
   const roleKey = r => roleLabel(r);
 
@@ -6101,13 +6102,14 @@ async function loadLayout(id) {
       const data = await res.json();
       if (data.layout && data.layout.length > 0) {
         grids[id].load(data.layout);
+        _postLayoutLoad(id);
         return;
       }
     }
   } catch (err) {
     console.error(`Failed to load layout from API for ${id}, trying localStorage`, err);
   }
-  
+
   // Fallback to localStorage
   try {
     const localData = localStorage.getItem(`dashboard-layout-${id}`);
@@ -6117,6 +6119,38 @@ async function loadLayout(id) {
   } catch (err) {
     console.error(`Failed to load layout from localStorage for ${id}`, err);
   }
+  _postLayoutLoad(id);
+}
+
+function _postLayoutLoad(id) {
+  // After GridStack applies a saved layout, containers change size.
+  // Re-initialize maps and canvases so they match the new dimensions.
+  requestAnimationFrame(() => {
+    if (id === 'ops') {
+      if (opsLeafMap) {
+        opsLeafMap.dragging.enable();
+        opsLeafMap.scrollWheelZoom.enable();
+        if (opsLeafMap.doubleClickZoom) opsLeafMap.doubleClickZoom.enable();
+        if (opsLeafMap.touchZoom)       opsLeafMap.touchZoom.enable();
+        opsLeafMap.invalidateSize();
+      }
+      const oc = document.getElementById('ops-radar');
+      if (oc && oc.parentElement) {
+        oc.width  = Math.max(1, oc.parentElement.clientWidth  - 12);
+        oc.height = Math.max(1, oc.parentElement.clientHeight - 12);
+      }
+    }
+    if (id === 'map' && leafMap) {
+      leafMap.dragging.enable();
+      leafMap.scrollWheelZoom.enable();
+      leafMap.invalidateSize();
+    }
+    if (id === 'radar') {
+      const rc = document.getElementById('radar-canvas');
+      const rw = document.getElementById('radar-wrap');
+      if (rc && rw) { rc.width = rw.clientWidth; rc.height = rw.clientHeight; }
+    }
+  });
 }
 
 async function saveLayout(id) {
