@@ -1744,6 +1744,27 @@
       </div>
     </div>
 
+    <!-- AI Token Statistics widget -->
+    <div class="grid-stack-item" gs-id="an-ai-tokens-widget" gs-x="6" gs-y="12" gs-w="6" gs-h="5">
+      <div class="grid-stack-item-content stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md); display:flex; flex-direction:column; height:100%;">
+        <div class="stat-title">🪙 AI Token Usage<button class="graph-expand-btn" onclick="openGraphFs('ai-token-chart','AI Token Usage')">⤢</button></div>
+        <div id="ai-stats-summary" style="font-size:.76em;color:var(--muted);display:flex;gap:16px;margin-bottom:8px;flex-shrink:0;">
+          <span>Total: <b id="ai-tok-total">—</b></span>
+          <span>Month: <b id="ai-tok-month">—</b></span>
+        </div>
+        <div style="display:flex;gap:12px;flex:1;min-height:0;flex-wrap:wrap;">
+          <div style="flex:1;min-width:180px;display:flex;flex-direction:column;">
+            <div style="font-size:.68em;color:var(--muted);margin-bottom:4px;">Daily (last 7 days) · <span style="color:rgba(77,255,209,.5)">■</span> in <span style="color:rgba(77,255,209,1)">■</span> out</div>
+            <div id="ai-token-chart" style="flex:1;position:relative;min-height:80px;"></div>
+          </div>
+          <div style="flex:0 0 180px;min-width:140px;">
+            <div style="font-size:.68em;color:var(--muted);margin-bottom:4px;">Top users (this month)</div>
+            <div id="ai-top-users" style="font-size:.76em;overflow-y:auto;max-height:200px;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div> <!-- end global container -->
 
   <!-- Per-Node Analytics Container -->
@@ -1812,27 +1833,6 @@
     </div>
 
   </div> <!-- end per-node container -->
-
-  <!-- AI Token Statistics -->
-  <div id="ai-stats-section" class="panel" style="padding:14px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surf);">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-      <h3 style="margin:0;font-size:.95em;color:var(--text);">🪙 AI Token Usage</h3>
-      <div id="ai-stats-summary" style="font-size:.78em;color:var(--muted);display:flex;gap:16px;">
-        <span>Total: <b id="ai-tok-total">—</b></span>
-        <span>This month: <b id="ai-tok-month">—</b></span>
-      </div>
-    </div>
-    <div style="display:flex;gap:16px;flex-wrap:wrap;">
-      <div style="flex:1;min-width:240px;">
-        <div style="font-size:.72em;color:var(--muted);margin-bottom:6px;">Daily tokens (last 7 days)</div>
-        <div id="ai-token-chart" style="height:140px;position:relative;"></div>
-      </div>
-      <div style="flex:0 0 220px;">
-        <div style="font-size:.72em;color:var(--muted);margin-bottom:6px;">Top AI users (this month)</div>
-        <div id="ai-top-users" style="font-size:.78em;"></div>
-      </div>
-    </div>
-  </div>
 
 </div>
 
@@ -3101,6 +3101,10 @@ async function fetchNodes() {
     if (radarInited) setRadarNodes(nodesCache);
     opsOnNodesUpdate(nodesCache);
     populateAnalyticsDropdown();
+    // Redraw radial chart if analytics tab is active
+    if (document.getElementById('tab-analytics')?.classList.contains('active')) {
+      drawRadialRolesChart('#d3-radial-roles');
+    }
     if (activeConv === 'admin') renderAdminPanel();
   } catch(e) {}
 }
@@ -3953,8 +3957,12 @@ async function initAnalytics() {
 
   } catch(e) { console.error('Analytics load error:', e); }
 
-  // Radial chart uses live node cache — draw after analytics loads
-  drawRadialRolesChart('#d3-radial-roles');
+  // Radial chart uses live node cache — draw now; retry if cache not yet populated
+  if (nodesCache.length) {
+    drawRadialRolesChart('#d3-radial-roles');
+  } else {
+    setTimeout(() => drawRadialRolesChart('#d3-radial-roles'), 3000);
+  }
 }
 
 // ── RADIAL ROLES × HOPS CHART ─────────────────────────────────────────────
