@@ -885,26 +885,75 @@ class MeshtasticHandler:
             traceback.print_exc()
             return False, str(e)
 
-    def set_fixed_position(self, lat: float, lon: float, alt: int = 0) -> tuple:
-        """Set a fixed GPS position and write fixed_position=True to localConfig so GPS doesn't override it."""
+    def set_fixed_position(self, lat: float, lon: float, alt: int = 0,
+                           reboot: bool = False) -> tuple:
+        """Set fixed position, write fixed_position=True to config, optionally reboot device."""
         if not self.interface or not self.is_connected:
             return False, "Not connected"
         try:
             node = self.interface.getNode('^local')
-            # 1. Send the fixed position admin message
+            # 1. Send the fixed position admin message (sets LOC_MANUAL on device)
             node.setFixedPosition(lat, lon, alt)
-            # 2. Also persist fixed_position=True in position config so GPS cannot override
+            # 2. Persist fixed_position=True so GPS cannot override after reboot
+            config_written = False
             try:
                 lc = getattr(node, 'localConfig', None)
                 if lc and hasattr(lc, 'position'):
                     lc.position.fixed_position = True
                     node.writeConfig("position")
+                    config_written = True
             except Exception as cfg_err:
                 print(f"WARNING: set_fixed_position could not write config: {cfg_err}")
-            return True, f"Fixed position set: {lat:.6f}, {lon:.6f} alt={alt}m"
+            msg = f"Fixed position set: {lat:.6f}, {lon:.6f} alt={alt}m"
+            if config_written:
+                msg += " (config saved)"
+            # 3. Optional reboot — required for firmware to honour fixed_position flag
+            if reboot:
+                import time as _t
+                _t.sleep(1)
+                try:
+                    node.reboot()
+                    msg += " — reboot sent, reconnecting in ~10s"
+                except Exception as rb_err:
+                    msg += f" (reboot failed: {rb_err})"
+            return True, msg
         except Exception as e:
             traceback.print_exc()
             return False, str(e)
+
+    def get_own_position(self) -> dict | None:
+        """Return current position dict from device interface (what it's actually broadcasting)."""
+        if not self.interface:
+            return None
+        try:
+            node = self.interface.getNode('^local')
+            pos = getattr(node, 'position', None)
+            if pos is None and hasattr(node, 'nodeInfo'):
+                pos = node.nodeInfo.get('position')
+            if pos is None:
+                # Try from nodes dict
+                if self.node_id and self.interface.nodes:
+                    for num, info in self.interface.nodes.items():
+                        if num == self.node_id:
+                            pos = info.get('position', {})
+                            break
+            if not pos:
+                return None
+            lat_i = pos.get('latitudeI') or pos.get('latitude_i') or 0
+            lon_i = pos.get('longitudeI') or pos.get('longitude_i') or 0
+            lat = lat_i / 1e7 if lat_i else None
+            lon = lon_i / 1e7 if lon_i else None
+            src = pos.get('locationSource') or pos.get('location_source') or 0
+            src_name = {0: 'UNSET', 1: 'MANUAL', 2: 'INTERNAL(GPS)', 3: 'EXTERNAL'}.get(src, str(src))
+            return {
+                'lat': lat, 'lon': lon,
+                'alt': pos.get('altitude', 0),
+                'lat_i': lat_i, 'lon_i': lon_i,
+                'location_source': src,
+                'location_source_name': src_name,
+            }
+        except Exception:
+            return None
 
     def remove_fixed_position(self) -> tuple:
         """Remove the fixed position from the device."""

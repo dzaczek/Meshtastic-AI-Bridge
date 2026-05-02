@@ -1430,6 +1430,17 @@ if _HAS_FLASK:
         ok, msg = _meshtastic_handler.send_traceroute(dest_id, hop_limit=hops)
         return jsonify({"ok": ok, "message": msg, "sent_at": time.time()})
 
+    @app.route("/api/config/fixed_position", methods=["GET"])
+    @login_required
+    def api_get_fixed_position():
+        """Return what the device is currently broadcasting as its position."""
+        if not _meshtastic_handler:
+            return jsonify({"ok": False, "error": "Not connected"}), 503
+        pos = _meshtastic_handler.get_own_position()
+        if not pos:
+            return jsonify({"ok": False, "error": "Position unavailable"})
+        return jsonify({"ok": True, "position": pos})
+
     @app.route("/api/config/fixed_position", methods=["POST"])
     @login_required
     def api_set_fixed_position():
@@ -1442,7 +1453,8 @@ if _HAS_FLASK:
             alt = int(data.get("alt", 0))
         except (KeyError, ValueError) as e:
             return jsonify({"ok": False, "error": f"Bad parameters: {e}"}), 400
-        ok, msg = _meshtastic_handler.set_fixed_position(lat, lon, alt)
+        reboot = bool(data.get("reboot", False))
+        ok, msg = _meshtastic_handler.set_fixed_position(lat, lon, alt, reboot=reboot)
         # Immediately update position_history in DB so map/cache reflects new position
         if ok and _HAS_NODE_DB and _meshtastic_handler.node_id:
             try:
@@ -1451,7 +1463,7 @@ if _HAS_FLASK:
                 )
             except Exception:
                 pass
-        return jsonify({"ok": ok, "message": msg})
+        return jsonify({"ok": ok, "message": msg, "rebooting": reboot and ok})
 
     @app.route("/api/config/fixed_position", methods=["DELETE"])
     @login_required
