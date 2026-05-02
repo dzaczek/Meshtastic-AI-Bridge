@@ -226,9 +226,12 @@ class HalBot:
         
         dist_str = self._get_distance_str(node_info.get('lat'), node_info.get('lon'))
         
+        hops_away = node_info.get('hops_away')
+        hops_str  = f"{hops_away}" if hops_away is not None else "?"
+
         # Build the response string
         response = f"[{'PING' if not is_mqtt else 'PING (MQTT)'}] !{node_id}\n"
-        response += f"• Latency: ~{latency}ms\n"
+        response += f"• Hops: {hops_str}\n"
         if not is_mqtt:
             response += f"• Sig: {rssi_str}/{snr_str}\n"
         response += f"• Last: {last_seen} ago\n"
