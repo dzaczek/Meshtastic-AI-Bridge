@@ -1415,6 +1415,14 @@ if _HAS_FLASK:
         except (KeyError, ValueError) as e:
             return jsonify({"ok": False, "error": f"Bad parameters: {e}"}), 400
         ok, msg = _meshtastic_handler.set_fixed_position(lat, lon, alt)
+        # Immediately update position_history in DB so map/cache reflects new position
+        if ok and _HAS_NODE_DB and _meshtastic_handler.node_id:
+            try:
+                _node_db.add_position(
+                    f"{_meshtastic_handler.node_id:x}", lat, lon, alt
+                )
+            except Exception:
+                pass
         return jsonify({"ok": ok, "message": msg})
 
     @app.route("/api/config/fixed_position", methods=["DELETE"])
