@@ -199,6 +199,8 @@
     .grid-stack-item-content {
       background: transparent !important;
     }
+    /* Dash-gap: controls visible spacing between widgets via CSS variable */
+    .grid-stack > .grid-stack-item { padding: var(--dash-gap, 4px) !important; }
     .grid-edit-mode .grid-stack-item-content {
       border: 1px dashed var(--primary);
     }
@@ -1184,6 +1186,19 @@
     <span id="hdr-ai-cnt" style="color:var(--ai)">AI: 0</span>
     <span id="hdr-tokens" title="Total AI tokens used (in/out)" style="color:var(--muted);cursor:default;display:none;">🪙<span id="hdr-tokens-val">0</span></span>
     <span id="hdr-uptime2" style="color:var(--muted)"></span>
+    <select id="gap-select" title="Odstęp między widżetami"
+      onchange="setDashGap(parseInt(this.value))"
+      style="background:var(--surf2);border:1px solid var(--border);color:var(--muted);
+             font-family:var(--font-mono);font-size:.65em;padding:2px 4px;border-radius:4px;
+             outline:none;cursor:pointer;">
+      <option value="0">⬛ styk</option>
+      <option value="2">▪ 2px</option>
+      <option value="4" selected>◾ 4px</option>
+      <option value="6">▫ 6px</option>
+      <option value="8">◽ 8px</option>
+      <option value="12">□ 12px</option>
+      <option value="16">⬜ 16px</option>
+    </select>
   </div>
 </div>
 
@@ -5866,6 +5881,23 @@ async function fetchMyDeviceInfo() {
   } catch(e) { /* silent */ }
 }
 
+// ── DASH GAP ──────────────────────────────────────────────────────────────
+function setDashGap(px) {
+  document.documentElement.style.setProperty('--dash-gap', `${px}px`);
+  localStorage.setItem('dash-gap', String(px));
+  // Sync select
+  const sel = document.getElementById('gap-select');
+  if (sel) sel.value = String(px);
+}
+
+function _initDashGap() {
+  const saved = localStorage.getItem('dash-gap');
+  const px = saved !== null ? parseInt(saved) : 4;
+  document.documentElement.style.setProperty('--dash-gap', `${px}px`);
+  const sel = document.getElementById('gap-select');
+  if (sel) sel.value = String(px);
+}
+
 // ── AI TOKEN STATS ────────────────────────────────────────────────────────
 function _fmtTokens(n) {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + 'M';
@@ -5973,8 +6005,9 @@ async function fetchAITokenStats() {
   await fetchPacketStats();
 
   await fetchMyDeviceInfo();
-  initOps();   // show ops dashboard on load
-  initGridStack(); // init gridstack layout
+  _initDashGap();   // apply saved gap before grid init
+  initOps();        // show ops dashboard on load
+  initGridStack();  // init gridstack layout
 
   fetchAITokenStats();
 
@@ -6001,7 +6034,7 @@ function initGridStack() {
   grids['ops'] = GridStack.init({
     cellHeight: 120,
     staticGrid: true, // Read-only by default
-    margin: 8,
+    margin: 0,
     minRow: 5,
     float: true
   }, '.ops-grid-stack');
@@ -6010,7 +6043,7 @@ function initGridStack() {
   grids['analytics'] = GridStack.init({
     cellHeight: 120,
     staticGrid: true,
-    margin: 8,
+    margin: 0,
     float: true
   }, '.analytics-grid-stack');
 
@@ -6018,7 +6051,7 @@ function initGridStack() {
   grids['chat'] = GridStack.init({
     cellHeight: 60,
     staticGrid: true,
-    margin: 4,
+    margin: 0,
     float: false
   }, '.chat-grid-stack');
 
@@ -6026,7 +6059,7 @@ function initGridStack() {
   grids['nodes'] = GridStack.init({
     cellHeight: 60,
     staticGrid: true,
-    margin: 4,
+    margin: 0,
     float: false
   }, '.nodes-grid-stack');
 
@@ -6034,7 +6067,7 @@ function initGridStack() {
   grids['map'] = GridStack.init({
     cellHeight: 60,
     staticGrid: true,
-    margin: 4,
+    margin: 0,
     float: false
   }, '.map-grid-stack');
 
@@ -6042,7 +6075,7 @@ function initGridStack() {
   grids['packets'] = GridStack.init({
     cellHeight: 60,
     staticGrid: true,
-    margin: 4,
+    margin: 0,
     float: false
   }, '.packets-grid-stack');
 
@@ -6050,7 +6083,7 @@ function initGridStack() {
   grids['radar'] = GridStack.init({
     cellHeight: 60,
     staticGrid: true,
-    margin: 4,
+    margin: 0,
     float: false
   }, '.radar-grid-stack');
 
@@ -6058,7 +6091,7 @@ function initGridStack() {
   grids['config'] = GridStack.init({
     cellHeight: 60,
     staticGrid: true,
-    margin: 4,
+    margin: 0,
     float: false
   }, '.config-grid-stack');
 
