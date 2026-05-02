@@ -214,6 +214,19 @@ class MeshtasticAIAppConsole:
 
             # Initialize HAL bot and central message router
             self.hal_bot = HalBot(self.meshtastic_handler, self.app_config)
+            # Give HalBot a Matrix forward callback for async results (traceroute)
+            def _hal_matrix_forward(text, sender_name, channel_index, is_dm, destination_id=None):
+                if _matrix_bridge:
+                    try:
+                        _matrix_bridge.send_to_matrix(
+                            text, sender_name,
+                            destination_id or self.ai_node_id_hex,
+                            channel_index=channel_index or 0,
+                            is_dm=bool(is_dm),
+                        )
+                    except Exception as _e:
+                        dprint(f"Matrix hal-forward error: {_e}")
+            self.hal_bot.matrix_forward_cb = _hal_matrix_forward
             self.router = MessageRouter(
                 self.app_config, self.ai_bridge,
                 self.conversation_manager, self.hal_bot,
@@ -314,6 +327,22 @@ class MeshtasticAIAppConsole:
                     sender_id=self.ai_node_id_hex,
                     destination_id=result.reply_destination if result.reply_as_dm else None,
                 )
+            if success and _matrix_bridge:
+                try:
+                    bot_name = web_ui.get_bot_name() if _HAS_WEB_UI else "Bot"
+                    try:
+                        import config as _cfg
+                        bot_name = getattr(_cfg, 'BOT_NAME', bot_name)
+                    except ImportError:
+                        pass
+                    _matrix_bridge.send_to_matrix(
+                        result.reply_text, bot_name,
+                        result.reply_destination if result.reply_as_dm else self.ai_node_id_hex,
+                        channel_index=result.reply_channel if not result.reply_as_dm else 0,
+                        is_dm=result.reply_as_dm,
+                    )
+                except Exception as _me:
+                    dprint(f"Matrix bot-reply forward error: {_me}")
             if not success:
                 print(f"ERROR: Failed to send reply: {reason}")
             return

@@ -25,6 +25,7 @@ class HalBot:
         self.mqtt_broker = "mqtt.meshtastic.org"  # Default MQTT broker
         self.gateway_info = {}  # Store gateway information for MQTT nodes
         self.admin_node_ids = getattr(app_config, 'ADMIN_NODE_IDS', []) if app_config else []
+        self.matrix_forward_cb = None  # set by main_app after init
 
     def _get_distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
         """Calculate the great circle distance between two points on the earth (specified in decimal degrees)"""
@@ -549,19 +550,29 @@ class HalBot:
                 response = self.format_traceroute_response(path_info, is_mqtt)
                 
                 # Send response back to the requester (not the target)
+                is_dm      = traceroute_data.get('is_dm', False)
+                channel_id = traceroute_data.get('channel_id') or 0
+                req_id     = traceroute_data.get('requester_id')
                 if self.meshtastic_handler and self.meshtastic_handler.is_connected:
-                    if traceroute_data.get('is_dm'):
+                    if is_dm:
                         self.meshtastic_handler.send_message(
-                            response,
-                            destination_id_hex=traceroute_data['requester_id']
+                            response, destination_id_hex=req_id
                         )
                     else:
-                        channel_id = traceroute_data.get('channel_id') or 0
                         self.meshtastic_handler.send_message(
-                            response,
-                            channel_index=channel_id
+                            response, channel_index=channel_id
                         )
-                
+                # Forward result to Matrix
+                if self.matrix_forward_cb:
+                    try:
+                        self.matrix_forward_cb(
+                            response, self.bot_name,
+                            channel_index=0 if is_dm else channel_id,
+                            is_dm=is_dm,
+                            destination_id=req_id if is_dm else None,
+                        )
+                    except Exception:
+                        pass
                 # Clean up
                 del self.active_traceroutes[target_id]
         
