@@ -49,6 +49,22 @@ class HalBot:
         t = t.strip('`').strip()
         return t
 
+    def _help_triggered(self, original_text: str, clean: str) -> bool:
+        """'help' fires only with ! prefix OR when followed by a partial bot name."""
+        has_bang = original_text.lstrip().startswith('!')
+        # !help  or  !help <anything>
+        if has_bang and (clean == 'help' or clean.startswith('help ')):
+            return True
+        # help <word> where word partially matches bot name (case-insensitive)
+        m = re.match(r'^help\s+(\S+)', clean)
+        if m:
+            word = m.group(1).upper()
+            bot_up = self.bot_name.upper()
+            # word is prefix of bot name, or bot name contains word
+            if bot_up.startswith(word) or word in bot_up:
+                return True
+        return False
+
     def should_handle_message(self, text: str) -> bool:
         """Check if the message should be handled by the bot"""
         text = text.strip()
@@ -61,17 +77,23 @@ class HalBot:
         # Normalize (strip !, backticks) before checking commands
         clean = self._normalize_cmd(text).lower()
 
-        # Check for direct commands first
+        # Direct commands (no bot-name guard needed)
         if clean in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl',
-                     'distance', 'odleglosc', 'weather', 'pogoda', 'wx', 'help']:
+                     'distance', 'odleglosc', 'weather', 'pogoda', 'wx']:
             return True
 
-        # Check for bot prefixed commands
+        # 'help' requires ! prefix or bot name partial match
+        if self._help_triggered(text, clean):
+            return True
+
+        # Bot-prefixed commands  e.g.  "bot ping"
         match = self.command_pattern.match(clean)
         if match:
             command = match.group(1).lower()
             if command in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl',
-                           'distance', 'odleglosc', 'weather', 'pogoda', 'wx', 'help']:
+                           'distance', 'odleglosc', 'weather', 'pogoda', 'wx']:
+                return True
+            if command == 'help' and self._help_triggered(text, clean):
                 return True
 
         return False
@@ -539,6 +561,10 @@ class HalBot:
         if clean_lower in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl',
                             'distance', 'odleglosc', 'weather', 'pogoda', 'wx', 'help']:
             command = clean_lower
+            args = ""
+        elif self._help_triggered(text, clean_lower):
+            # "help marvin", "help MAR" etc.
+            command = 'help'
             args = ""
         else:
             match = self.command_pattern.match(clean)
