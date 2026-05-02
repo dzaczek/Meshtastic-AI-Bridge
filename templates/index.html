@@ -199,6 +199,8 @@
     .grid-stack-item-content {
       background: transparent !important;
     }
+    /* Gap: CSS !important overrides GridStack's inline style="padding:Xpx" */
+    .grid-stack > .grid-stack-item { padding: var(--dash-gap, 4px) !important; }
     .grid-edit-mode .grid-stack-item-content {
       border: 1px dashed var(--primary);
     }
@@ -1184,6 +1186,9 @@
     <span id="hdr-ai-cnt" style="color:var(--ai)">AI: 0</span>
     <span id="hdr-tokens" title="Total AI tokens used (in/out)" style="color:var(--muted);cursor:default;display:none;">🪙<span id="hdr-tokens-val">0</span></span>
     <span id="hdr-uptime2" style="color:var(--muted)"></span>
+    <button onclick="resetAllLayouts()" title="Reset all dashboards to default layout"
+      style="background:none;border:1px solid rgba(255,80,80,.3);color:var(--err);
+             font-family:var(--font-mono);font-size:.65em;padding:2px 6px;border-radius:4px;cursor:pointer;">↺ Reset</button>
     <select id="gap-select" title="Odstęp między widżetami"
       onchange="setDashGap(parseInt(this.value))"
       style="background:var(--surf2);border:1px solid var(--border);color:var(--muted);
@@ -5893,29 +5898,38 @@ async function fetchMyDeviceInfo() {
 function setDashGap(px) {
   px = Math.max(0, parseInt(px) || 0);
   localStorage.setItem('dash-gap', String(px));
-  // Sync select
+  document.documentElement.style.setProperty('--dash-gap', px + 'px');
   const sel = document.getElementById('gap-select');
   if (sel) sel.value = String(px);
-  // Apply directly to GridStack: update opts + inline padding on every item
-  Object.values(grids).forEach(g => {
-    if (!g) return;
-    g.opts.margin = px;
-    g.getGridItems().forEach(el => { el.style.padding = px + 'px'; });
-  });
-  // After gap change, re-enable OPS map (padding shift can freeze it)
-  if (opsLeafMap) {
-    opsLeafMap.dragging.enable();
-    opsLeafMap.scrollWheelZoom.enable();
-    setTimeout(() => opsLeafMap && opsLeafMap.invalidateSize(), 80);
-  }
+  // Nudge OPS map after padding change
+  setTimeout(() => { if (opsLeafMap) { opsLeafMap.dragging.enable(); opsLeafMap.invalidateSize(); } }, 80);
 }
 
 function _initDashGap() {
   const saved = localStorage.getItem('dash-gap');
   const px = saved !== null ? parseInt(saved) : 4;
+  document.documentElement.style.setProperty('--dash-gap', px + 'px');
   const sel = document.getElementById('gap-select');
   if (sel) sel.value = String(px);
-  // Grids not yet initialized here — gap applied in initGridStack via _initGap
+}
+
+async function resetAllLayouts() {
+  if (!confirm('Reset all dashboards to default layout?')) return;
+  // Clear from backend
+  const ids = ['ops','analytics','chat','nodes','map','packets','radar','config'];
+  await Promise.all(ids.map(id =>
+    fetch(`/api/layout/${id}`, {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({layout:[]})}).catch(()=>{})
+  ));
+  // Clear localStorage
+  ids.forEach(id => localStorage.removeItem(`dashboard-layout-${id}`));
+  // Restore grid defaults
+  ids.forEach(id => {
+    if (grids[id] && gridDefaults[id]) {
+      grids[id].load(gridDefaults[id]);
+      _postLayoutLoad(id);
+    }
+  });
 }
 
 // ── AI TOKEN STATS ────────────────────────────────────────────────────────
@@ -6086,7 +6100,7 @@ function initGridStack() {
   grids['ops'] = GridStack.init({
     cellHeight: 120,
     staticGrid: true,
-    margin: _initGap,
+    margin: 0,
     minRow: 5,
     float: true
   }, '.ops-grid-stack');
@@ -6095,7 +6109,7 @@ function initGridStack() {
   grids['analytics'] = GridStack.init({
     cellHeight: 120,
     staticGrid: true,
-    margin: _initGap,
+    margin: 0,
     float: true
   }, '.analytics-grid-stack');
 
@@ -6103,7 +6117,7 @@ function initGridStack() {
   grids['chat'] = GridStack.init({
     cellHeight: 60,
     staticGrid: true,
-    margin: _initGap,
+    margin: 0,
     float: false
   }, '.chat-grid-stack');
 
@@ -6111,7 +6125,7 @@ function initGridStack() {
   grids['nodes'] = GridStack.init({
     cellHeight: 60,
     staticGrid: true,
-    margin: _initGap,
+    margin: 0,
     float: false
   }, '.nodes-grid-stack');
 
@@ -6119,7 +6133,7 @@ function initGridStack() {
   grids['map'] = GridStack.init({
     cellHeight: 60,
     staticGrid: true,
-    margin: _initGap,
+    margin: 0,
     float: false
   }, '.map-grid-stack');
 
@@ -6127,7 +6141,7 @@ function initGridStack() {
   grids['packets'] = GridStack.init({
     cellHeight: 60,
     staticGrid: true,
-    margin: _initGap,
+    margin: 0,
     float: false
   }, '.packets-grid-stack');
 
@@ -6135,7 +6149,7 @@ function initGridStack() {
   grids['radar'] = GridStack.init({
     cellHeight: 60,
     staticGrid: true,
-    margin: _initGap,
+    margin: 0,
     float: false
   }, '.radar-grid-stack');
 
@@ -6143,7 +6157,7 @@ function initGridStack() {
   grids['config'] = GridStack.init({
     cellHeight: 60,
     staticGrid: true,
-    margin: _initGap,
+    margin: 0,
     float: false
   }, '.config-grid-stack');
 
@@ -6208,9 +6222,8 @@ async function loadLayout(id) {
 }
 
 function _postLayoutLoad(id) {
-  // After GridStack applies a saved layout, containers change size.
-  // Re-initialize maps and canvases so they match the new dimensions.
-  requestAnimationFrame(() => {
+  // GridStack finishes layout asynchronously — wait 200ms before fixing maps/canvases
+  setTimeout(() => {
     if (id === 'ops') {
       if (opsLeafMap) {
         opsLeafMap.dragging.enable();
@@ -6219,23 +6232,32 @@ function _postLayoutLoad(id) {
         if (opsLeafMap.touchZoom)       opsLeafMap.touchZoom.enable();
         opsLeafMap.invalidateSize();
       }
-      const oc = document.getElementById('ops-radar');
-      if (oc && oc.parentElement) {
-        oc.width  = Math.max(1, oc.parentElement.clientWidth  - 12);
-        oc.height = Math.max(1, oc.parentElement.clientHeight - 12);
-      }
+      // Resize OPS radar canvas — retry once more after 400ms in case widget
+      // was still 0-height at 200ms
+      const _resizeOpsRadar = () => {
+        const oc = document.getElementById('ops-radar');
+        if (oc && oc.parentElement) {
+          const w = oc.parentElement.clientWidth  - 12;
+          const h = oc.parentElement.clientHeight - 12;
+          if (w > 10 && h > 10) { oc.width = w; oc.height = h; }
+        }
+      };
+      _resizeOpsRadar();
+      setTimeout(_resizeOpsRadar, 400);
     }
     if (id === 'map' && leafMap) {
       leafMap.dragging.enable();
       leafMap.scrollWheelZoom.enable();
+      if (leafMap.doubleClickZoom) leafMap.doubleClickZoom.enable();
+      if (leafMap.touchZoom)       leafMap.touchZoom.enable();
       leafMap.invalidateSize();
     }
     if (id === 'radar') {
       const rc = document.getElementById('radar-canvas');
       const rw = document.getElementById('radar-wrap');
-      if (rc && rw) { rc.width = rw.clientWidth; rc.height = rw.clientHeight; }
+      if (rc && rw && rw.clientWidth > 10) { rc.width = rw.clientWidth; rc.height = rw.clientHeight; }
     }
-  });
+  }, 200);
 }
 
 async function saveLayout(id) {
