@@ -62,14 +62,16 @@ class HalBot:
         clean = self._normalize_cmd(text).lower()
 
         # Check for direct commands first
-        if clean in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl', 'distance', 'odleglosc', 'weather', 'pogoda', 'wx']:
+        if clean in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl',
+                     'distance', 'odleglosc', 'weather', 'pogoda', 'wx', 'help']:
             return True
 
         # Check for bot prefixed commands
         match = self.command_pattern.match(clean)
         if match:
             command = match.group(1).lower()
-            if command in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl', 'distance', 'odleglosc', 'weather', 'pogoda', 'wx']:
+            if command in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl',
+                           'distance', 'odleglosc', 'weather', 'pogoda', 'wx', 'help']:
                 return True
 
         return False
@@ -534,7 +536,8 @@ class HalBot:
         clean_lower = clean.lower()
 
         # Handle direct commands without bot prefix
-        if clean_lower in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl', 'distance', 'odleglosc', 'weather', 'pogoda', 'wx']:
+        if clean_lower in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl',
+                            'distance', 'odleglosc', 'weather', 'pogoda', 'wx', 'help']:
             command = clean_lower
             args = ""
         else:
@@ -554,6 +557,21 @@ class HalBot:
             return self._handle_distance(args, sender_id, sender_name, channel_id, is_dm)
         elif command in ['weather', 'pogoda', 'wx']:
             return self._handle_weather(args, sender_id, sender_name, channel_id, is_dm)
+        elif command == 'help':
+            return self._handle_help(channel_id, is_dm)
+
+    def _handle_help(self, channel_id: int, is_dm: bool) -> dict:
+        lines = [
+            f"[{self.bot_name}] Commands (! optional):",
+            "ping/qsl     – signal report",
+            "info/test    – node status",
+            "traceroute [!id|name] – hop path",
+            "distance [!id|name]   – dist to node",
+            "wx/weather [city]     – weather",
+            "AI: just write to me",
+        ]
+        response = "\n".join(lines)
+        return {'response': response, 'channel_id': channel_id, 'is_channel_message': not is_dm}
 
     def _start_traceroute_collection(self, target_id: str) -> None:
         """Start background traceroute collection"""
