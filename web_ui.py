@@ -74,7 +74,32 @@ _packets:  deque = deque(maxlen=1000)
 _CHAT_HISTORY_PATH = os.path.join("data", "chat_history.json")
 _WEBAUTHN_CREDENTIALS_PATH = os.path.join("data", "webauthn_credentials.json")
 _LAYOUTS_PATH = os.path.join("data", "layouts.json")
+_UI_SETTINGS_PATH = os.path.join("data", "ui_settings.json")
 _save_pending = False
+
+
+def _load_ui_settings() -> None:
+    global _status
+    try:
+        if os.path.exists(_UI_SETTINGS_PATH):
+            with open(_UI_SETTINGS_PATH) as f:
+                saved = json.load(f)
+            _status["bot_private_replies"] = bool(saved.get("bot_private_replies", False))
+            _status["ai_enabled"] = bool(saved.get("ai_enabled", True))
+    except Exception as e:
+        logger.warning(f"ui_settings: could not load: {e}")
+
+
+def _save_ui_settings() -> None:
+    try:
+        os.makedirs(os.path.dirname(_UI_SETTINGS_PATH), exist_ok=True)
+        with open(_UI_SETTINGS_PATH, "w") as f:
+            json.dump({
+                "bot_private_replies": _status.get("bot_private_replies", False),
+                "ai_enabled": _status.get("ai_enabled", True),
+            }, f)
+    except Exception as e:
+        logger.warning(f"ui_settings: could not save: {e}")
 
 
 def _b64url_encode(data: bytes) -> str:
@@ -149,8 +174,9 @@ def _schedule_save() -> None:
     t.start()
 
 
-# Load persisted messages immediately at module import
+# Load persisted messages and UI settings immediately at module import
 _load_chat_history()
+_load_ui_settings()
 _status: dict = {
     "connected": False,
     "node_id": None,
@@ -627,6 +653,13 @@ def _build_nodes_list(handler) -> list:
         lon  = pos.get("longitude")
         if lat is not None: lat = float(lat)
         if lon is not None: lon = float(lon)
+        # Fall back to integer lat/lon if float version is absent/zero
+        if not lat or not lon:
+            lat_i = pos.get("latitudeI", 0)
+            lon_i = pos.get("longitudeI", 0)
+            if lat_i: lat = lat_i / 1e7
+            if lon_i: lon = lon_i / 1e7
+        loc_src = pos.get("locationSource") or pos.get("location_source") or 0
 
         metrics = nd.get("deviceMetrics") or {}
         battery = nd.get("batteryLevel") or metrics.get("batteryLevel")
@@ -653,8 +686,9 @@ def _build_nodes_list(handler) -> list:
             "uptime_s":  uptime,
             "lat":       lat,
             "lon":       lon,
-            "altitude":  pos.get("altitude"),
-            "is_mine":   num == my_num,
+            "altitude":      pos.get("altitude"),
+            "location_source": int(loc_src) if loc_src else 0,
+            "is_mine":       num == my_num,
             "is_favorite": nd.get("isFavorite", False),
         })
 
@@ -1155,6 +1189,7 @@ if _HAS_FLASK:
         with _lock:
             current = _status.get("ai_enabled", True)
             _status["ai_enabled"] = not current
+        _save_ui_settings()
         return jsonify({"enabled": _status["ai_enabled"]})
 
     @app.route("/api/bot/private_replies")
@@ -1168,6 +1203,7 @@ if _HAS_FLASK:
         with _lock:
             current = _status.get("bot_private_replies", False)
             _status["bot_private_replies"] = not current
+        _save_ui_settings()
         return jsonify({"private": _status["bot_private_replies"]})
 
     @app.route("/api/ai/token_stats")

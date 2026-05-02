@@ -1185,21 +1185,23 @@
   <button class="tab-btn"        onclick="switchTab('radar')">Radar</button>
   <button class="tab-btn"        onclick="switchTab('config')">Config</button>
   <div id="tab-meta">
-    <button id="btn-ai-toggle" onclick="toggleAI(this)" title="Enable/disable AI responses"
+    <button id="btn-ai-toggle" onclick="toggleAI(this)"
+      title="AI responses ON/OFF&#10;&#10;ON  → bot answers questions addressed to it on channel or via DM&#10;OFF → bot is silent; only HAL commands (ping, weather…) still work&#10;&#10;State is saved and restored on restart."
       style="background:rgba(77,255,209,.12);border:1px solid rgba(77,255,209,.3);color:var(--ai);
              border-radius:4px;cursor:pointer;padding:2px 8px;font-size:.72em;font-weight:600;letter-spacing:.05em;">
       AI ON
     </button>
-    <button id="btn-private-toggle" onclick="togglePrivateReplies(this)" title="Bot replies: Public (on channel) or Private (DM to sender)"
+    <button id="btn-private-toggle" onclick="togglePrivateReplies(this)"
+      title="Bot reply mode: PUBLIC or PRIVATE&#10;&#10;📢 PUBLIC  → bot replies on the same channel the command arrived on (visible to everyone)&#10;🔒 PRIVATE → bot replies as a DM directly to the sender (only they see it)&#10;&#10;Applies to: ping, traceroute, weather, distance, help.&#10;DMs from users are always answered privately regardless of this setting.&#10;State is saved and restored on restart."
       style="background:rgba(255,200,77,.07);border:1px solid rgba(255,200,77,.25);color:var(--muted);
              border-radius:4px;cursor:pointer;padding:2px 8px;font-size:.72em;font-weight:600;letter-spacing:.05em;">
       📢 PUBLIC
     </button>
     <span id="hdr-rx" style="color:var(--rx)">RX: 0</span>
     <span id="hdr-ai-cnt" style="color:var(--ai)">AI: 0</span>
-    <span id="hdr-tokens" title="Total AI tokens used (in/out)" style="color:var(--muted);cursor:default;display:none;">🪙<span id="hdr-tokens-val">0</span></span>
+    <span id="hdr-tokens" title="Total AI tokens used (in/out)&#10;Click AI stats in Analytics for details." style="color:var(--muted);cursor:default;display:none;">🪙<span id="hdr-tokens-val">0</span></span>
     <span id="hdr-uptime2" style="color:var(--muted)"></span>
-    <select id="gap-select" title="Odstęp między widżetami"
+    <select id="gap-select" title="Widget gap — spacing between dashboard tiles&#10;0px = flush (no gap)&#10;4px = default&#10;Saved in browser localStorage per tab."
       onchange="setDashGap(parseInt(this.value))"
       style="background:var(--surf2);border:1px solid var(--border);color:var(--muted);
              font-family:var(--font-mono);font-size:.65em;padding:2px 4px;border-radius:4px;

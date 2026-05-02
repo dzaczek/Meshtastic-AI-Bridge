@@ -923,28 +923,49 @@ class MeshtasticHandler:
 
     def get_own_position(self) -> dict | None:
         """Return current position dict from device interface (what it's actually broadcasting)."""
-        if not self.interface:
+        if not self.interface or not self.node_id:
             return None
         try:
-            node = self.interface.getNode('^local')
-            pos = getattr(node, 'position', None)
-            if pos is None and hasattr(node, 'nodeInfo'):
-                pos = node.nodeInfo.get('position')
-            if pos is None:
-                # Try from nodes dict
-                if self.node_id and self.interface.nodes:
-                    for num, info in self.interface.nodes.items():
-                        if num == self.node_id:
-                            pos = info.get('position', {})
-                            break
+            # Primary: read from interface.nodes (most up-to-date cached value)
+            pos = {}
+            raw_nodes = getattr(self.interface, 'nodes', None) or {}
+            for num, info in raw_nodes.items():
+                if num == self.node_id:
+                    pos = info.get('position') or {}
+                    break
+
+            # Fallback: try localNode.nodeInfo
+            if not pos:
+                local_node = getattr(self.interface, 'localNode', None)
+                if local_node:
+                    ni = getattr(local_node, 'nodeInfo', None)
+                    if isinstance(ni, dict):
+                        pos = ni.get('position') or {}
+
             if not pos:
                 return None
+
+            # Read integer lat/lon — try both camelCase and snake_case
             lat_i = pos.get('latitudeI') or pos.get('latitude_i') or 0
             lon_i = pos.get('longitudeI') or pos.get('longitude_i') or 0
+            # Some library versions expose float latitude/longitude too
+            if not lat_i:
+                lat_f = pos.get('latitude') or pos.get('lat')
+                if lat_f:
+                    lat_i = int(float(lat_f) * 1e7)
+            if not lon_i:
+                lon_f = pos.get('longitude') or pos.get('lon')
+                if lon_f:
+                    lon_i = int(float(lon_f) * 1e7)
+
             lat = lat_i / 1e7 if lat_i else None
             lon = lon_i / 1e7 if lon_i else None
+
             src = pos.get('locationSource') or pos.get('location_source') or 0
-            src_name = {0: 'UNSET', 1: 'MANUAL', 2: 'INTERNAL(GPS)', 3: 'EXTERNAL'}.get(src, str(src))
+            if src is None:
+                src = 0
+            src = int(src)
+            src_name = {0: 'UNSET', 1: 'MANUAL', 2: 'INTERNAL(GPS)', 3: 'EXTERNAL'}.get(src, f'src={src}')
             return {
                 'lat': lat, 'lon': lon,
                 'alt': pos.get('altitude', 0),
@@ -953,6 +974,7 @@ class MeshtasticHandler:
                 'location_source_name': src_name,
             }
         except Exception:
+            traceback.print_exc()
             return None
 
     def remove_fixed_position(self) -> tuple:
