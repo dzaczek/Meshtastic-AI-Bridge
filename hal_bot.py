@@ -4,7 +4,6 @@ import math
 from datetime import datetime
 import re
 from typing import Dict, Optional, Tuple
-import random
 import node_db
 try:
     import requests
@@ -243,94 +242,83 @@ class HalBot:
 
     def format_ping_response(self, node_info: dict, is_mqtt: bool = False) -> str:
         """Format ping response with detailed information"""
-        node_id = node_info.get('node_id', 'unknown')
-        rssi = node_info.get('rssi')
-        snr = node_info.get('snr')
+        node_id   = node_info.get('node_id', 'unknown')
+        name      = node_info.get('long_name') or node_info.get('short_name') or f'!{node_id}'
+        rssi      = node_info.get('rssi')
+        snr       = node_info.get('snr')
         last_heard = node_info.get('last_heard', 0)
-        battery = node_info.get('battery_level')
-        
-        # Format signal info
-        rssi_str = f"{rssi}dBm" if rssi is not None else "N/A"
-        snr_str = f"{snr}dB" if snr is not None else "N/A"
-        battery_str = f"{battery}%" if battery is not None else "N/A"
-        
-        # Calculate latency (simplified - in real implementation this would be actual ping time)
-        latency = random.randint(80, 400) if is_mqtt else random.randint(300, 800)
-        
-        # Calculate time since last heard
-        time_since = int(time.time() - last_heard) if last_heard else 0
-        last_seen = f"{time_since}s" if time_since < 60 else f"{time_since // 60}m"
-        
-        dist_str = self._get_distance_str(node_info.get('lat'), node_info.get('lon'))
-        
-        hops_away = node_info.get('hops_away')
-        hops_str  = f"{hops_away}" if hops_away is not None else "?"
+        battery   = node_info.get('battery_level')
 
-        # Build the response string
-        response = f"[{'PING' if not is_mqtt else 'PING (MQTT)'}] !{node_id}\n"
+        rssi_str    = f"{rssi}dBm" if rssi is not None else "N/A"
+        snr_str     = f"{snr}dB"   if snr  is not None else "N/A"
+        battery_str = f"{battery}%" if battery is not None else "N/A"
+
+        time_since = int(time.time() - last_heard) if last_heard else 0
+        last_seen  = f"{time_since}s" if time_since < 60 else f"{time_since // 60}m"
+
+        hops_away = node_info.get('hops_away')
+        if hops_away is None:
+            hops_str = "N/A"
+        elif hops_away == 0:
+            hops_str = "0 (direct)"
+        else:
+            hops_str = str(hops_away)
+
+        dist_str = self._get_distance_str(node_info.get('lat'), node_info.get('lon'))
+        dist_line = dist_str.strip() if dist_str else "• Dist: N/A (no GPS)"
+
+        tag = 'PING (MQTT)' if is_mqtt else 'PING'
+        response  = f"[{tag}] {name} !{node_id}\n"
         response += f"• Hops: {hops_str}\n"
-        if not is_mqtt:
-            response += f"• Sig: {rssi_str}/{snr_str}\n"
+        response += f"• Sig:  {rssi_str}/{snr_str}\n"
+        response += f"• Bat:  {battery_str}\n"
         response += f"• Last: {last_seen} ago\n"
-        response += f"• Bat: {battery_str}\n"
-        if dist_str:
-            response += dist_str.rstrip('\n')
+        response += dist_line
 
         return response
 
     def format_traceroute_response(self, path_info: dict, is_mqtt: bool = False) -> str:
         """Format traceroute response with detailed path information"""
-        target_id = path_info.get('target_id', 'unknown')
-        hops = path_info.get('hops', [])
+        target_id  = path_info.get('target_id', 'unknown')
+        hops       = path_info.get('hops', [])
         total_hops = len(hops) - 1 if hops else 0
-        latency = path_info.get('latency', random.randint(100, 1000))
-        
+
         target_info = self.get_node_info(target_id)
-        dist_str = self._get_distance_str(target_info.get('lat'), target_info.get('lon'))
+        dist_str = self._get_distance_str(
+            target_info.get('lat') if target_info else None,
+            target_info.get('lon') if target_info else None,
+        )
+        dist_line = dist_str.strip() if dist_str else "• Dist: N/A"
 
         if is_mqtt:
-            response = f"[TRACE] !{target_id} (MQTT)\n"
-            response += f"• Latency: {latency}ms\n"
-            if dist_str:
-                response += dist_str.rstrip('\n')
+            response  = f"[TRACE] !{target_id} (MQTT)\n"
+            response += dist_line
             return response
-        else:
-            # Build the path visualization
-            path_lines = []
-            for i, hop in enumerate(hops):
-                node_id = hop.get('node_id', 'unknown')
-                node_name = hop.get('node_name', 'Unknown')
-                rssi = hop.get('rssi')
-                snr = hop.get('snr')
-                
-                # Format signal info
-                if rssi != 'N/A' and rssi is not None and snr != 'N/A' and snr is not None:
-                    sig_str = f"[{rssi}dBm/{snr}dB]"
-                elif snr != 'N/A' and snr is not None:
-                    sig_str = f"[{snr}dB]"
-                else:
-                    sig_str = ""
-                
-                # Ensure node name is short enough
-                display_name = node_name[:8] if node_name != 'Unknown' else ''
-                node_label = f"!{node_id}" + (f"({display_name})" if display_name else "")
 
-                if i == 0:
-                    path_lines.append(f"{node_label}")
-                elif i == len(hops) - 1:
-                    path_lines.append(f"↳{node_label}{sig_str}")
-                else:
-                    path_lines.append(f"↳{node_label}{sig_str}")
-            
-            path_str = "\n".join(path_lines)
-            
-            response = f"[TRACE] !{target_id}\n"
-            response += f"{path_str}\n"
-            response += f"• Hops: {total_hops}\n"
-            response += f"• Delay: ~{latency}ms\n"
-            if dist_str:
-                response += dist_str.rstrip('\n')
-            return response
+        path_lines = []
+        for i, hop in enumerate(hops):
+            node_id   = hop.get('node_id', 'unknown')
+            node_name = hop.get('node_name', 'Unknown')
+            rssi = hop.get('rssi')
+            snr  = hop.get('snr')
+
+            if rssi not in (None, 'N/A') and snr not in (None, 'N/A'):
+                sig_str = f"[{rssi}dBm/{snr}dB]"
+            elif snr not in (None, 'N/A'):
+                sig_str = f"[{snr}dB]"
+            else:
+                sig_str = ""
+
+            display_name = node_name[:8] if node_name != 'Unknown' else ''
+            node_label   = f"!{node_id}" + (f"({display_name})" if display_name else "")
+
+            path_lines.append(f"{'↳' if i > 0 else ''}{node_label}{sig_str}")
+
+        response  = f"[TRACE] !{target_id}\n"
+        response += "\n".join(path_lines) + "\n"
+        response += f"• Hops: {total_hops}\n"
+        response += dist_line
+        return response
 
     def _find_node_by_name(self, name: str) -> Optional[str]:
         """Find a node ID by its name (long or short)"""
@@ -652,7 +640,7 @@ class HalBot:
             'target_id': target_id,
             'target_name': 'Unknown',
             'hops': [],
-            'latency': random.randint(100, 1000)  # Simplified latency calculation
+            'latency': None
         }
         
         # Get target node info
