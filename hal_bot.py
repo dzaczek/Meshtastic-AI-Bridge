@@ -12,6 +12,8 @@ try:
 except ImportError:
     _HAS_REQUESTS = False
 
+from plugins.plugin_manager import PluginManager
+
 class HalBot:
     def __init__(self, meshtastic_handler, app_config=None):
         self.meshtastic_handler = meshtastic_handler
@@ -25,6 +27,7 @@ class HalBot:
         self.mqtt_broker = "mqtt.meshtastic.org"  # Default MQTT broker
         self.gateway_info = {}  # Store gateway information for MQTT nodes
         self.admin_node_ids = getattr(app_config, 'ADMIN_NODE_IDS', []) if app_config else []
+        self.plugin_manager = PluginManager(self)
 
     def _get_distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
         """Calculate the great circle distance between two points on the earth (specified in decimal degrees)"""
@@ -58,17 +61,21 @@ class HalBot:
             return True
 
         # Normalize (strip !, backticks) before checking commands
-        clean = self._normalize_cmd(text).lower()
+        clean = self._normalize_cmd(text)
+        clean_lower = clean.lower()
 
-        # Check for direct commands first
-        if clean in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl', 'distance', 'odleglosc', 'weather', 'pogoda']:
-            return True
+        # Split command and args for direct commands
+        parts = clean.split(maxsplit=1)
+        if parts:
+            direct_command = parts[0].lower()
+            if direct_command in self.plugin_manager.get_supported_commands():
+                return True
 
         # Check for bot prefixed commands
         match = self.command_pattern.match(clean)
         if match:
             command = match.group(1).lower()
-            if command in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl', 'distance', 'odleglosc', 'weather', 'pogoda']:
+            if command in self.plugin_manager.get_supported_commands():
                 return True
 
         return False
@@ -310,196 +317,6 @@ class HalBot:
         
         return None
 
-    def _handle_ping_qsl(self, sender_id: str, sender_name: str, channel_id: int, is_dm: bool) -> dict:
-        node_info = self.get_node_info(sender_id)
-        if not node_info:
-            node_info = {
-                'node_id': sender_id,
-                'long_name': sender_name,
-                'short_name': sender_name[:3].upper() if len(sender_name) >= 3 else 'UNK',
-                'hops_away': None,
-                'rssi': None,
-                'snr': None,
-                'last_heard': time.time(),
-                'battery_level': None,
-                'connection_type': 'radio',
-                'uptime': 'N/A',
-                'gateway': 'N/A'
-            }
-        is_mqtt = node_info.get('connection_type') == 'mqtt'
-        response_text = self.format_ping_response(node_info, is_mqtt)
-        return {
-            'response': response_text,
-            'channel_id': channel_id,
-            'is_channel_message': not is_dm
-        }
-
-    def _handle_info_test(self, command: str, sender_id: str, sender_name: str, channel_id: int, is_dm: bool) -> dict:
-        node_info = self.get_node_info(sender_id)
-        if not node_info:
-            node_info = {
-                'node_id': sender_id,
-                'long_name': sender_name,
-                'short_name': sender_name[:3].upper() if len(sender_name) >= 3 else 'UNK',
-                'hops_away': None,
-                'rssi': None,
-                'snr': None,
-                'last_heard': time.time(),
-                'battery_level': None,
-                'connection_type': 'radio',
-                'uptime': 'N/A',
-                'gateway': 'N/A'
-            }
-        response_text = self.format_status_response(command, node_info)
-        return {
-            'response': response_text,
-            'channel_id': channel_id,
-            'is_channel_message': not is_dm
-        }
-
-    def _handle_distance(self, args: str, sender_id: str, sender_name: str, channel_id: int, is_dm: bool) -> dict:
-        if not args:
-            target_id = sender_id
-        else:
-            target = args.strip().lstrip('!')
-            if not target:
-                return {
-                    'response': f"[{self.bot_name}] Invalid target format.",
-                    'channel_id': channel_id,
-                    'is_channel_message': not is_dm
-                }
-            target_id = target
-            if not re.match(r'^[0-9a-f]+$', target.lower()):
-                target_id = self._find_node_by_name(target)
-                if not target_id:
-                    return {
-                        'response': f"[{self.bot_name}] Could not find a node matching '{target}'",
-                        'channel_id': channel_id,
-                        'is_channel_message': not is_dm
-                    }
-
-        target_info = self.get_node_info(target_id)
-        if not target_info:
-            return {
-                'response': f"[{self.bot_name}] Node !{target_id} not found",
-                'channel_id': channel_id,
-                'is_channel_message': not is_dm
-            }
-
-        target_lat = target_info.get('lat')
-        target_lon = target_info.get('lon')
-
-        if target_lat is None or target_lon is None:
-            return {
-                'response': f"[{self.bot_name}] Node !{target_info.get('node_id', target_id)} does not have GPS coordinates available.",
-                'channel_id': channel_id,
-                'is_channel_message': not is_dm
-            }
-
-        dist_str = self._get_distance_str(target_lat, target_lon)
-
-        if dist_str:
-            response = f"[DISTANCE] !{target_info.get('node_id', target_id)}\n{dist_str.strip()}"
-        else:
-            response = f"[{self.bot_name}] Could not calculate distance. Ensure my own GPS coordinates are available."
-
-        return {
-            'response': response,
-            'channel_id': channel_id,
-            'is_channel_message': not is_dm
-        }
-
-    def _handle_traceroute(self, args: str, sender_id: str, sender_name: str, channel_id: int, is_dm: bool) -> dict:
-        if not args:
-            target_id = sender_id
-        else:
-            target = args.strip().lstrip('!')
-            if not target:
-                return {
-                    'response': f"{self.bot_name}: Invalid target format. Please use !1234abcd, 1234abcd, or a node name",
-                    'channel_id': channel_id,
-                    'is_channel_message': not is_dm
-                }
-            target_id = target
-            if not re.match(r'^[0-9a-f]+$', target.lower()):
-                target_id = self._find_node_by_name(target)
-                if not target_id:
-                    return {
-                        'response': f"{self.bot_name}: Could not find a node matching '{target}'",
-                        'channel_id': channel_id,
-                        'is_channel_message': not is_dm
-                    }
-
-        if target_id in self.active_traceroutes:
-            return {
-                'response': f"{self.bot_name}: Traceroute already in progress for this node",
-                'channel_id': channel_id,
-                'is_channel_message': not is_dm
-            }
-
-        target_info = self.get_node_info(target_id)
-        if not target_info:
-            return {
-                'response': f"{self.bot_name}: Target node !{target_id} not found",
-                'channel_id': channel_id,
-                'is_channel_message': not is_dm
-            }
-
-        is_mqtt = target_info.get('connection_type') == 'mqtt'
-
-        self.active_traceroutes[target_id] = {
-            'start_time': time.time(),
-            'target_info': target_info,
-            'is_mqtt': is_mqtt,
-            'requester_id': sender_id,
-            'requester_name': sender_name,
-            'channel_id': channel_id,
-            'is_dm': is_dm,
-        }
-
-        # Initiate an actual traceroute over the mesh network
-        if self.meshtastic_handler and hasattr(self.meshtastic_handler, 'send_traceroute') and not is_mqtt:
-            self.meshtastic_handler.send_traceroute(target_id)
-
-        self._start_traceroute_collection(target_id)
-
-        if not args:
-            response = f"{self.bot_name}: Starting traceroute to your node (!{target_id})..."
-        else:
-            response = f"{self.bot_name}: Starting traceroute to !{target_id}..."
-
-        return {
-            'response': response,
-            'channel_id': channel_id,
-            'is_channel_message': not is_dm
-        }
-
-    def _handle_weather(self, args: str, sender_id: str, sender_name: str, channel_id: int, is_dm: bool) -> dict:
-        """Fetch current weather from wttr.in and return compact response."""
-        city = args.strip() if args else "Warsaw"
-        if not city:
-            city = "Warsaw"
-        if not _HAS_REQUESTS:
-            return {'response': f"[WEATHER] Error: requests library not available.",
-                    'channel_id': channel_id, 'is_channel_message': not is_dm}
-        try:
-            from urllib.parse import quote_plus
-            url = f"https://wttr.in/{quote_plus(city)}?format=j1"
-            r = requests.get(url, timeout=8)
-            data = r.json()
-            cur  = data['current_condition'][0]
-            temp = cur['temp_C']
-            desc = cur['weatherDesc'][0]['value']
-            tmrw = data['weather'][1] if len(data.get('weather', [])) > 1 else {}
-            tmax = tmrw.get('maxtempC', '?')
-            tmin = tmrw.get('mintempC', '?')
-            response = (f"[WEATHER] {city.capitalize()}\n"
-                        f"• Now: {temp}°C, {desc}\n"
-                        f"• 24h: {tmin}°C-{tmax}°C")
-        except Exception as e:
-            response = f"[WEATHER] Error: {str(e)[:60]}"
-        return {'response': response, 'channel_id': channel_id, 'is_channel_message': not is_dm}
-
     def handle_command(self, text: str, sender_id: str, sender_name: str, channel_id: int = None, is_dm: bool = False) -> Optional[dict]:
         """Handle bot commands"""
         text = text.strip()
@@ -516,27 +333,31 @@ class HalBot:
         clean = self._normalize_cmd(text)
         clean_lower = clean.lower()
 
-        # Handle direct commands without bot prefix
-        if clean_lower in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl', 'distance', 'odleglosc', 'weather', 'pogoda']:
-            command = clean_lower
-            args = ""
-        else:
-            match = self.command_pattern.match(clean)
-            if not match:
-                return None
-            command = match.group(1).lower()
-            args = match.group(2) if match.group(2) else ""
+        command = None
+        args = ""
 
-        if command in ['ping', 'qsl']:
-            return self._handle_ping_qsl(sender_id, sender_name, channel_id, is_dm)
-        elif command in ['info', 'test']:
-            return self._handle_info_test(command, sender_id, sender_name, channel_id, is_dm)
-        elif command in ['traceroute', 'gtraceroute']:
-            return self._handle_traceroute(args, sender_id, sender_name, channel_id, is_dm)
-        elif command in ['distance', 'odleglosc']:
-            return self._handle_distance(args, sender_id, sender_name, channel_id, is_dm)
-        elif command in ['weather', 'pogoda']:
-            return self._handle_weather(args, sender_id, sender_name, channel_id, is_dm)
+        # Split command and args for direct commands
+        parts = clean.split(maxsplit=1)
+        if parts:
+            direct_command = parts[0].lower()
+            if direct_command in self.plugin_manager.get_supported_commands():
+                command = direct_command
+                args = parts[1] if len(parts) > 1 else ""
+
+        # Check for bot prefixed commands if direct match not found
+        if not command:
+            match = self.command_pattern.match(clean)
+            if match:
+                command = match.group(1).lower()
+                args = match.group(2) if match.group(2) else ""
+
+        if not command:
+            return None
+
+        # Dispatch to plugins
+        return self.plugin_manager.handle_command(
+            command, args, sender_id, sender_name, channel_id, is_dm
+        )
 
     def _start_traceroute_collection(self, target_id: str) -> None:
         """Start background traceroute collection"""

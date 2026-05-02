@@ -785,3 +785,13 @@ def get_per_node_analytics(node_id: str, hours: float = 168.0, hide_broadcast: b
             "daily": daily,
             "destinations": {"broadcast": broadcast_cnt, "private": private_cnt}
         }
+
+def get_recent_messages(limit: int = 10) -> list[dict]:
+    if not _conn:
+        return []
+    with _lock:
+        rows = _conn.execute(
+            "SELECT node_id, ts, text FROM message_history WHERE direction='rx' ORDER BY ts DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [dict(r) for r in rows]
