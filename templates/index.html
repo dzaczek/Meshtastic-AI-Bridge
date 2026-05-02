@@ -1169,7 +1169,7 @@
 <!-- ── TAB BAR ── -->
 <div id="tabbar">
   <button class="tab-btn active"  onclick="switchTab('ops')">Ops</button>
-  <button class="tab-btn"        onclick="switchTab('chat')">Chat</button>
+  <button class="tab-btn"        onclick="switchTab('chat')">Chat <span id="badge-unread" style="display:none;background:#e06c75;color:#fff;font-size:.7em;font-weight:700;padding:1px 5px;border-radius:9px;vertical-align:middle;"></span></button>
   <button class="tab-btn"        onclick="switchTab('nodes')">Nodes <span id="badge-nc" style="color:var(--muted);font-size:.8em"></span></button>
   <button class="tab-btn"        onclick="switchTab('map')">Map</button>
   <button class="tab-btn"        onclick="switchTab('packets')">Packets <span id="badge-pkt" style="color:var(--muted);font-size:.8em"></span></button>
@@ -2515,6 +2515,8 @@ function switchTab(name) {
   if (name==='radar')  initRadar();
   if (name==='analytics') { initAnalytics(); fetchAITokenStats(); }
   if (name==='config') { cfgData = {}; initConfig(); _fillFixPosFromCache(); }
+  // Clear global unread badge when entering chat
+  if (name==='chat') { unreadCounts = {}; _updateConvBadges(); }
   // Let GridStack recalculate layout when tab becomes visible
   setTimeout(() => { if (grids[name]) grids[name].onParentResize(); }, 50);
 }
@@ -2675,6 +2677,22 @@ function _updateConvBadges() {
       badge.remove();
     }
   });
+
+  // Global unread badge on Chat tab — sum all non-system non-ai conversations
+  const chatTabActive = document.getElementById('tab-chat')?.classList.contains('active');
+  const totalUnread = chatTabActive ? 0 :
+    Object.entries(unreadCounts)
+      .filter(([k]) => k !== 'system' && k !== 'all')
+      .reduce((s, [, v]) => s + (v || 0), 0);
+  const gb = document.getElementById('badge-unread');
+  if (gb) {
+    if (totalUnread > 0) {
+      gb.textContent = totalUnread > 99 ? '99+' : totalUnread;
+      gb.style.display = 'inline-block';
+    } else {
+      gb.style.display = 'none';
+    }
+  }
 }
 
 const BROADCAST_IDS = new Set(['ffffffff','4294967295','']);

@@ -157,13 +157,13 @@ class HalBot:
                     lat = pos_hist[-1].get('lat')
                     lon = pos_hist[-1].get('lon')
 
-                # Interface position might be newer or immediately available
-                if 'position' in info and 'latitude' in info['position'] and 'longitude' in info['position']:
-                    lat = info['position']['latitude']
-                    lon = info['position']['longitude']
-                    if lat == 0.0 and lon == 0.0:
-                        lat = None
-                        lon = None
+                # Interface position — handle both float (latitude) and int (latitudeI × 1e7)
+                if 'position' in info:
+                    pos = info['position']
+                    raw_lat = pos.get('latitude') or (pos.get('latitudeI', 0) / 1e7 if pos.get('latitudeI') else None)
+                    raw_lon = pos.get('longitude') or (pos.get('longitudeI', 0) / 1e7 if pos.get('longitudeI') else None)
+                    if raw_lat and raw_lon and not (raw_lat == 0.0 and raw_lon == 0.0):
+                        lat, lon = raw_lat, raw_lon
 
                 node_info = {
                     'node_id': node_id_str,  # Use the normalized node_id_str
