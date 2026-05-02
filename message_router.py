@@ -87,12 +87,14 @@ class MessageRouter:
 
     def __init__(self, app_config, ai_bridge: AIBridge,
                  conversation_manager: ConversationManager,
-                 hal_bot: HalBot, meshtastic_handler):
+                 hal_bot: HalBot, meshtastic_handler,
+                 private_reply_fn=None):
         self.config = app_config
         self.ai_bridge = ai_bridge
         self.conversation_manager = conversation_manager
         self.hal_bot = hal_bot
         self.meshtastic_handler = meshtastic_handler
+        self._private_reply_fn = private_reply_fn  # callable() -> bool
 
         # URL detection
         self.url_pattern = re.compile(
@@ -320,6 +322,10 @@ class MessageRouter:
         # of what hal_bot reports for is_channel_message (channel_id=0 for DMs
         # causes hal_bot to incorrectly set is_channel_message=True)
         is_channel = hal_result.get('is_channel_message', False) and not ctx.is_dm_to_ai
+
+        # Override: if private replies mode is enabled, always reply via DM
+        if is_channel and self._private_reply_fn and self._private_reply_fn():
+            is_channel = False
 
         return RouteResult(
             reply_text=response_text,

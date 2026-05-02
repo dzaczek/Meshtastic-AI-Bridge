@@ -1182,6 +1182,11 @@
              border-radius:4px;cursor:pointer;padding:2px 8px;font-size:.72em;font-weight:600;letter-spacing:.05em;">
       AI ON
     </button>
+    <button id="btn-private-toggle" onclick="togglePrivateReplies(this)" title="Bot replies: Public (on channel) or Private (DM to sender)"
+      style="background:rgba(255,200,77,.07);border:1px solid rgba(255,200,77,.25);color:var(--muted);
+             border-radius:4px;cursor:pointer;padding:2px 8px;font-size:.72em;font-weight:600;letter-spacing:.05em;">
+      📢 PUBLIC
+    </button>
     <span id="hdr-rx" style="color:var(--rx)">RX: 0</span>
     <span id="hdr-ai-cnt" style="color:var(--ai)">AI: 0</span>
     <span id="hdr-tokens" title="Total AI tokens used (in/out)" style="color:var(--muted);cursor:default;display:none;">🪙<span id="hdr-tokens-val">0</span></span>
@@ -3427,6 +3432,26 @@ function _updateAIBtn(btn, enabled) {
   btn.style.background    = enabled ? 'rgba(77,255,209,.12)' : 'rgba(255,80,80,.12)';
   btn.style.borderColor   = enabled ? 'rgba(77,255,209,.3)'  : 'rgba(255,80,80,.3)';
   btn.style.color         = enabled ? 'var(--ai)'            : 'var(--err)';
+}
+
+async function togglePrivateReplies(btn) {
+  try {
+    const r = await fetch('/api/bot/private_replies/toggle', {method:'POST'});
+    const d = await r.json();
+    _updatePrivateBtn(btn, d.private);
+  } catch(e) { console.error('Private replies toggle failed', e); }
+}
+
+function _updatePrivateBtn(btn, isPrivate) {
+  if (!btn) btn = document.getElementById('btn-private-toggle');
+  if (!btn) return;
+  btn.textContent       = isPrivate ? '🔒 PRIVATE' : '📢 PUBLIC';
+  btn.style.background  = isPrivate ? 'rgba(255,200,77,.18)' : 'rgba(255,200,77,.07)';
+  btn.style.borderColor = isPrivate ? 'rgba(255,200,77,.6)'  : 'rgba(255,200,77,.25)';
+  btn.style.color       = isPrivate ? '#ffc84d'              : 'var(--muted)';
+  btn.title             = isPrivate
+    ? 'Bot replies: PRIVATE (DM to sender) — click to switch to public'
+    : 'Bot replies: PUBLIC (on channel) — click to switch to private DM';
 }
 
 function setChatUserSearch(val) { chatUserSearch = val.toLowerCase().trim(); renderDmList(nodesCache); }
@@ -6090,6 +6115,7 @@ async function fetchAITokenStats() {
 
   // Init AI toggle button state
   fetch('/api/ai/enabled').then(r=>r.json()).then(d=>_updateAIBtn(null, d.enabled)).catch(()=>{});
+  fetch('/api/bot/private_replies').then(r=>r.json()).then(d=>_updatePrivateBtn(null, d.private)).catch(()=>{});
 
   await fetchStatus();
   await fetchChannels();

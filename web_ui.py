@@ -161,11 +161,16 @@ _status: dict = {
     "reconnecting": False,
     "last_error": None,
     "ai_enabled": True,
+    "bot_private_replies": False,
 }
 
 
 def is_ai_enabled() -> bool:
     return _status.get("ai_enabled", True)
+
+
+def is_bot_private_replies() -> bool:
+    return _status.get("bot_private_replies", False)
 _lock = threading.Lock()
 _send_callback  = None
 _meshtastic_handler = None
@@ -1141,6 +1146,19 @@ if _HAS_FLASK:
             current = _status.get("ai_enabled", True)
             _status["ai_enabled"] = not current
         return jsonify({"enabled": _status["ai_enabled"]})
+
+    @app.route("/api/bot/private_replies")
+    @login_required
+    def api_bot_private_replies_get():
+        return jsonify({"private": _status.get("bot_private_replies", False)})
+
+    @app.route("/api/bot/private_replies/toggle", methods=["POST"])
+    @login_required
+    def api_bot_private_replies_toggle():
+        with _lock:
+            current = _status.get("bot_private_replies", False)
+            _status["bot_private_replies"] = not current
+        return jsonify({"private": _status["bot_private_replies"]})
 
     @app.route("/api/ai/token_stats")
     @login_required

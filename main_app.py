@@ -230,7 +230,8 @@ class MeshtasticAIAppConsole:
             self.router = MessageRouter(
                 self.app_config, self.ai_bridge,
                 self.conversation_manager, self.hal_bot,
-                self.meshtastic_handler
+                self.meshtastic_handler,
+                private_reply_fn=web_ui.is_bot_private_replies if _HAS_WEB_UI else None,
             )
             dprint("MeshtasticAIAppConsole.__init__ - Initialization complete.")
 
