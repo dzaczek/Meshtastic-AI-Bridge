@@ -134,7 +134,6 @@ CREATE TABLE IF NOT EXISTS ai_token_usage (
 );
 CREATE INDEX IF NOT EXISTS idx_ai_tokens_ts   ON ai_token_usage(ts);
 CREATE INDEX IF NOT EXISTS idx_ai_tokens_node ON ai_token_usage(node_id);
-CREATE INDEX IF NOT EXISTS idx_ai_tokens_cat  ON ai_token_usage(category);
 
 """
 
@@ -153,13 +152,18 @@ def init(db_path: str | None = None) -> None:
     _conn = sqlite3.connect(_DB_PATH, check_same_thread=False)
     _conn.row_factory = sqlite3.Row
     with _lock, _conn:
+        # Migrate BEFORE executescript so new indexes on new columns work
+        try:
+            cols = {r[1] for r in _conn.execute("PRAGMA table_info(ai_token_usage)").fetchall()}
+            if cols and 'category' not in cols:
+                _conn.execute("ALTER TABLE ai_token_usage ADD COLUMN category TEXT NOT NULL DEFAULT 'chat'")
+            if cols and 'model' not in cols:
+                _conn.execute("ALTER TABLE ai_token_usage ADD COLUMN model TEXT NOT NULL DEFAULT ''")
+        except Exception:
+            pass
         _conn.executescript(_SCHEMA)
-        # Migrate older ai_token_usage tables that lack category / model columns
-        cols = {r[1] for r in _conn.execute("PRAGMA table_info(ai_token_usage)").fetchall()}
-        if 'category' not in cols:
-            _conn.execute("ALTER TABLE ai_token_usage ADD COLUMN category TEXT NOT NULL DEFAULT 'chat'")
-        if 'model' not in cols:
-            _conn.execute("ALTER TABLE ai_token_usage ADD COLUMN model TEXT NOT NULL DEFAULT ''")
+        # Create category index separately (safe after schema + migration)
+        _conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_tokens_cat ON ai_token_usage(category)")
     logger.info(f"node_db ready: {_DB_PATH}")
 
 
