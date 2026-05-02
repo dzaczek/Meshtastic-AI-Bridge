@@ -62,14 +62,14 @@ class HalBot:
         clean = self._normalize_cmd(text).lower()
 
         # Check for direct commands first
-        if clean in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl', 'distance', 'odleglosc', 'weather', 'pogoda']:
+        if clean in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl', 'distance', 'odleglosc', 'weather', 'pogoda', 'wx']:
             return True
 
         # Check for bot prefixed commands
         match = self.command_pattern.match(clean)
         if match:
             command = match.group(1).lower()
-            if command in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl', 'distance', 'odleglosc', 'weather', 'pogoda']:
+            if command in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl', 'distance', 'odleglosc', 'weather', 'pogoda', 'wx']:
                 return True
 
         return False
@@ -493,9 +493,9 @@ class HalBot:
 
     def _handle_weather(self, args: str, sender_id: str, sender_name: str, channel_id: int, is_dm: bool) -> dict:
         """Fetch current weather from wttr.in and return compact response."""
-        city = args.strip() if args else "Warsaw"
+        city = args.strip() if args else "Aarau"
         if not city:
-            city = "Warsaw"
+            city = "Aarau"
         if not _HAS_REQUESTS:
             return {'response': f"[WEATHER] Error: requests library not available.",
                     'channel_id': channel_id, 'is_channel_message': not is_dm}
@@ -534,7 +534,7 @@ class HalBot:
         clean_lower = clean.lower()
 
         # Handle direct commands without bot prefix
-        if clean_lower in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl', 'distance', 'odleglosc', 'weather', 'pogoda']:
+        if clean_lower in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl', 'distance', 'odleglosc', 'weather', 'pogoda', 'wx']:
             command = clean_lower
             args = ""
         else:
@@ -552,7 +552,7 @@ class HalBot:
             return self._handle_traceroute(args, sender_id, sender_name, channel_id, is_dm)
         elif command in ['distance', 'odleglosc']:
             return self._handle_distance(args, sender_id, sender_name, channel_id, is_dm)
-        elif command in ['weather', 'pogoda']:
+        elif command in ['weather', 'pogoda', 'wx']:
             return self._handle_weather(args, sender_id, sender_name, channel_id, is_dm)
 
     def _start_traceroute_collection(self, target_id: str) -> None:
