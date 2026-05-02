@@ -199,8 +199,6 @@
     .grid-stack-item-content {
       background: transparent !important;
     }
-    /* Dash-gap: controls visible spacing between widgets via CSS variable */
-    .grid-stack > .grid-stack-item { padding: var(--dash-gap, 4px) !important; }
     .grid-edit-mode .grid-stack-item-content {
       border: 1px dashed var(--primary);
     }
@@ -5336,11 +5334,17 @@ function initOpsRadar() {
   if (!canvas) return;
   const wrap = canvas.parentElement;
   const resize = () => {
-    canvas.width  = wrap.clientWidth  - 12;
-    canvas.height = wrap.clientHeight - 12;
+    // Guard: never set canvas to 0 during GridStack layout transitions
+    const w = Math.max(10, (wrap.clientWidth  || 0) - 12);
+    const h = Math.max(10, (wrap.clientHeight || 0) - 12);
+    canvas.width  = w;
+    canvas.height = h;
   };
   resize();
-  new ResizeObserver(resize).observe(wrap);
+  new ResizeObserver(entries => {
+    const r = entries[0]?.contentRect;
+    if (r && r.width > 20 && r.height > 20) resize();
+  }).observe(wrap);
   animateOpsRadar(canvas);
 }
 
@@ -5883,19 +5887,31 @@ async function fetchMyDeviceInfo() {
 
 // ── DASH GAP ──────────────────────────────────────────────────────────────
 function setDashGap(px) {
-  document.documentElement.style.setProperty('--dash-gap', `${px}px`);
+  px = Math.max(0, parseInt(px) || 0);
   localStorage.setItem('dash-gap', String(px));
   // Sync select
   const sel = document.getElementById('gap-select');
   if (sel) sel.value = String(px);
+  // Apply directly to GridStack: update opts + inline padding on every item
+  Object.values(grids).forEach(g => {
+    if (!g) return;
+    g.opts.margin = px;
+    g.getGridItems().forEach(el => { el.style.padding = px + 'px'; });
+  });
+  // After gap change, re-enable OPS map (padding shift can freeze it)
+  if (opsLeafMap) {
+    opsLeafMap.dragging.enable();
+    opsLeafMap.scrollWheelZoom.enable();
+    setTimeout(() => opsLeafMap && opsLeafMap.invalidateSize(), 80);
+  }
 }
 
 function _initDashGap() {
   const saved = localStorage.getItem('dash-gap');
   const px = saved !== null ? parseInt(saved) : 4;
-  document.documentElement.style.setProperty('--dash-gap', `${px}px`);
   const sel = document.getElementById('gap-select');
   if (sel) sel.value = String(px);
+  // Grids not yet initialized here — gap applied in initGridStack via _initGap
 }
 
 // ── AI TOKEN STATS ────────────────────────────────────────────────────────
@@ -6030,11 +6046,14 @@ let gridDefaults = {};
 function initGridStack() {
   if (typeof GridStack === 'undefined') return;
 
+  // Read saved gap; used for initial margin on all grids
+  const _initGap = parseInt(localStorage.getItem('dash-gap') || '4');
+
   // Initialize OPS grid
   grids['ops'] = GridStack.init({
     cellHeight: 120,
-    staticGrid: true, // Read-only by default
-    margin: 0,
+    staticGrid: true,
+    margin: _initGap,
     minRow: 5,
     float: true
   }, '.ops-grid-stack');
@@ -6043,7 +6062,7 @@ function initGridStack() {
   grids['analytics'] = GridStack.init({
     cellHeight: 120,
     staticGrid: true,
-    margin: 0,
+    margin: _initGap,
     float: true
   }, '.analytics-grid-stack');
 
@@ -6051,7 +6070,7 @@ function initGridStack() {
   grids['chat'] = GridStack.init({
     cellHeight: 60,
     staticGrid: true,
-    margin: 0,
+    margin: _initGap,
     float: false
   }, '.chat-grid-stack');
 
@@ -6059,7 +6078,7 @@ function initGridStack() {
   grids['nodes'] = GridStack.init({
     cellHeight: 60,
     staticGrid: true,
-    margin: 0,
+    margin: _initGap,
     float: false
   }, '.nodes-grid-stack');
 
@@ -6067,7 +6086,7 @@ function initGridStack() {
   grids['map'] = GridStack.init({
     cellHeight: 60,
     staticGrid: true,
-    margin: 0,
+    margin: _initGap,
     float: false
   }, '.map-grid-stack');
 
@@ -6075,7 +6094,7 @@ function initGridStack() {
   grids['packets'] = GridStack.init({
     cellHeight: 60,
     staticGrid: true,
-    margin: 0,
+    margin: _initGap,
     float: false
   }, '.packets-grid-stack');
 
@@ -6083,7 +6102,7 @@ function initGridStack() {
   grids['radar'] = GridStack.init({
     cellHeight: 60,
     staticGrid: true,
-    margin: 0,
+    margin: _initGap,
     float: false
   }, '.radar-grid-stack');
 
@@ -6091,7 +6110,7 @@ function initGridStack() {
   grids['config'] = GridStack.init({
     cellHeight: 60,
     staticGrid: true,
-    margin: 0,
+    margin: _initGap,
     float: false
   }, '.config-grid-stack');
 
