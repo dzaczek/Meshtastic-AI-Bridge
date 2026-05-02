@@ -87,6 +87,22 @@ class AIBridge:
         else:
             print("WARNING (ai_bridge): OpenAI API key not configured. OpenAI functionality will be disabled.")
 
+        # ── Kimi (Moonshot AI) — OpenAI-compatible API ──
+        self.kimi_client = None
+        self.kimi_model_name = getattr(self.config, 'KIMI_MODEL_NAME', 'moonshot-v1-8k')
+        kimi_key = getattr(self.config, 'KIMI_API_KEY', '')
+        if kimi_key and kimi_key not in ['YOUR_KIMI_API_KEY_HERE', '']:
+            try:
+                self.kimi_client = OpenAI(
+                    api_key=kimi_key,
+                    base_url='https://api.moonshot.cn/v1',
+                )
+                print(f"INFO (ai_bridge): Kimi client initialized ({self.kimi_model_name}).")
+            except Exception as e:
+                print(f"WARNING (ai_bridge): Failed to initialize Kimi client: {e}")
+        else:
+            print("INFO (ai_bridge): Kimi API key not configured.")
+
         self.gemini_text_model = None
         self.gemini_vision_model = None
         self.gemini_configured_successfully = False # General flag for Gemini
@@ -117,7 +133,7 @@ class AIBridge:
             print("WARNING (ai_bridge): Gemini API key not configured. Gemini functionality will be disabled.")
 
     def set_ai_service(self, service_name):
-        if service_name in ["openai", "gemini"]:
+        if service_name in ["openai", "gemini", "kimi"]:
             self.current_ai_service = service_name
             print(f"INFO (ai_bridge): AI service switched to: {self.current_ai_service}")
         else:
@@ -149,7 +165,7 @@ class AIBridge:
             summary = response.choices[0].message.content.strip()
             if _HAS_NODE_DB and response.usage:
                 try:
-                    node_db.add_ai_token_usage(response.usage.prompt_tokens, response.usage.completion_tokens, "system")
+                    node_db.add_ai_token_usage(response.usage.prompt_tokens, response.usage.completion_tokens, "system", category="vision", model=self.openai_vision_model_name)
                 except Exception:
                     pass
             return summary
@@ -169,7 +185,7 @@ class AIBridge:
             response = self.gemini_vision_model.generate_content([prompt_text, image_part])
             if _HAS_NODE_DB and hasattr(response, "usage_metadata") and response.usage_metadata:
                 try:
-                    node_db.add_ai_token_usage(response.usage_metadata.prompt_token_count, response.usage_metadata.candidates_token_count, "system")
+                    node_db.add_ai_token_usage(response.usage_metadata.prompt_token_count, response.usage_metadata.candidates_token_count, "system", category="vision", model=self.gemini_vision_model_name)
                 except Exception:
                     pass
             summary = response.text.strip()
@@ -416,16 +432,33 @@ class AIBridge:
         ai_reply_text = None
         try:
             if self.current_ai_service == "openai":
-                # print(f"DEBUG (ai_bridge): Sending to OpenAI ({self.openai_model_name}): '{messages_for_ai[-1]['content'][:200]}...'")
                 completion = self.openai_client.chat.completions.create(
-                    model=self.openai_model_name,
-                    messages=messages_for_ai
+                    model=self.openai_model_name, messages=messages_for_ai
                 )
                 candidate_reply = completion.choices[0].message.content.strip()
                 if candidate_reply: ai_reply_text = candidate_reply
                 if _HAS_NODE_DB and completion.usage:
                     try:
-                        node_db.add_ai_token_usage(completion.usage.prompt_tokens, completion.usage.completion_tokens, node_id)
+                        node_db.add_ai_token_usage(
+                            completion.usage.prompt_tokens, completion.usage.completion_tokens,
+                            node_id, category='chat', model=self.openai_model_name)
+                    except Exception:
+                        pass
+
+            elif self.current_ai_service == "kimi":
+                if not self.kimi_client:
+                    print("ERROR (ai_bridge): Kimi client not initialized.")
+                    return None
+                completion = self.kimi_client.chat.completions.create(
+                    model=self.kimi_model_name, messages=messages_for_ai
+                )
+                candidate_reply = completion.choices[0].message.content.strip()
+                if candidate_reply: ai_reply_text = candidate_reply
+                if _HAS_NODE_DB and completion.usage:
+                    try:
+                        node_db.add_ai_token_usage(
+                            completion.usage.prompt_tokens, completion.usage.completion_tokens,
+                            node_id, category='chat', model=self.kimi_model_name)
                     except Exception:
                         pass
 
@@ -471,7 +504,10 @@ class AIBridge:
                 response = chat_session.send_message(current_user_prompt_parts)
                 if _HAS_NODE_DB and hasattr(response, "usage_metadata") and response.usage_metadata:
                     try:
-                        node_db.add_ai_token_usage(response.usage_metadata.prompt_token_count, response.usage_metadata.candidates_token_count, node_id)
+                        node_db.add_ai_token_usage(
+                            response.usage_metadata.prompt_token_count,
+                            response.usage_metadata.candidates_token_count,
+                            node_id, category='chat', model=self.gemini_text_model_name)
                     except Exception:
                         pass
                 candidate_reply = response.text.strip()
@@ -508,7 +544,7 @@ class AIBridge:
                 summary_text = completion.choices[0].message.content.strip()
                 if _HAS_NODE_DB and completion.usage:
                     try:
-                        node_db.add_ai_token_usage(completion.usage.prompt_tokens, completion.usage.completion_tokens, "system_summary")
+                        node_db.add_ai_token_usage(completion.usage.prompt_tokens, completion.usage.completion_tokens, "system_summary", category="summary", model=self.openai_model_name)
                     except Exception:
                         pass
             elif self.current_ai_service == "gemini" and self.gemini_text_model:
@@ -519,7 +555,7 @@ class AIBridge:
                  response = model_for_summary.generate_content(text_to_summarize) # Let persona guide summary length
                  if _HAS_NODE_DB and hasattr(response, "usage_metadata") and response.usage_metadata:
                      try:
-                         node_db.add_ai_token_usage(response.usage_metadata.prompt_token_count, response.usage_metadata.candidates_token_count, "system_summary")
+                         node_db.add_ai_token_usage(response.usage_metadata.prompt_token_count, response.usage_metadata.candidates_token_count, "system_summary", category="summary", model=self.gemini_text_model_name)
                      except Exception:
                          pass
                  summary_text = response.text.strip()
@@ -585,7 +621,7 @@ class AIBridge:
                 decision = completion.choices[0].message.content.strip().upper()
                 if _HAS_NODE_DB and completion.usage:
                     try:
-                        node_db.add_ai_token_usage(completion.usage.prompt_tokens, completion.usage.completion_tokens, "system_triage")
+                        node_db.add_ai_token_usage(completion.usage.prompt_tokens, completion.usage.completion_tokens, "system_triage", category="triage", model=self.triage_ai_model_name)
                     except Exception:
                         pass
                 print(f"INFO (ai_bridge Triage): OpenAI Triage decision: '{decision}' for message from {newest_message_sender}")
@@ -600,7 +636,7 @@ class AIBridge:
                 response = triage_gemini_instance.generate_content(full_triage_query)
                 if _HAS_NODE_DB and hasattr(response, "usage_metadata") and response.usage_metadata:
                     try:
-                        node_db.add_ai_token_usage(response.usage_metadata.prompt_token_count, response.usage_metadata.candidates_token_count, "system_triage")
+                        node_db.add_ai_token_usage(response.usage_metadata.prompt_token_count, response.usage_metadata.candidates_token_count, "system_triage", category="triage", model=self.triage_ai_model_name)
                     except Exception:
                         pass
                 decision = response.text.strip().upper()

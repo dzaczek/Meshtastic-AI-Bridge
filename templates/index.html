@@ -1766,13 +1766,17 @@
           <span>Month: <b id="ai-tok-month">—</b></span>
         </div>
         <div style="display:flex;gap:12px;flex:1;min-height:0;flex-wrap:wrap;">
-          <div style="flex:1;min-width:180px;display:flex;flex-direction:column;">
+          <div style="flex:1;min-width:160px;display:flex;flex-direction:column;">
             <div style="font-size:.68em;color:var(--muted);margin-bottom:4px;">Daily (last 7 days) · <span style="color:rgba(77,255,209,.5)">■</span> in <span style="color:rgba(77,255,209,1)">■</span> out</div>
-            <div id="ai-token-chart" style="flex:1;position:relative;min-height:80px;"></div>
+            <div id="ai-token-chart" style="flex:1;position:relative;min-height:70px;"></div>
           </div>
-          <div style="flex:0 0 180px;min-width:140px;">
+          <div style="flex:0 0 150px;min-width:120px;display:flex;flex-direction:column;">
+            <div style="font-size:.68em;color:var(--muted);margin-bottom:4px;">By category (30d)</div>
+            <div id="ai-cat-chart" style="flex:1;position:relative;min-height:70px;"></div>
+          </div>
+          <div style="flex:0 0 150px;min-width:120px;">
             <div style="font-size:.68em;color:var(--muted);margin-bottom:4px;">Top users (this month)</div>
-            <div id="ai-top-users" style="font-size:.76em;overflow-y:auto;max-height:200px;"></div>
+            <div id="ai-top-users" style="font-size:.76em;overflow-y:auto;max-height:160px;"></div>
           </div>
         </div>
       </div>
@@ -6003,6 +6007,35 @@ async function fetchAITokenStats() {
       topEl.innerHTML = '<span style="color:var(--muted);font-size:.78em;">No data yet.</span>';
     }
   } catch(e) { /* silent */ }
+  // Category breakdown chart
+  try {
+    const rc = await fetch('/api/ai/token_categories?days=30');
+    if (rc.ok) {
+      const cats = await rc.json();
+      const catEl = document.getElementById('ai-cat-chart');
+      if (catEl && typeof d3 !== 'undefined' && Array.isArray(cats) && cats.length) {
+        catEl.innerHTML = '';
+        const CAT_COLORS = {chat:'#4dd9ac', triage:'#4da6ff', summary:'#e89025', vision:'#9880ff'};
+        const W = catEl.clientWidth || 140, H = catEl.clientHeight || 120;
+        const total = d3.sum(cats, c => c.tokens_in + c.tokens_out) || 1;
+        const svg = d3.select(catEl).append('svg').attr('width', W).attr('height', H);
+        let y = 0;
+        cats.forEach((c, i) => {
+          const pct = (c.tokens_in + c.tokens_out) / total;
+          const barH = Math.max(4, Math.floor(pct * (H - cats.length * 2)));
+          const col = CAT_COLORS[c.category] || '#888';
+          svg.append('rect').attr('x', 0).attr('y', y).attr('width', W * 0.55).attr('height', barH)
+            .attr('fill', col).attr('rx', 2);
+          svg.append('text').attr('x', W * 0.6).attr('y', y + barH / 2 + 4)
+            .attr('fill', 'var(--muted)').attr('font-size', 9).attr('font-family', 'monospace')
+            .text(`${c.category} ${(pct*100).toFixed(0)}%`);
+          y += barH + 2;
+        });
+      } else if (catEl && !cats.length) {
+        catEl.innerHTML = '<div style="color:var(--muted);font-size:.75em">No data</div>';
+      }
+    }
+  } catch(_) {}
 }
 
 // ── BOOTSTRAP ─────────────────────────────────────────────────────────────

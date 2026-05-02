@@ -128,10 +128,13 @@ CREATE TABLE IF NOT EXISTS ai_token_usage (
     ts         REAL    NOT NULL,
     node_id    TEXT    NOT NULL,
     tokens_in  INTEGER NOT NULL,
-    tokens_out INTEGER NOT NULL
+    tokens_out INTEGER NOT NULL,
+    category   TEXT    NOT NULL DEFAULT 'chat',
+    model      TEXT    NOT NULL DEFAULT ''
 );
-CREATE INDEX IF NOT EXISTS idx_ai_tokens_ts ON ai_token_usage(ts);
+CREATE INDEX IF NOT EXISTS idx_ai_tokens_ts   ON ai_token_usage(ts);
 CREATE INDEX IF NOT EXISTS idx_ai_tokens_node ON ai_token_usage(node_id);
+CREATE INDEX IF NOT EXISTS idx_ai_tokens_cat  ON ai_token_usage(category);
 
 """
 
@@ -151,6 +154,12 @@ def init(db_path: str | None = None) -> None:
     _conn.row_factory = sqlite3.Row
     with _lock, _conn:
         _conn.executescript(_SCHEMA)
+        # Migrate older ai_token_usage tables that lack category / model columns
+        cols = {r[1] for r in _conn.execute("PRAGMA table_info(ai_token_usage)").fetchall()}
+        if 'category' not in cols:
+            _conn.execute("ALTER TABLE ai_token_usage ADD COLUMN category TEXT NOT NULL DEFAULT 'chat'")
+        if 'model' not in cols:
+            _conn.execute("ALTER TABLE ai_token_usage ADD COLUMN model TEXT NOT NULL DEFAULT ''")
     logger.info(f"node_db ready: {_DB_PATH}")
 
 
@@ -319,15 +328,38 @@ def get_message_history(node_id: str, limit: int = 300) -> list[dict]:
 import json as _json
 
 
-def add_ai_token_usage(tokens_in: int, tokens_out: int, node_id: str, ts: float | None = None) -> None:
+def add_ai_token_usage(tokens_in: int, tokens_out: int, node_id: str,
+                       ts: float | None = None,
+                       category: str = 'chat',
+                       model: str = '') -> None:
     if not _conn:
         return
     ts = ts or time.time()
     with _lock, _conn:
         _conn.execute(
-            "INSERT INTO ai_token_usage (ts, node_id, tokens_in, tokens_out) VALUES (?, ?, ?, ?)",
-            (ts, node_id, tokens_in, tokens_out)
+            "INSERT INTO ai_token_usage (ts, node_id, tokens_in, tokens_out, category, model) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (ts, node_id, tokens_in, tokens_out, category, model)
         )
+
+
+def get_token_by_category(days: int = 30) -> list:
+    """Returns token usage grouped by category for the last N days."""
+    if not _conn:
+        return []
+    since = time.time() - days * 86400
+    with _lock:
+        rows = _conn.execute(
+            """SELECT category,
+                      SUM(tokens_in)  as tin,
+                      SUM(tokens_out) as tout
+               FROM ai_token_usage
+               WHERE ts > ?
+               GROUP BY category
+               ORDER BY (tin + tout) DESC""",
+            (since,)
+        ).fetchall()
+    return [{"category": r[0], "tokens_in": r[1] or 0, "tokens_out": r[2] or 0} for r in rows]
 
 def get_token_stats() -> dict:
     """Returns AI token usage statistics over the last month, weekly, and daily breakdowns."""

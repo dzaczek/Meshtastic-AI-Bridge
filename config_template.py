@@ -9,6 +9,14 @@ load_dotenv()
 # --- API Keys (from .env) ---
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+KIMI_API_KEY   = os.environ.get("KIMI_API_KEY", "")       # Moonshot AI (kimi)
+
+# --- AI Model Selection ---
+# DEFAULT_AI_SERVICE: "openai" | "gemini" | "kimi"
+DEFAULT_AI_SERVICE   = os.environ.get("DEFAULT_AI_SERVICE", "openai")
+OPENAI_MODEL_NAME    = os.environ.get("OPENAI_MODEL_NAME", "gpt-3.5-turbo")
+KIMI_MODEL_NAME      = os.environ.get("KIMI_MODEL_NAME", "moonshot-v1-8k")
+# Available Kimi models: moonshot-v1-8k, moonshot-v1-32k, moonshot-v1-128k
 
 # --- Meshtastic Connection Settings ---
 MESHTASTIC_CONNECTION_TYPE = os.environ.get("MESHTASTIC_CONNECTION_TYPE", "serial")

@@ -1152,6 +1152,17 @@ if _HAS_FLASK:
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
+    @app.route("/api/ai/token_categories")
+    @login_required
+    def api_ai_token_categories():
+        if not _HAS_NODE_DB:
+            return jsonify([])
+        try:
+            days = int(request.args.get("days", 30))
+            return jsonify(_node_db.get_token_by_category(days))
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
     # ------------------------------------------------------------------
     # Dashboard layout persistence
     # ------------------------------------------------------------------
