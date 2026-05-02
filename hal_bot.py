@@ -120,10 +120,10 @@ class HalBot:
                 last_heard = info.get('lastHeard', time.time())
                 uptime = self._format_uptime(info.get('uptime', 0))
                 
-                # Get battery info
+                # Get battery info — batteryLevel is already 0-100 integer in Meshtastic
                 battery_level = info.get('batteryLevel', None)
                 if battery_level is not None:
-                    battery_level = int(battery_level * 100)  # Convert to percentage
+                    battery_level = int(battery_level)
                 
                 # Get position from DB as fallback or from info if available
                 lat = None
@@ -165,19 +165,32 @@ class HalBot:
         
         return node_info
 
+    def _get_own_position(self):
+        """Get bot's own current position — tries local node first, then node_db."""
+        if not self.meshtastic_handler or not self.meshtastic_handler.interface:
+            return None, None
+        try:
+            node = self.meshtastic_handler.interface.getNode('^local')
+            pos  = getattr(node, 'position', None) or {}
+            lat  = pos.get('latitude')  or pos.get('lat')
+            lon  = pos.get('longitude') or pos.get('lon')
+            if lat and lon and not (lat == 0.0 and lon == 0.0):
+                return lat, lon
+        except Exception:
+            pass
+        # Fallback: node_db position history for own node
+        if self.meshtastic_handler.node_id:
+            bot_id = f"{self.meshtastic_handler.node_id:x}"
+            hist = node_db.get_position_history(bot_id, limit=1)
+            if hist:
+                return hist[-1].get('lat'), hist[-1].get('lon')
+        return None, None
+
     def _get_distance_str(self, target_lat: float, target_lon: float) -> str:
         """Helper to format distance from bot to target"""
         if target_lat is None or target_lon is None:
             return ""
-
-        bot_id = f"{self.meshtastic_handler.node_id:x}" if self.meshtastic_handler and self.meshtastic_handler.node_id else None
-        if not bot_id:
-            return ""
-
-        bot_info = self.get_node_info(bot_id)
-        bot_lat = bot_info.get('lat')
-        bot_lon = bot_info.get('lon')
-
+        bot_lat, bot_lon = self._get_own_position()
         if bot_lat is not None and bot_lon is not None:
             dist = self._get_distance(bot_lat, bot_lon, target_lat, target_lon)
             return f"• Dist: {dist:.1f}km\n"
