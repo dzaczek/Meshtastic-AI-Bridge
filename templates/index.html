@@ -1186,9 +1186,6 @@
     <span id="hdr-ai-cnt" style="color:var(--ai)">AI: 0</span>
     <span id="hdr-tokens" title="Total AI tokens used (in/out)" style="color:var(--muted);cursor:default;display:none;">🪙<span id="hdr-tokens-val">0</span></span>
     <span id="hdr-uptime2" style="color:var(--muted)"></span>
-    <button onclick="resetAllLayouts()" title="Reset all dashboards to default layout"
-      style="background:none;border:1px solid rgba(255,80,80,.3);color:var(--err);
-             font-family:var(--font-mono);font-size:.65em;padding:2px 6px;border-radius:4px;cursor:pointer;">↺ Reset</button>
     <select id="gap-select" title="Odstęp między widżetami"
       onchange="setDashGap(parseInt(this.value))"
       style="background:var(--surf2);border:1px solid var(--border);color:var(--muted);
@@ -1217,6 +1214,7 @@
       <button id="ops-save-btn" onclick="saveLayout('ops')" class="tb-btn" style="display:none; border:1px solid rgba(77,255,209,.3); background:var(--surf2); color:var(--tx); padding:4px 8px; border-radius:4px; cursor:pointer;">Save Layout</button>
       <button id="ops-cancel-btn" onclick="cancelLayout('ops')" class="tb-btn" style="display:none; border:1px solid var(--border); background:var(--surf2); color:var(--muted); padding:4px 8px; border-radius:4px; cursor:pointer;">Cancel</button>
       <button id="ops-reset-btn" onclick="resetLayout('ops')" class="tb-btn" style="display:none; border:1px solid rgba(255,80,80,.3); background:var(--surf2); color:var(--err); padding:4px 8px; border-radius:4px; cursor:pointer;">Reset</button>
+      <button class="tb-btn tb-reset-all" onclick="resetAllLayouts()" style="display:none; border:1px solid rgba(255,80,80,.3); background:var(--surf2); color:var(--err); padding:4px 8px; border-radius:4px; cursor:pointer; margin-left:4px; opacity:.7;">Reset All</button>
     </div>
   </div>
 
@@ -1347,6 +1345,7 @@
       <button id="chat-save-btn" onclick="saveLayout('chat')" class="tb-btn" style="display:none; border:1px solid rgba(77,255,209,.3); background:var(--surf2); color:var(--tx); padding:4px 8px; border-radius:4px; cursor:pointer;">Save Layout</button>
       <button id="chat-cancel-btn" onclick="cancelLayout('chat')" class="tb-btn" style="display:none; border:1px solid var(--border); background:var(--surf2); color:var(--muted); padding:4px 8px; border-radius:4px; cursor:pointer;">Cancel</button>
       <button id="chat-reset-btn" onclick="resetLayout('chat')" class="tb-btn" style="display:none; border:1px solid rgba(255,80,80,.3); background:var(--surf2); color:var(--err); padding:4px 8px; border-radius:4px; cursor:pointer;">Reset</button>
+      <button class="tb-btn tb-reset-all" onclick="resetAllLayouts()" style="display:none; border:1px solid rgba(255,80,80,.3); background:var(--surf2); color:var(--err); padding:4px 8px; border-radius:4px; cursor:pointer; margin-left:4px; opacity:.7;">Reset All</button>
     </div>
   </div>
 
@@ -1457,6 +1456,7 @@
       <button id="nodes-save-btn" onclick="saveLayout('nodes')" class="tb-btn" style="display:none; border:1px solid rgba(77,255,209,.3); background:var(--surf2); color:var(--tx); padding:4px 8px; border-radius:4px; cursor:pointer;">Save Layout</button>
       <button id="nodes-cancel-btn" onclick="cancelLayout('nodes')" class="tb-btn" style="display:none; border:1px solid var(--border); background:var(--surf2); color:var(--muted); padding:4px 8px; border-radius:4px; cursor:pointer;">Cancel</button>
       <button id="nodes-reset-btn" onclick="resetLayout('nodes')" class="tb-btn" style="display:none; border:1px solid rgba(255,80,80,.3); background:var(--surf2); color:var(--err); padding:4px 8px; border-radius:4px; cursor:pointer;">Reset</button>
+      <button class="tb-btn tb-reset-all" onclick="resetAllLayouts()" style="display:none; border:1px solid rgba(255,80,80,.3); background:var(--surf2); color:var(--err); padding:4px 8px; border-radius:4px; cursor:pointer; margin-left:4px; opacity:.7;">Reset All</button>
     </div>
   </div>
 
@@ -1534,6 +1534,7 @@
       <button id="map-save-btn" onclick="saveLayout('map')" class="tb-btn" style="display:none; border:1px solid rgba(77,255,209,.3); background:var(--surf2); color:var(--tx); padding:4px 8px; border-radius:4px; cursor:pointer;">Save Layout</button>
       <button id="map-cancel-btn" onclick="cancelLayout('map')" class="tb-btn" style="display:none; border:1px solid var(--border); background:var(--surf2); color:var(--muted); padding:4px 8px; border-radius:4px; cursor:pointer;">Cancel</button>
       <button id="map-reset-btn" onclick="resetLayout('map')" class="tb-btn" style="display:none; border:1px solid rgba(255,80,80,.3); background:var(--surf2); color:var(--err); padding:4px 8px; border-radius:4px; cursor:pointer;">Reset</button>
+      <button class="tb-btn tb-reset-all" onclick="resetAllLayouts()" style="display:none; border:1px solid rgba(255,80,80,.3); background:var(--surf2); color:var(--err); padding:4px 8px; border-radius:4px; cursor:pointer; margin-left:4px; opacity:.7;">Reset All</button>
     </div>
   </div>
 
@@ -1565,6 +1566,7 @@
       <button id="packets-save-btn" onclick="saveLayout('packets')" class="tb-btn" style="display:none; border:1px solid rgba(77,255,209,.3); background:var(--surf2); color:var(--tx); padding:4px 8px; border-radius:4px; cursor:pointer;">Save Layout</button>
       <button id="packets-cancel-btn" onclick="cancelLayout('packets')" class="tb-btn" style="display:none; border:1px solid var(--border); background:var(--surf2); color:var(--muted); padding:4px 8px; border-radius:4px; cursor:pointer;">Cancel</button>
       <button id="packets-reset-btn" onclick="resetLayout('packets')" class="tb-btn" style="display:none; border:1px solid rgba(255,80,80,.3); background:var(--surf2); color:var(--err); padding:4px 8px; border-radius:4px; cursor:pointer;">Reset</button>
+      <button class="tb-btn tb-reset-all" onclick="resetAllLayouts()" style="display:none; border:1px solid rgba(255,80,80,.3); background:var(--surf2); color:var(--err); padding:4px 8px; border-radius:4px; cursor:pointer; margin-left:4px; opacity:.7;">Reset All</button>
     </div>
   </div>
 
@@ -1652,6 +1654,7 @@
       <button id="an-save-btn" onclick="saveLayout('analytics')" class="tb-btn" style="display:none; border:1px solid rgba(77,255,209,.3); background:var(--surf2); color:var(--tx); padding:4px 8px; border-radius:4px; cursor:pointer;">Save Layout</button>
       <button id="an-cancel-btn" onclick="cancelLayout('analytics')" class="tb-btn" style="display:none; border:1px solid var(--border); background:var(--surf2); color:var(--muted); padding:4px 8px; border-radius:4px; cursor:pointer;">Cancel</button>
       <button id="an-reset-btn" onclick="resetLayout('analytics')" class="tb-btn" style="display:none; border:1px solid rgba(255,80,80,.3); background:var(--surf2); color:var(--err); padding:4px 8px; border-radius:4px; cursor:pointer;">Reset</button>
+      <button class="tb-btn tb-reset-all" onclick="resetAllLayouts()" style="display:none; border:1px solid rgba(255,80,80,.3); background:var(--surf2); color:var(--err); padding:4px 8px; border-radius:4px; cursor:pointer; margin-left:4px; opacity:.7;">Reset All</button>
     </div>
     <div style="font-size:0.8em; color:var(--muted); display:flex; gap:10px; flex-wrap:wrap;">
       <select id="analytics-node-select" onchange="handleNodeSelectChange()" style="background:var(--surf); color:var(--text); border:1px solid var(--border); padding:4px; max-width: 200px;">
@@ -1869,6 +1872,7 @@
       <button id="radar-save-btn" onclick="saveLayout('radar')" class="tb-btn" style="display:none; border:1px solid rgba(77,255,209,.3); background:var(--surf2); color:var(--tx); padding:4px 8px; border-radius:4px; cursor:pointer;">Save Layout</button>
       <button id="radar-cancel-btn" onclick="cancelLayout('radar')" class="tb-btn" style="display:none; border:1px solid var(--border); background:var(--surf2); color:var(--muted); padding:4px 8px; border-radius:4px; cursor:pointer;">Cancel</button>
       <button id="radar-reset-btn" onclick="resetLayout('radar')" class="tb-btn" style="display:none; border:1px solid rgba(255,80,80,.3); background:var(--surf2); color:var(--err); padding:4px 8px; border-radius:4px; cursor:pointer;">Reset</button>
+      <button class="tb-btn tb-reset-all" onclick="resetAllLayouts()" style="display:none; border:1px solid rgba(255,80,80,.3); background:var(--surf2); color:var(--err); padding:4px 8px; border-radius:4px; cursor:pointer; margin-left:4px; opacity:.7;">Reset All</button>
     </div>
   </div>
 
@@ -1940,6 +1944,7 @@
       <button id="config-save-btn" onclick="saveLayout('config')" class="tb-btn" style="display:none; border:1px solid rgba(77,255,209,.3); background:var(--surf2); color:var(--tx); padding:4px 8px; border-radius:4px; cursor:pointer;">Save Layout</button>
       <button id="config-cancel-btn" onclick="cancelLayout('config')" class="tb-btn" style="display:none; border:1px solid var(--border); background:var(--surf2); color:var(--muted); padding:4px 8px; border-radius:4px; cursor:pointer;">Cancel</button>
       <button id="config-reset-btn" onclick="resetLayout('config')" class="tb-btn" style="display:none; border:1px solid rgba(255,80,80,.3); background:var(--surf2); color:var(--err); padding:4px 8px; border-radius:4px; cursor:pointer;">Reset</button>
+      <button class="tb-btn tb-reset-all" onclick="resetAllLayouts()" style="display:none; border:1px solid rgba(255,80,80,.3); background:var(--surf2); color:var(--err); padding:4px 8px; border-radius:4px; cursor:pointer; margin-left:4px; opacity:.7;">Reset All</button>
     </div>
   </div>
 
@@ -6328,20 +6333,26 @@ function toggleEditMode(id, forceState) {
   const resetBtn  = document.getElementById(`${prefix}-reset-btn`);
   const addBtn    = document.getElementById(`${prefix}-add-btn`);
 
+  // Find the Reset All button sibling inside the same toolbar
+  const resetAllBtn = resetBtn ? resetBtn.nextElementSibling : null;
+  const isResetAll  = resetAllBtn?.classList.contains('tb-reset-all') ? resetAllBtn : null;
+
   if (newState) { // Edit mode ON
-    if (editBtn)   editBtn.style.display = 'none';
-    if (saveBtn)   saveBtn.style.display = 'inline-block';
-    if (cancelBtn) cancelBtn.style.display = 'inline-block';
-    if (resetBtn)  resetBtn.style.display = 'inline-block';
-    if (addBtn)    addBtn.style.display = 'inline-block';
+    if (editBtn)    editBtn.style.display = 'none';
+    if (saveBtn)    saveBtn.style.display = 'inline-block';
+    if (cancelBtn)  cancelBtn.style.display = 'inline-block';
+    if (resetBtn)   resetBtn.style.display = 'inline-block';
+    if (isResetAll) isResetAll.style.display = 'inline-block';
+    if (addBtn)     addBtn.style.display = 'inline-block';
     const gs = document.querySelector(`.${id}-grid-stack`);
     if (gs) gs.classList.add('grid-edit-mode');
   } else { // Edit mode OFF
-    if (editBtn)   editBtn.style.display = 'inline-block';
-    if (saveBtn)   saveBtn.style.display = 'none';
-    if (cancelBtn) cancelBtn.style.display = 'none';
-    if (resetBtn)  resetBtn.style.display = 'none';
-    if (addBtn)    addBtn.style.display = 'none';
+    if (editBtn)    editBtn.style.display = 'inline-block';
+    if (saveBtn)    saveBtn.style.display = 'none';
+    if (cancelBtn)  cancelBtn.style.display = 'none';
+    if (resetBtn)   resetBtn.style.display = 'none';
+    if (isResetAll) isResetAll.style.display = 'none';
+    if (addBtn)     addBtn.style.display = 'none';
     const gs = document.querySelector(`.${id}-grid-stack`);
     if (gs) gs.classList.remove('grid-edit-mode');
 
