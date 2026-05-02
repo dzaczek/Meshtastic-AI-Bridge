@@ -3823,9 +3823,11 @@ async function loadPerNodeAnalytics(nodeId) {
     if (!r.ok) return;
     const data = await r.json();
 
-    // Hourly Broadcast
+    // Hourly Broadcast — adaptive buckets
     if (data.hourly) {
-      const hData = Object.keys(data.hourly).map(h => ({ label: `${h}:00`, value: data.hourly[h] }));
+      const hData = Array.isArray(data.hourly)
+        ? data.hourly.map(b => ({ label: b.label, value: b.count }))
+        : Object.keys(data.hourly).map(h => ({ label: `${h}:00`, value: data.hourly[h] }));
       drawBarChart(hData, '#d3-an-pernode-hourly', 'Time', 'Packets', '#4488ff');
     }
 
@@ -3901,8 +3903,14 @@ async function initAnalytics() {
         data.portnum_types.map(t => `<option value="${t}" ${t===cur?'selected':''}>${t.replace('_APP','')}</option>`).join('');
     }
 
-    // 1. Hourly Bar
-    const hData = Object.keys(data.hourly).map(h => ({ label: `${h}:00`, value: data.hourly[h] }));
+    // 1. Activity bar — adaptive buckets from backend
+    const hData = Array.isArray(data.hourly)
+      ? data.hourly.map(b => ({ label: b.label, value: b.count }))
+      : Object.keys(data.hourly).map(h => ({ label: `${h}:00`, value: data.hourly[h] }));
+    const bucketLbl = data.bucket_label || '1h';
+    // Update chart title to reflect bucket size
+    const hourlyTitle = document.querySelector('#d3-an-hourly')?.closest('.stat-block')?.querySelector('.stat-title');
+    if (hourlyTitle) hourlyTitle.childNodes[0].textContent = `Activity (${bucketLbl} buckets) `;
     drawBarChart(hData, '#d3-an-hourly', 'Time', 'Packets', '#4488ff');
 
     // 2. Types Bar

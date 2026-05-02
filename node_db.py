@@ -622,6 +622,34 @@ def add_packet_record(parsed: dict) -> None:
             )
 
 
+def _bucket_config(hours: float) -> tuple:
+    """Return (bucket_seconds, sqlite_fmt, label_suffix) based on time range."""
+    if hours <= 1:    return (5  * 60,   '%H:%M',    '5m')
+    if hours <= 3:    return (10 * 60,   '%H:%M',    '10m')
+    if hours <= 6:    return (15 * 60,   '%H:%M',    '15m')
+    if hours <= 24:   return (60 * 60,   '%H:00',    '1h')
+    if hours <= 72:   return (6  * 3600, '%d/%m %Hh','6h')
+    if hours <= 336:  return (24 * 3600, '%m-%d',    '1d')
+    return              (7  * 86400, '%m-%d',    '1w')
+
+
+def _build_hourly(conn, start_ts: float, hours: float, pf_and: str, hb_and: str,
+                  params: list) -> tuple:
+    """Return (buckets_list, bucket_label_str) with adaptive time resolution."""
+    bucket_secs, sqlite_fmt, label = _bucket_config(hours)
+    sql = f"""
+        SELECT strftime(?, datetime(
+               CAST(ts/{bucket_secs} AS INTEGER)*{bucket_secs},
+               'unixepoch','localtime')) AS b,
+               COUNT(*) AS c
+        FROM packets WHERE ts > ? {pf_and} {hb_and}
+        GROUP BY b ORDER BY b
+    """
+    rows = conn.execute(sql, [sqlite_fmt] + params).fetchall()
+    buckets = [{"label": r[0] or "?", "count": r[1]} for r in rows if r[0]]
+    return buckets, label
+
+
 def get_packet_analytics(hours: float = 168.0, portnum_filter: str = None, hide_broadcast: bool = False) -> dict:
     """Return aggregated packet analytics for the last `hours` hours."""
     if not _conn:
@@ -642,14 +670,9 @@ def get_packet_analytics(hours: float = 168.0, portnum_filter: str = None, hide_
         total_packets = total_info[0] or 0
         total_encrypted = total_info[1] or 0
 
-        hourly_rows = _conn.execute(
-            f"""SELECT strftime('%H', datetime(ts, 'unixepoch', 'localtime')) as hr, COUNT(*)
-               FROM packets WHERE ts > ? {pf_and} {hb_and} GROUP BY hr ORDER BY hr""",
-            pf_p([start_ts])
-        ).fetchall()
-        hourly = {str(i).zfill(2): 0 for i in range(24)}
-        for r in hourly_rows:
-            if r[0]: hourly[r[0]] = r[1]
+        hourly, bucket_label = _build_hourly(
+            _conn, start_ts, hours, pf_and, hb_and, pf_p([start_ts])
+        )
 
         top_senders = _conn.execute(
             f"""SELECT from_id, COUNT(*) as cnt FROM packets
@@ -725,6 +748,7 @@ def get_packet_analytics(hours: float = 168.0, portnum_filter: str = None, hide_
         "encrypted": total_encrypted,
         "plaintext": total_packets - total_encrypted,
         "hourly": hourly,
+        "bucket_label": bucket_label,
         "top_senders": [{"id": r[0], "count": r[1]} for r in top_senders],
         "top_links":      [{"from": r[0], "to": r[1], "count": r[2]} for r in top_links],
         "top_links_text": [{"from": r[0], "to": r[1], "count": r[2]} for r in top_links_text],
@@ -746,15 +770,11 @@ def get_per_node_analytics(node_id: str, hours: float = 168.0, hide_broadcast: b
     hb_and = "AND to_id NOT IN ('broadcast','ffffffff')" if hide_broadcast else ""
 
     with _lock:
-        # Hourly broadcast count (packets sent per hour by this node)
-        hourly_rows = _conn.execute(
-            f"""SELECT strftime('%H', datetime(ts, 'unixepoch', 'localtime')) as hr, COUNT(*)
-               FROM packets WHERE ts > ? AND from_id = ? {hb_and} GROUP BY hr ORDER BY hr""",
-            (start_ts, node_id)
-        ).fetchall()
-        hourly = {str(i).zfill(2): 0 for i in range(24)}
-        for r in hourly_rows:
-            if r[0]: hourly[r[0]] = r[1]
+        # Broadcast count with adaptive bucket size
+        hourly, bucket_label = _build_hourly(
+            _conn, start_ts, hours, f"AND from_id = ?", hb_and,
+            [start_ts, node_id]
+        )
 
         # Top receivers from this node
         top_receivers_rows = _conn.execute(
@@ -814,6 +834,7 @@ def get_per_node_analytics(node_id: str, hours: float = 168.0, hide_broadcast: b
 
         return {
             "hourly": hourly,
+            "bucket_label": bucket_label,
             "top_receivers": top_receivers,
             "top_senders": top_senders,
             "top_receivers_text": top_receivers_text,
