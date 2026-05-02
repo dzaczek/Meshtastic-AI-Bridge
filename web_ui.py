@@ -368,6 +368,14 @@ def _parse_traceroute(packet: dict, interface) -> dict | None:
     }
 
 
+def update_message_ack(web_id: int, ack: str) -> None:
+    with _lock:
+        for msg in _messages:
+            if msg.get("id") == web_id:
+                msg["ack"] = ack
+                break
+
+
 def _handle_ack(packet: dict) -> None:
     decoded = packet.get("decoded") or {}
     if decoded.get("portnum") != "ROUTING_APP":
@@ -977,18 +985,20 @@ if _HAS_FLASK:
         except Exception as e:
             return jsonify({"ok": False, "error": str(e)}), 500
         if ok:
-            sender  = get_bot_name()
-            is_dm   = bool(destination)
-            ack_val = "pending" if is_dm else "none"
-            web_id  = add_message(text, sender, channel, "tx",
-                                  sender_id=_status.get("node_id", ""),
-                                  destination_id=destination,
-                                  ack=ack_val)
-            # Register ACK tracking for DMs
+            sender = get_bot_name()
+            is_dm  = bool(destination)
+            web_id = add_message(text, sender, channel, "tx",
+                                 sender_id=_status.get("node_id", ""),
+                                 destination_id=destination,
+                                 ack="pending")
             if is_dm and _meshtastic_handler:
+                # DM: wait for radio ACK packet
                 pkt_id = _meshtastic_handler._last_tx_packet_id
                 if pkt_id:
                     _pending_acks[int(pkt_id)] = web_id
+            else:
+                # Channel broadcast: no radio ACK expected, mark sent immediately
+                update_message_ack(web_id, "ok")
         return jsonify({"ok": ok, "reason": reason})
 
     @app.route("/api/nodes")

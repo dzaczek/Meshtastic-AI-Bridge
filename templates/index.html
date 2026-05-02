@@ -550,9 +550,17 @@
 
     /* ACK indicator */
     .msg-ack{margin-left:4px;font-size:.75em;opacity:.7;}
-    .ack-pending{color:var(--muted);}
+    .ack-pending{color:var(--muted);animation:ack-blink 1.2s ease-in-out infinite;}
     .ack-ok     {color:var(--radio);}
     .ack-fail   {color:var(--err);}
+    @keyframes ack-blink{0%,100%{opacity:.5}50%{opacity:1}}
+    @keyframes badge-pulse{
+      0%  {box-shadow:0 0 0 0 rgba(224,108,117,.8);transform:scale(1)}
+      60% {box-shadow:0 0 0 6px rgba(224,108,117,0);transform:scale(1.18)}
+      100%{box-shadow:0 0 0 0 rgba(224,108,117,0);transform:scale(1)}
+    }
+    #badge-unread.has-unread{animation:badge-pulse 1.8s ease-in-out infinite;display:inline-block!important;}
+    .tab-btn.has-unread-tab{color:var(--text)!important;}
 
     /* Conversation list */
     .conv-section{padding:6px 10px 2px;color:var(--primary);font-size:.63em;text-transform:uppercase;letter-spacing:1.5px;}
@@ -1169,7 +1177,7 @@
 <!-- ── TAB BAR ── -->
 <div id="tabbar">
   <button class="tab-btn active"  onclick="switchTab('ops')">Ops</button>
-  <button class="tab-btn"        onclick="switchTab('chat')">Chat <span id="badge-unread" style="display:none;background:#e06c75;color:#fff;font-size:.7em;font-weight:700;padding:1px 5px;border-radius:9px;vertical-align:middle;"></span></button>
+  <button class="tab-btn"        onclick="switchTab('chat')">Chat <span id="badge-unread" style="background:#e06c75;color:#fff;font-size:.7em;font-weight:700;padding:1px 5px;border-radius:9px;vertical-align:middle;"></span></button>
   <button class="tab-btn"        onclick="switchTab('nodes')">Nodes <span id="badge-nc" style="color:var(--muted);font-size:.8em"></span></button>
   <button class="tab-btn"        onclick="switchTab('map')">Map</button>
   <button class="tab-btn"        onclick="switchTab('packets')">Packets <span id="badge-pkt" style="color:var(--muted);font-size:.8em"></span></button>
@@ -2690,14 +2698,17 @@ function _updateConvBadges() {
       .filter(([k]) => k !== 'system' && k !== 'all')
       .reduce((s, [, v]) => s + (v || 0), 0);
   const gb = document.getElementById('badge-unread');
+  const chatTabBtn = gb?.closest('.tab-btn');
   if (gb) {
     if (totalUnread > 0) {
       gb.textContent = totalUnread > 99 ? '99+' : totalUnread;
-      gb.style.display = 'inline-block';
+      gb.classList.add('has-unread');
     } else {
-      gb.style.display = 'none';
+      gb.textContent = '';
+      gb.classList.remove('has-unread');
     }
   }
+  if (chatTabBtn) chatTabBtn.classList.toggle('has-unread-tab', totalUnread > 0);
 }
 
 const BROADCAST_IDS = new Set(['ffffffff','4294967295','']);
@@ -2778,16 +2789,17 @@ async function fetchMessages(gen) {
     if (myGen !== _feedGen && since === 0) return;
     const msgs = (await r.json()).messages || [];
     msgs.forEach(msg => {
-      // Update ACK indicator if message already in DOM
-      if (msg.ack === 'ok' || msg.ack === 'fail') {
+      // Update ACK indicator if message already in DOM (dedup for pending/ok/fail)
+      if (msg.ack === 'ok' || msg.ack === 'fail' || msg.ack === 'pending') {
         const existing = feed.querySelector(`[data-msgid="${msg.id}"]`);
         if (existing) {
           const ackEl = existing.querySelector('.msg-ack');
           if (ackEl) {
             ackEl.className = `msg-ack ack-${msg.ack}`;
-            ackEl.title = msg.ack === 'ok' ? 'Delivered' : 'Delivery failed';
-            ackEl.textContent = msg.ack === 'ok' ? '✓' : '✗';
+            ackEl.title = msg.ack === 'ok' ? 'Delivered' : msg.ack === 'fail' ? 'Delivery failed' : 'Waiting for ACK';
+            ackEl.textContent = msg.ack === 'ok' ? '✓' : msg.ack === 'fail' ? '✗' : '⋯';
           }
+          if (msg.timestamp > lastMsgTs) lastMsgTs = msg.timestamp;
           return;
         }
       }
@@ -2829,8 +2841,12 @@ async function sendMessage() {
       body: JSON.stringify(body),
     });
     const d = await r.json();
-    if (d.ok) document.getElementById('msg-text').value = '';
-    else alert(d.error || d.reason || 'Send error');
+    if (d.ok) {
+      document.getElementById('msg-text').value = '';
+      fetchMessages();  // show sent message + ACK immediately
+    } else {
+      alert(d.error || d.reason || 'Send error');
+    }
   } catch(e) { alert('Network error: ' + e.message); }
   finally { btn.disabled = false; }
 }
