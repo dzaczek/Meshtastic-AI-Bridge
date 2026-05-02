@@ -886,12 +886,21 @@ class MeshtasticHandler:
             return False, str(e)
 
     def set_fixed_position(self, lat: float, lon: float, alt: int = 0) -> tuple:
-        """Set a fixed GPS position that the node broadcasts when GPS is disabled."""
+        """Set a fixed GPS position and write fixed_position=True to localConfig so GPS doesn't override it."""
         if not self.interface or not self.is_connected:
             return False, "Not connected"
         try:
             node = self.interface.getNode('^local')
+            # 1. Send the fixed position admin message
             node.setFixedPosition(lat, lon, alt)
+            # 2. Also persist fixed_position=True in position config so GPS cannot override
+            try:
+                lc = getattr(node, 'localConfig', None)
+                if lc and hasattr(lc, 'position'):
+                    lc.position.fixed_position = True
+                    node.writeConfig("position")
+            except Exception as cfg_err:
+                print(f"WARNING: set_fixed_position could not write config: {cfg_err}")
             return True, f"Fixed position set: {lat:.6f}, {lon:.6f} alt={alt}m"
         except Exception as e:
             traceback.print_exc()
