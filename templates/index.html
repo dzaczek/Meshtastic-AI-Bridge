@@ -2614,18 +2614,28 @@ function msgVisible(msg) {
   if ((msg.type === 'system' || msg.type === 'error') && !showSystem) return false;
   if (msg.type === 'system' || msg.type === 'error') return activeConv === 'all' && !chatSenderFilter;
 
-  // Sender filter (set by clicking a name in the chat): show ALL messages
-  // from OR to this node — broadcast and DM alike — so the user sees the
-  // full conversation history, not just private messages.
-  // Normalize by stripping ! prefix so format differences don't break matching.
+  // Normalize IDs once (strip ! prefix)
+  const sid = (msg.sender_id      || '').replace(/^!/, '').toLowerCase();
+  const did = (msg.destination_id || '').replace(/^!/, '').toLowerCase();
+
+  // chatSenderFilter: show ALL messages from OR to this node (broadcast + DM).
+  // Set by clicking a sender name in the chat feed.
   if (chatSenderFilter) {
-    const cf  = chatSenderFilter.replace(/^!/, '').toLowerCase();
-    const sid = (msg.sender_id       || '').replace(/^!/, '').toLowerCase();
-    const did = (msg.destination_id  || '').replace(/^!/, '').toLowerCase();
+    const cf = chatSenderFilter.replace(/^!/, '').toLowerCase();
     return sid === cf || did === cf;
   }
 
   if (activeConv === 'all') return true;
+
+  // DM conversation view: show ALL messages from OR to this peer, not just
+  // private messages. Most mesh nodes broadcast to ffffffff (not to our bot
+  // specifically), so msgConvKey returns 'ch:0' for them even when they're
+  // the selected contact. We match by sender/destination instead.
+  if (activeConv.startsWith('dm:')) {
+    const peerId = activeConv.slice(3).toLowerCase();
+    return sid === peerId || did === peerId;
+  }
+
   return msgConvKey(msg) === activeConv;
 }
 
