@@ -4098,8 +4098,8 @@ function drawRadialRolesChart(selector) {
   if (!container || typeof d3 === 'undefined') return;
 
   container.innerHTML = '';
-  // Include ALL non-mine nodes; empty/null role defaults to CLIENT
-  const nodes = nodesCache.filter(n => !n.is_mine);
+  // Only radio nodes (no MQTT) — analytics shows radio-only data
+  const nodes = nodesCache.filter(n => !n.is_mine && !n.via_mqtt);
   if (!nodes.length) {
     container.innerHTML = '<div style="padding:20px;color:var(--muted);font-size:.8em">No node data yet.</div>';
     return;

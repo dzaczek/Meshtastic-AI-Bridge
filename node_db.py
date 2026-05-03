@@ -117,6 +117,7 @@ CREATE TABLE IF NOT EXISTS packets (
     channel     INTEGER DEFAULT 0,
     portnum     TEXT    NOT NULL,
     encrypted   INTEGER DEFAULT 0,
+    via_mqtt    INTEGER DEFAULT 0,
     packet_json TEXT    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_packets_ts ON packets(ts);
@@ -159,6 +160,12 @@ def init(db_path: str | None = None) -> None:
                 _conn.execute("ALTER TABLE ai_token_usage ADD COLUMN category TEXT NOT NULL DEFAULT 'chat'")
             if cols and 'model' not in cols:
                 _conn.execute("ALTER TABLE ai_token_usage ADD COLUMN model TEXT NOT NULL DEFAULT ''")
+        except Exception:
+            pass
+        try:
+            pkt_cols = {r[1] for r in _conn.execute("PRAGMA table_info(packets)").fetchall()}
+            if pkt_cols and 'via_mqtt' not in pkt_cols:
+                _conn.execute("ALTER TABLE packets ADD COLUMN via_mqtt INTEGER DEFAULT 0")
         except Exception:
             pass
         _conn.executescript(_SCHEMA)
@@ -602,15 +609,16 @@ def add_packet_record(parsed: dict) -> None:
         channel = parsed.get("channel", 0)
         portnum = parsed.get("portnum_raw", "UNKNOWN")
         encrypted = 1 if parsed.get("encrypted") else 0
+        via_mqtt = 1 if parsed.get("via_mqtt") else 0
         pkt_json = _json.dumps(parsed, ensure_ascii=False)
     except Exception:
         return
 
     with _lock, _conn:
         _conn.execute(
-            """INSERT INTO packets (ts, from_id, to_id, channel, portnum, encrypted, packet_json)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (ts, from_id, to_id, channel, portnum, encrypted, pkt_json)
+            """INSERT INTO packets (ts, from_id, to_id, channel, portnum, encrypted, via_mqtt, packet_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (ts, from_id, to_id, channel, portnum, encrypted, via_mqtt, pkt_json)
         )
 
         # Prune older than 30 days. Do it ~1% of the time to avoid lag on every message.
@@ -650,7 +658,8 @@ def _build_hourly(conn, start_ts: float, hours: float, pf_and: str, hb_and: str,
     return buckets, label
 
 
-def get_packet_analytics(hours: float = 168.0, portnum_filter: str = None, hide_broadcast: bool = False) -> dict:
+def get_packet_analytics(hours: float = 168.0, portnum_filter: str = None,
+                         hide_broadcast: bool = False, no_mqtt: bool = True) -> dict:
     """Return aggregated packet analytics for the last `hours` hours."""
     if not _conn:
         return {}
@@ -658,62 +667,65 @@ def get_packet_analytics(hours: float = 168.0, portnum_filter: str = None, hide_
     import time
     start_ts = time.time() - (hours * 3600.0)
     pf = portnum_filter
-    pf_and = "AND portnum = ?" if pf else ""
-    hb_and = "AND to_id NOT IN ('broadcast','ffffffff')" if hide_broadcast else ""
+    pf_and  = "AND portnum = ?" if pf else ""
+    hb_and  = "AND to_id NOT IN ('broadcast','ffffffff')" if hide_broadcast else ""
+    mq_and  = "AND via_mqtt = 0" if no_mqtt else ""
     pf_p = lambda base: base + ([pf] if pf else [])
 
     with _lock:
         total_info = _conn.execute(
-            f"SELECT COUNT(*), SUM(CASE WHEN encrypted=1 THEN 1 ELSE 0 END) FROM packets WHERE ts > ? {pf_and} {hb_and}",
+            f"SELECT COUNT(*), SUM(CASE WHEN encrypted=1 THEN 1 ELSE 0 END) FROM packets WHERE ts > ? {pf_and} {hb_and} {mq_and}",
             pf_p([start_ts])
         ).fetchone()
         total_packets = total_info[0] or 0
         total_encrypted = total_info[1] or 0
 
+        # Combine all filters for _build_hourly
+        all_and = f"{pf_and} {hb_and} {mq_and}"
         hourly, bucket_label = _build_hourly(
-            _conn, start_ts, hours, pf_and, hb_and, pf_p([start_ts])
+            _conn, start_ts, hours, all_and, "", pf_p([start_ts])
         )
 
         top_senders = _conn.execute(
             f"""SELECT from_id, COUNT(*) as cnt FROM packets
-               WHERE ts > ? AND from_id != '?' {pf_and} {hb_and}
+               WHERE ts > ? AND from_id != '?' {pf_and} {hb_and} {mq_and}
                GROUP BY from_id ORDER BY cnt DESC LIMIT 10""",
             pf_p([start_ts])
         ).fetchall()
 
         # All unicast links
         top_links = _conn.execute(
-            """SELECT from_id, to_id, COUNT(*) as cnt FROM packets
-               WHERE ts > ? AND from_id != '?' AND to_id NOT IN ('?', 'broadcast', 'ffffffff')
+            f"""SELECT from_id, to_id, COUNT(*) as cnt FROM packets
+               WHERE ts > ? AND from_id != '?' AND to_id NOT IN ('?', 'broadcast', 'ffffffff') {mq_and}
                GROUP BY from_id, to_id ORDER BY cnt DESC LIMIT 500""",
             (start_ts,)
         ).fetchall()
 
         # Text-only P2P links
         top_links_text = _conn.execute(
-            """SELECT from_id, to_id, COUNT(*) as cnt FROM packets
+            f"""SELECT from_id, to_id, COUNT(*) as cnt FROM packets
                WHERE ts > ? AND from_id != '?' AND to_id NOT IN ('?', 'broadcast', 'ffffffff')
-               AND portnum = 'TEXT_MESSAGE_APP'
+               AND portnum = 'TEXT_MESSAGE_APP' {mq_and}
                GROUP BY from_id, to_id ORDER BY cnt DESC LIMIT 500""",
             (start_ts,)
         ).fetchall()
 
         # Available portnum types for filter
         portnum_types = _conn.execute(
-            "SELECT DISTINCT portnum FROM packets WHERE ts > ? ORDER BY portnum",
+            f"SELECT DISTINCT portnum FROM packets WHERE ts > ? {mq_and} ORDER BY portnum",
             (start_ts,)
         ).fetchall()
 
         encrypted_senders = _conn.execute(
             f"""SELECT from_id, COUNT(*) as cnt FROM packets
-               WHERE ts > ? AND from_id != '?' AND encrypted=1 {pf_and}
+               WHERE ts > ? AND from_id != '?' AND encrypted=1 {pf_and} {mq_and}
                GROUP BY from_id ORDER BY cnt DESC LIMIT 100""",
             pf_p([start_ts])
         ).fetchall()
 
         encrypted_links = _conn.execute(
-            """SELECT from_id, to_id, COUNT(*) as cnt FROM packets
-               WHERE ts > ? AND from_id != '?' AND to_id NOT IN ('?', 'broadcast', 'ffffffff') AND encrypted=1
+            f"""SELECT from_id, to_id, COUNT(*) as cnt FROM packets
+               WHERE ts > ? AND from_id != '?' AND to_id NOT IN ('?', 'broadcast', 'ffffffff') AND encrypted=1 {mq_and}
                GROUP BY from_id, to_id ORDER BY cnt DESC LIMIT 100""",
             (start_ts,)
         ).fetchall()
@@ -732,14 +744,14 @@ def get_packet_analytics(hours: float = 168.0, portnum_filter: str = None, hide_
             f"""SELECT
                SUM(CASE WHEN to_id IN ('broadcast', 'ffffffff') THEN 1 ELSE 0 END) as broadcast_cnt,
                SUM(CASE WHEN to_id NOT IN ('broadcast', 'ffffffff') AND to_id != '?' THEN 1 ELSE 0 END) as private_cnt
-               FROM packets WHERE ts > ? {pf_and} {hb_and}""",
+               FROM packets WHERE ts > ? {pf_and} {hb_and} {mq_and}""",
             pf_p([start_ts])
         ).fetchone()
         broadcast_cnt = dest_stats[0] or 0
         private_cnt = dest_stats[1] or 0
 
         top_types = _conn.execute(
-            "SELECT portnum, COUNT(*) as cnt FROM packets WHERE ts > ? GROUP BY portnum ORDER BY cnt DESC LIMIT 20",
+            f"SELECT portnum, COUNT(*) as cnt FROM packets WHERE ts > ? {mq_and} GROUP BY portnum ORDER BY cnt DESC LIMIT 20",
             (start_ts,)
         ).fetchall()
 
@@ -760,7 +772,8 @@ def get_packet_analytics(hours: float = 168.0, portnum_filter: str = None, hide_
         "portnum_types": [r[0] for r in portnum_types],
     }
 
-def get_per_node_analytics(node_id: str, hours: float = 168.0, hide_broadcast: bool = False) -> dict:
+def get_per_node_analytics(node_id: str, hours: float = 168.0,
+                           hide_broadcast: bool = False, no_mqtt: bool = True) -> dict:
     """Return aggregated packet analytics for a specific node over the last `hours` hours."""
     if not _conn:
         return {}
@@ -768,11 +781,12 @@ def get_per_node_analytics(node_id: str, hours: float = 168.0, hide_broadcast: b
     import time
     start_ts = time.time() - (hours * 3600.0)
     hb_and = "AND to_id NOT IN ('broadcast','ffffffff')" if hide_broadcast else ""
+    mq_and = "AND via_mqtt = 0" if no_mqtt else ""
 
     with _lock:
         # Broadcast count with adaptive bucket size
         hourly, bucket_label = _build_hourly(
-            _conn, start_ts, hours, f"AND from_id = ?", hb_and,
+            _conn, start_ts, hours, f"AND from_id = ? {mq_and}", hb_and,
             [start_ts, node_id]
         )
 

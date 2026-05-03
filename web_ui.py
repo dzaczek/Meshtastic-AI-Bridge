@@ -1174,7 +1174,8 @@ if _HAS_FLASK:
             hours = float(request.args.get("days", 7)) * 24.0
 
         hide_broadcast = request.args.get("hide_broadcast", "0") == "1"
-        stats = _node_db.get_per_node_analytics(node_id, hours=hours, hide_broadcast=hide_broadcast)
+        no_mqtt = request.args.get("no_mqtt", "1") != "0"   # default: radio-only
+        stats = _node_db.get_per_node_analytics(node_id, hours=hours, hide_broadcast=hide_broadcast, no_mqtt=no_mqtt)
 
         iface = getattr(_meshtastic_handler, "interface", None)
         for key in ("top_receivers", "top_receivers_text"):
@@ -1199,8 +1200,10 @@ if _HAS_FLASK:
 
         portnum_filter = request.args.get("portnum") or None
         hide_broadcast = request.args.get("hide_broadcast", "0") == "1"
+        no_mqtt = request.args.get("no_mqtt", "1") != "0"   # default: radio-only
 
-        stats = _node_db.get_packet_analytics(hours=hours, portnum_filter=portnum_filter, hide_broadcast=hide_broadcast)
+        stats = _node_db.get_packet_analytics(hours=hours, portnum_filter=portnum_filter,
+                                               hide_broadcast=hide_broadcast, no_mqtt=no_mqtt)
 
         iface = getattr(_meshtastic_handler, "interface", None)
         if "top_senders" in stats:
