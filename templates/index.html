@@ -2602,7 +2602,17 @@ function msgVisible(msg) {
   const now = Date.now()/1000;
   if (timeFilter > 0 && (now - msg.timestamp) > timeFilter) return false;
   if ((msg.type === 'system' || msg.type === 'error') && !showSystem) return false;
-  if (msg.type === 'system' || msg.type === 'error') return activeConv === 'all';
+  if (msg.type === 'system' || msg.type === 'error') return activeConv === 'all' && !chatSenderFilter;
+
+  // Sender filter (set by clicking a name in the chat): show ALL messages
+  // from OR to this node — broadcast and DM alike — so the user sees the
+  // full conversation history, not just private messages.
+  if (chatSenderFilter) {
+    const sid = (msg.sender_id  || '').toLowerCase();
+    const did = (msg.destination_id || '').toLowerCase();
+    return sid === chatSenderFilter || did === chatSenderFilter;
+  }
+
   if (activeConv === 'all') return true;
   return msgConvKey(msg) === activeConv;
 }
@@ -2614,6 +2624,8 @@ function toggleSystemMsgs() {
 }
 
 function switchConv(key) {
+  // Switching conversation always clears the sender filter
+  chatSenderFilter = null;
   // Save scroll position of current conv
   convScrollPos[activeConv] = feed.scrollTop;
   // Clear unread for new conv
@@ -3555,15 +3567,21 @@ function setChatSeenFilter(secs){ chatSeenFilter = secs; renderDmList(nodesCache
 let dmNodeId = null;   // hex id of DM target, null = channel mode
 
 function filterBySender(nodeId, name) {
-  // Clicking the same sender again → go back to all conversations
   if (chatSenderFilter === nodeId) {
+    // Second click on same sender → clear filter, back to full feed
     chatSenderFilter = null;
-    switchConv('all');
+    dmNodeId = null;
+    _applyDmUi();
+    setText('chat-title', activeConv === 'all' ? 'All conversations'
+      : activeConv.startsWith('ch:') ? chName(activeConv.slice(3)) : 'Messages');
   } else {
     chatSenderFilter = nodeId;
-    // switchConv handles activeConv, dmNodeId, _applyDmUi, chat-title, feed rebuild
-    switchConv('dm:' + nodeId);
+    dmNodeId         = nodeId;
+    _applyDmUi(name);
+    // Title shows node name + hint that this is a filtered view
+    setText('chat-title', `${name} — all messages`);
   }
+  rebuildFeed();
   renderDmList(nodesCache);
 }
 
@@ -3584,7 +3602,11 @@ function _applyDmUi(name) {
 
 function clearDm() {
   chatSenderFilter = null;
-  switchConv('all');
+  dmNodeId = null;
+  _applyDmUi();
+  setText('chat-title', activeConv === 'all' ? 'All conversations'
+    : activeConv.startsWith('ch:') ? chName(activeConv.slice(3)) : 'Messages');
+  rebuildFeed();
   renderDmList(nodesCache);
 }
 
