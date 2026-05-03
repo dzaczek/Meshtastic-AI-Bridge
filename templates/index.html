@@ -3555,19 +3555,15 @@ function setChatSeenFilter(secs){ chatSeenFilter = secs; renderDmList(nodesCache
 let dmNodeId = null;   // hex id of DM target, null = channel mode
 
 function filterBySender(nodeId, name) {
+  // Clicking the same sender again → go back to all conversations
   if (chatSenderFilter === nodeId) {
-    // Second click: clear filter AND dm
     chatSenderFilter = null;
-    dmNodeId = null;
-    _applyDmUi();
-    setText('chat-title', chFilter==='all' ? 'All channels' : `Channel ${chFilter}`);
+    switchConv('all');
   } else {
     chatSenderFilter = nodeId;
-    dmNodeId         = nodeId;
-    _applyDmUi(name);
-    setText('chat-title', `DM: ${name}`);
+    // switchConv handles activeConv, dmNodeId, _applyDmUi, chat-title, feed rebuild
+    switchConv('dm:' + nodeId);
   }
-  rebuildFeed();
   renderDmList(nodesCache);
 }
 
@@ -3588,10 +3584,7 @@ function _applyDmUi(name) {
 
 function clearDm() {
   chatSenderFilter = null;
-  dmNodeId = null;
-  _applyDmUi();
-  setText('chat-title', chFilter==='all' ? 'All channels' : `Channel ${chFilter}`);
-  rebuildFeed();
+  switchConv('all');
   renderDmList(nodesCache);
 }
 
