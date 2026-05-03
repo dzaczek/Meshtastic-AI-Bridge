@@ -4098,10 +4098,15 @@ function drawRadialRolesChart(selector) {
   if (!container || typeof d3 === 'undefined') return;
 
   container.innerHTML = '';
-  // Only radio nodes (no MQTT) — analytics shows radio-only data
-  const nodes = nodesCache.filter(n => !n.is_mine && !n.via_mqtt);
+  // Only radio nodes (no MQTT) seen within the selected analytics time window
+  const _hours = parseFloat(document.getElementById('analytics-hours')?.value || '168');
+  const _cutoff = _hours > 0 ? (Date.now() / 1000 - _hours * 3600) : 0;
+  const nodes = nodesCache.filter(n =>
+    !n.is_mine && !n.via_mqtt &&
+    (_cutoff === 0 || (n.last_heard && n.last_heard >= _cutoff))
+  );
   if (!nodes.length) {
-    container.innerHTML = '<div style="padding:20px;color:var(--muted);font-size:.8em">No node data yet.</div>';
+    container.innerHTML = '<div style="padding:20px;color:var(--muted);font-size:.8em">No radio nodes in selected time range.</div>';
     return;
   }
 
