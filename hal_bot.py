@@ -108,83 +108,99 @@ class HalBot:
         # Normalize the input node_id
         node_id = node_id.lower().lstrip('!')
         
-        # Try to find node in interface
-        for node_num, info in interface.nodes.items():
-            # Convert node_num to string and normalize
-            if isinstance(node_num, int):
-                node_id_str = f"{node_num:x}"
-            else:
-                node_id_str = str(node_num).lower().lstrip('!')
+        # Fast path: O(1) direct dictionary lookup
+        info = None
+        node_id_str = node_id
+
+        try:
+            node_num_int = int(node_id, 16)
+            if node_num_int in interface.nodes:
+                info = interface.nodes[node_num_int]
+        except ValueError:
+            pass
             
-            # Debug print
-            # Compare normalized node IDs
-            
-            if node_id_str == node_id:
-                # Get user info with fallbacks
-                user_info = info.get('user', {})
-                long_name = user_info.get('longName', 'Unknown')
-                short_name = user_info.get('shortName', 'UNK')
+        if not info:
+            if node_id in interface.nodes:
+                info = interface.nodes[node_id]
+            elif f"!{node_id}" in interface.nodes:
+                info = interface.nodes[f"!{node_id}"]
                 
-                # Get connection info
-                connection_type = 'mqtt' if info.get('connectionType') == 'tcp' else 'radio'
-                gateway = info.get('gateway', 'N/A')
+        # Slow path: O(N) fallback loop
+        if not info:
+            for node_num, n_info in interface.nodes.items():
+                if isinstance(node_num, int):
+                    n_id_str = f"{node_num:x}"
+                else:
+                    n_id_str = str(node_num).lower().lstrip('!')
                 
-                # Get signal info with fallbacks
-                rssi = info.get('rssi')
-                snr = info.get('snr')
-                if rssi is None and 'lastPacketRssi' in info:
-                    rssi = info['lastPacketRssi']
-                if snr is None and 'lastPacketSnr' in info:
-                    snr = info['lastPacketSnr']
-                
-                hops_away = info.get('hopsAway', None)
-                
-                # Get timing info
-                last_heard = info.get('lastHeard', time.time())
-                uptime = self._format_uptime(info.get('uptime', 0))
-                
-                # Get battery info — batteryLevel is already 0-100 integer in Meshtastic
-                battery_level = info.get('batteryLevel', None)
-                if battery_level is not None:
-                    battery_level = int(battery_level)
-                
-                # Get position from DB as fallback or from info if available
-                lat = None
-                lon = None
+                if n_id_str == node_id:
+                    info = n_info
+                    node_id_str = n_id_str
+                    break
 
-                pos_hist = node_db.get_position_history(node_id_str, limit=1)
-                if pos_hist:
-                    lat = pos_hist[-1].get('lat')
-                    lon = pos_hist[-1].get('lon')
+        if not info:
+            return {}
 
-                # Interface position — handle both float (latitude) and int (latitudeI × 1e7)
-                if 'position' in info:
-                    pos = info['position']
-                    raw_lat = pos.get('latitude') or (pos.get('latitudeI', 0) / 1e7 if pos.get('latitudeI') else None)
-                    raw_lon = pos.get('longitude') or (pos.get('longitudeI', 0) / 1e7 if pos.get('longitudeI') else None)
-                    if raw_lat and raw_lon and not (raw_lat == 0.0 and raw_lon == 0.0):
-                        lat, lon = raw_lat, raw_lon
+        # Get user info with fallbacks
+        user_info = info.get('user', {})
+        long_name = user_info.get('longName', 'Unknown')
+        short_name = user_info.get('shortName', 'UNK')
 
-                node_info = {
-                    'node_id': node_id_str,  # Use the normalized node_id_str
-                    'long_name': long_name,
-                    'short_name': short_name,
-                    'hops_away': hops_away,
-                    'rssi': rssi,
-                    'snr': snr,
-                    'last_heard': last_heard,
-                    'battery_level': battery_level,
-                    'connection_type': connection_type,
-                    'uptime': uptime,
-                    'gateway': gateway,
-                    'lat': lat,
-                    'lon': lon
-                }
-                pass  # node found
-                break
-        
-        if not node_info:
-            pass  # node not found
+        # Get connection info
+        connection_type = 'mqtt' if info.get('connectionType') == 'tcp' else 'radio'
+        gateway = info.get('gateway', 'N/A')
+
+        # Get signal info with fallbacks
+        rssi = info.get('rssi')
+        snr = info.get('snr')
+        if rssi is None and 'lastPacketRssi' in info:
+            rssi = info['lastPacketRssi']
+        if snr is None and 'lastPacketSnr' in info:
+            snr = info['lastPacketSnr']
+
+        hops_away = info.get('hopsAway', None)
+
+        # Get timing info
+        last_heard = info.get('lastHeard', time.time())
+        uptime = self._format_uptime(info.get('uptime', 0))
+
+        # Get battery info — batteryLevel is already 0-100 integer in Meshtastic
+        battery_level = info.get('batteryLevel', None)
+        if battery_level is not None:
+            battery_level = int(battery_level)
+
+        # Get position from DB as fallback or from info if available
+        lat = None
+        lon = None
+
+        pos_hist = node_db.get_position_history(node_id_str, limit=1)
+        if pos_hist:
+            lat = pos_hist[-1].get('lat')
+            lon = pos_hist[-1].get('lon')
+
+        # Interface position — handle both float (latitude) and int (latitudeI × 1e7)
+        if 'position' in info:
+            pos = info['position']
+            raw_lat = pos.get('latitude') or (pos.get('latitudeI', 0) / 1e7 if pos.get('latitudeI') else None)
+            raw_lon = pos.get('longitude') or (pos.get('longitudeI', 0) / 1e7 if pos.get('longitudeI') else None)
+            if raw_lat and raw_lon and not (raw_lat == 0.0 and raw_lon == 0.0):
+                lat, lon = raw_lat, raw_lon
+
+        node_info = {
+            'node_id': node_id_str,  # Use the normalized node_id_str
+            'long_name': long_name,
+            'short_name': short_name,
+            'hops_away': hops_away,
+            'rssi': rssi,
+            'snr': snr,
+            'last_heard': last_heard,
+            'battery_level': battery_level,
+            'connection_type': connection_type,
+            'uptime': uptime,
+            'gateway': gateway,
+            'lat': lat,
+            'lon': lon
+        }
         
         return node_info
 
