@@ -1,5 +1,8 @@
 # Core dependencies
 meshtastic>=2.2.0
+matplotlib>=3.8.0
+networkx>=3.2
+pillow>=10.0
 textual>=0.40.0
 rich>=13.7.0
 

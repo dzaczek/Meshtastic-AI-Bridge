@@ -1,6 +1,7 @@
 import json
 import time
 import math
+import threading
 from datetime import datetime
 import re
 from typing import Dict, Optional, Tuple
@@ -10,6 +11,11 @@ try:
     _HAS_REQUESTS = True
 except ImportError:
     _HAS_REQUESTS = False
+try:
+    import stats_chart as _sc
+    _HAS_STATS = True
+except ImportError:
+    _HAS_STATS = False
 
 class HalBot:
     def __init__(self, meshtastic_handler, app_config=None):
@@ -78,7 +84,7 @@ class HalBot:
 
         # Direct commands (no bot-name guard needed)
         if clean in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl',
-                     'distance', 'odleglosc', 'weather', 'pogoda', 'wx']:
+                     'distance', 'odleglosc', 'weather', 'pogoda', 'wx', 'stats']:
             return True
 
         # 'help' requires ! prefix or bot name partial match
@@ -90,7 +96,7 @@ class HalBot:
         if match:
             command = match.group(1).lower()
             if command in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl',
-                           'distance', 'odleglosc', 'weather', 'pogoda', 'wx']:
+                           'distance', 'odleglosc', 'weather', 'pogoda', 'wx', 'stats']:
                 return True
             if command == 'help' and self._help_triggered(text, clean):
                 return True
@@ -571,8 +577,73 @@ class HalBot:
             return self._handle_distance(args, sender_id, sender_name, channel_id, is_dm)
         elif command in ['weather', 'pogoda', 'wx']:
             return self._handle_weather(args, sender_id, sender_name, channel_id, is_dm)
+        elif command == 'stats':
+            return self._handle_stats(sender_id, sender_name, channel_id, is_dm)
         elif command == 'help':
             return self._handle_help(channel_id, is_dm)
+
+    def _handle_stats(self, sender_id: str, sender_name: str,
+                      channel_id: int, is_dm: bool) -> dict:
+        """Generate 4h stats image and upload to imgbb. Rate-limited 1x per 4h per user."""
+        def _mk(msg):
+            return {'response': msg, 'channel_id': channel_id, 'is_channel_message': not is_dm}
+
+        if not _HAS_STATS:
+            return _mk('Stats charts unavailable (missing libs).')
+
+        api_key = getattr(self.app_config, 'IMGBB_API_KEY', '') if self.app_config else ''
+        if not api_key:
+            return _mk('Stats: imgbb API key not configured (IMGBB_API_KEY).')
+
+        # Cooldown check
+        rem = _sc.check_cooldown(sender_id)
+        if rem is not None:
+            h, s = divmod(rem, 3600)
+            m    = s // 60
+            wait = f'{h}h {m}m' if h else f'{m}m'
+            return _mk(f'Stats on cooldown. Next in {wait}.')
+
+        # Kick off generation in background thread — send "working" ack immediately,
+        # then send the URL when ready via meshtastic_handler.
+        def _generate():
+            try:
+                own_id = None
+                if self.meshtastic_handler:
+                    try:
+                        num = self.meshtastic_handler.node_id
+                        if num:
+                            own_id = f'{num:x}'
+                    except Exception:
+                        pass
+
+                img_bytes = _sc.generate_stats_image(node_db, hours=4.0, own_node_id=own_id)
+                url = _sc.upload_imgbb(img_bytes, api_key)
+
+                if url:
+                    _sc.set_cooldown(sender_id)
+                    reply = f'Stats (4h): {url}'
+                else:
+                    reply = 'Stats: upload failed. Try again later.'
+            except Exception as exc:
+                import logging
+                logging.getLogger(__name__).error('!stats error: %s', exc, exc_info=True)
+                reply = f'Stats: generation error — {exc}'
+
+            # Send the result via meshtastic
+            if self.meshtastic_handler:
+                try:
+                    if is_dm:
+                        self.meshtastic_handler.send_message(reply, destination_id_hex=sender_id)
+                    else:
+                        self.meshtastic_handler.send_message(reply, channel_index=channel_id)
+                except Exception as exc:
+                    import logging
+                    logging.getLogger(__name__).error('!stats send error: %s', exc)
+
+        threading.Thread(target=_generate, daemon=True, name='stats-gen').start()
+
+        ack = f'Generating stats (4h)... link coming shortly.'
+        return _mk(ack)
 
     def _handle_help(self, channel_id: int, is_dm: bool) -> dict:
         lines = [
@@ -582,6 +653,7 @@ class HalBot:
             "traceroute [!id|name] – hop path",
             "distance [!id|name]   – dist to node",
             "wx/weather [city]     – weather",
+            "stats        – 4h chart image (1x/4h)",
             "AI: just write to me",
         ]
         response = "\n".join(lines)
