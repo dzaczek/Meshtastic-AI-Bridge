@@ -1187,6 +1187,15 @@ if _HAS_FLASK:
 
         return jsonify(stats)
 
+    @app.route("/api/analytics/min_hops")
+    @login_required
+    def api_analytics_min_hops():
+        if not _HAS_NODE_DB:
+            return jsonify({})
+        hours = float(request.args.get("hours", 168))
+        no_mqtt = request.args.get("no_mqtt", "1") != "0"
+        return jsonify(_node_db.get_min_hops_per_node(hours=hours, no_mqtt=no_mqtt))
+
     @app.route("/api/analytics/packets")
     @login_required
     def api_analytics_packets():
