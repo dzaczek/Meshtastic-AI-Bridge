@@ -906,11 +906,26 @@ class MeshtasticHandler:
             except Exception as cfg_err:
                 print(f"WARNING: writeConfig(position) failed: {cfg_err}")
 
-            # Step 2: Send SET_FIXED_POSITION admin message with precision_bits=32.
-            # The library's node.setFixedPosition() does not set precision_bits,
-            # so the firmware defaults to ~11-bit obfuscation (~23 km grid).
-            # We bypass the library helper and build the admin message directly
-            # so we can include precision_bits=32 (= full precision, no obfuscation).
+            # Step 2a: Set channel 0 (primary) position_precision = 32.
+            # The firmware applies per-channel obfuscation controlled by
+            # Channel.settings.module_settings.position_precision.
+            # Default = 11 → ~11 km obfuscation.  32 = full precision.
+            try:
+                channels = getattr(node, 'channels', None) or []
+                for ch in channels:
+                    if ch.index == 0:
+                        ch.settings.module_settings.position_precision = 32
+                        node.writeChannel(0)
+                        _t.sleep(2.0)   # wait for flash write
+                        print(f"INFO: Channel 0 position_precision set to 32")
+                        break
+            except Exception as ch_err:
+                print(f"WARNING: channel position_precision write failed: {ch_err}")
+
+            # Step 2b: Send SET_FIXED_POSITION admin message.
+            # The library's setFixedPosition() doesn't set precision_bits in the
+            # Position proto, so we also send precision_bits=32 explicitly
+            # as a belt-and-suspenders measure across firmware versions.
             try:
                 from meshtastic.protobuf import mesh_pb2 as _mesh_pb2
                 from meshtastic.protobuf import admin_pb2 as _admin_pb2
@@ -920,17 +935,14 @@ class MeshtasticHandler:
                 p.longitude_i = int(lon / 1e-7)
                 if alt:
                     p.altitude = alt
-                p.precision_bits = 32  # full precision — disables firmware obfuscation
+                p.precision_bits = 32
 
                 adm = _admin_pb2.AdminMessage()
                 adm.set_fixed_position.CopyFrom(p)
                 node._sendAdmin(adm)
-
-                # Wait for the flash write to complete on the device side.
                 _t.sleep(2.0)
             except Exception as sfp_err:
-                print(f"WARNING: setFixedPosition (custom) failed: {sfp_err}")
-                # Fallback to library helper (without precision_bits)
+                print(f"WARNING: setFixedPosition (direct) failed: {sfp_err}")
                 try:
                     node.setFixedPosition(lat, lon, alt)
                     _t.sleep(2.0)
