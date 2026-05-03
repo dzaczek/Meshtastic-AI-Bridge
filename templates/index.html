@@ -1197,6 +1197,12 @@
              border-radius:4px;cursor:pointer;padding:2px 8px;font-size:.72em;font-weight:600;letter-spacing:.05em;">
       📢 PUBLIC
     </button>
+    <button id="btn-sys-feed" onclick="toggleSysFeed(this)"
+      title="System packet feed ON/OFF&#10;&#10;ON  → mesh system packets (NODEINFO, TELEMETRY, POSITION, ROUTING) appear in Chat as system messages&#10;       AI sees them in its conversation context&#10;OFF → only text messages in chat (default)&#10;&#10;State is saved and restored on restart."
+      style="background:rgba(150,150,255,.07);border:1px solid rgba(150,150,255,.25);color:var(--muted);
+             border-radius:4px;cursor:pointer;padding:2px 8px;font-size:.72em;font-weight:600;letter-spacing:.05em;">
+      SYS OFF
+    </button>
     <span id="hdr-rx" style="color:var(--rx)">RX: 0</span>
     <span id="hdr-ai-cnt" style="color:var(--ai)">AI: 0</span>
     <span id="hdr-tokens" title="Total AI tokens used (in/out)&#10;Click AI stats in Analytics for details." style="color:var(--muted);cursor:default;display:none;">🪙<span id="hdr-tokens-val">0</span></span>
@@ -3478,6 +3484,23 @@ function _updatePrivateBtn(btn, isPrivate) {
   btn.title             = isPrivate
     ? 'Bot replies: PRIVATE (DM to sender) — click to switch to public'
     : 'Bot replies: PUBLIC (on channel) — click to switch to private DM';
+}
+
+async function toggleSysFeed(btn) {
+  try {
+    const r = await fetch('/api/sys_packets_to_chat/toggle', {method:'POST'});
+    const d = await r.json();
+    _updateSysFeedBtn(btn, d.enabled);
+  } catch(e) { console.error('SysFeed toggle failed', e); }
+}
+
+function _updateSysFeedBtn(btn, enabled) {
+  if (!btn) btn = document.getElementById('btn-sys-feed');
+  if (!btn) return;
+  btn.textContent       = enabled ? '📡 SYS ON' : 'SYS OFF';
+  btn.style.background  = enabled ? 'rgba(150,150,255,.18)' : 'rgba(150,150,255,.07)';
+  btn.style.borderColor = enabled ? 'rgba(150,150,255,.6)'  : 'rgba(150,150,255,.25)';
+  btn.style.color       = enabled ? '#a0a0ff'               : 'var(--muted)';
 }
 
 function setChatUserSearch(val) { chatUserSearch = val.toLowerCase().trim(); renderDmList(nodesCache); }
@@ -6208,6 +6231,7 @@ async function fetchAITokenStats() {
   // Init AI toggle button state
   fetch('/api/ai/enabled').then(r=>r.json()).then(d=>_updateAIBtn(null, d.enabled)).catch(()=>{});
   fetch('/api/bot/private_replies').then(r=>r.json()).then(d=>_updatePrivateBtn(null, d.private)).catch(()=>{});
+  fetch('/api/sys_packets_to_chat').then(r=>r.json()).then(d=>_updateSysFeedBtn(null, d.enabled)).catch(()=>{});
 
   await fetchStatus();
   await fetchChannels();

@@ -84,8 +84,9 @@ def _load_ui_settings() -> None:
         if os.path.exists(_UI_SETTINGS_PATH):
             with open(_UI_SETTINGS_PATH) as f:
                 saved = json.load(f)
-            _status["bot_private_replies"] = bool(saved.get("bot_private_replies", False))
-            _status["ai_enabled"] = bool(saved.get("ai_enabled", True))
+            _status["bot_private_replies"]  = bool(saved.get("bot_private_replies", False))
+            _status["ai_enabled"]           = bool(saved.get("ai_enabled", True))
+            _status["sys_packets_to_chat"]  = bool(saved.get("sys_packets_to_chat", False))
     except Exception as e:
         logger.warning(f"ui_settings: could not load: {e}")
 
@@ -95,8 +96,9 @@ def _save_ui_settings() -> None:
         os.makedirs(os.path.dirname(_UI_SETTINGS_PATH), exist_ok=True)
         with open(_UI_SETTINGS_PATH, "w") as f:
             json.dump({
-                "bot_private_replies": _status.get("bot_private_replies", False),
-                "ai_enabled": _status.get("ai_enabled", True),
+                "bot_private_replies":  _status.get("bot_private_replies", False),
+                "ai_enabled":           _status.get("ai_enabled", True),
+                "sys_packets_to_chat":  _status.get("sys_packets_to_chat", False),
             }, f)
     except Exception as e:
         logger.warning(f"ui_settings: could not save: {e}")
@@ -188,6 +190,7 @@ _status: dict = {
     "last_error": None,
     "ai_enabled": True,
     "bot_private_replies": False,
+    "sys_packets_to_chat": False,
 }
 
 
@@ -197,6 +200,10 @@ def is_ai_enabled() -> bool:
 
 def is_bot_private_replies() -> bool:
     return _status.get("bot_private_replies", False)
+
+
+def is_sys_packets_to_chat() -> bool:
+    return _status.get("sys_packets_to_chat", False)
 _lock = threading.Lock()
 _send_callback  = None
 _meshtastic_handler = None
@@ -288,6 +295,17 @@ def set_meshtastic_handler(handler):
     _load_packet_history()
 
 
+_SYS_PKT_ICONS = {
+    "NODEINFO_APP":   "📡",
+    "TELEMETRY_APP":  "📊",
+    "POSITION_APP":   "📍",
+    "ROUTING_APP":    "🔀",
+    "TRACEROUTE_APP": "🔍",
+    "RANGE_TEST_APP": "📶",
+    "ADMIN_APP":      "⚙",
+}
+
+
 def on_packet(packet, interface):
     """Raw packet callback — register this with MeshtasticHandler."""
     try:
@@ -315,6 +333,19 @@ def on_packet(packet, interface):
                     )
                 except Exception:
                     pass
+
+        # Generate system chat message when sys_packets_to_chat is enabled
+        if _status.get("sys_packets_to_chat", False):
+            portnum = pkt.get("portnum", "")
+            if portnum in _SYS_PKT_ICONS and portnum != "TEXT_MESSAGE_APP":
+                icon   = _SYS_PKT_ICONS[portnum]
+                sender = pkt.get("from_name") or pkt.get("from_id") or "?"
+                summary = pkt.get("summary") or portnum.replace("_APP", "").lower()
+                via    = " [MQTT]" if pkt.get("via_mqtt") else ""
+                text   = f"{icon} {sender}{via}: {summary}"
+                add_message(text, "mesh", -1, "system",
+                            timestamp=pkt.get("ts"),
+                            sender_id=pkt.get("from_id") or "")
     except Exception:
         pass
 
@@ -1205,6 +1236,20 @@ if _HAS_FLASK:
             _status["bot_private_replies"] = not current
         _save_ui_settings()
         return jsonify({"private": _status["bot_private_replies"]})
+
+    @app.route("/api/sys_packets_to_chat")
+    @login_required
+    def api_sys_packets_to_chat_get():
+        return jsonify({"enabled": _status.get("sys_packets_to_chat", False)})
+
+    @app.route("/api/sys_packets_to_chat/toggle", methods=["POST"])
+    @login_required
+    def api_sys_packets_to_chat_toggle():
+        with _lock:
+            current = _status.get("sys_packets_to_chat", False)
+            _status["sys_packets_to_chat"] = not current
+        _save_ui_settings()
+        return jsonify({"enabled": _status["sys_packets_to_chat"]})
 
     @app.route("/api/ai/token_stats")
     @login_required
