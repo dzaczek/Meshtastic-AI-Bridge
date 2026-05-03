@@ -4115,21 +4115,25 @@ function drawRadialRolesChart(selector) {
   };
   const roleKey = r => roleLabel(r);
 
-  const hopColors = ['#00ff88','#4dffd1','#88aaff','#f0883e'];  // 0,1,2,3+
+  // 8 colours for hops 0–7 (green → yellow → orange → red)
+  const hopColors = [
+    '#00ff88','#4dffd1','#88ccff','#88aaff',
+    '#cc88ff','#f0883e','#ff5555','#ff2222',
+  ];
 
   // Group nodes by role+hop
   const roleSeen = new Set();
   nodes.forEach(n => roleSeen.add(roleKey(n.role)));
   const ROLE_ORDER = ['ROUTER','ROUTER+','CLIENT','MUTE','TRACKER','SENSOR','TAK','HIDDEN','L&F'];
   const roles = ROLE_ORDER.filter(r => roleSeen.has(r));
-  // append any unseen roles
   roleSeen.forEach(r => { if (!roles.includes(r)) roles.push(r); });
 
-  const hopOf = n => n.hops_away !== null && n.hops_away !== undefined ? Math.min(n.hops_away, 3) : 3;
+  // Cap at 7 (Meshtastic max hop limit)
+  const hopOf = n => n.hops_away !== null && n.hops_away !== undefined ? Math.min(n.hops_away, 7) : 7;
 
-  // Count per role per hop
+  // Count per role per hop (8 buckets: 0–7)
   const counts = {};
-  roles.forEach(r => { counts[r] = [0,0,0,0]; });
+  roles.forEach(r => { counts[r] = [0,0,0,0,0,0,0,0]; });
   nodes.forEach(n => { const r = roleKey(n.role); if(counts[r]) counts[r][hopOf(n)]++; });
 
   const W = container.clientWidth  || 380;
@@ -4146,14 +4150,14 @@ function drawRadialRolesChart(selector) {
   const maxCount = d3.max(roles.map(r => d3.sum(counts[r]))) || 1;
   const rScale = d3.scaleLinear().domain([0, maxCount]).range([0, outerR]);
 
-  // Background rings per hop level
-  [3,2,1,0].forEach(h => {
-    const r = outerR * (h + 1) / 4;
+  // Background rings for hop levels 0–7
+  [7,6,5,4,3,2,1,0].forEach(h => {
+    const r = outerR * (h + 1) / 8;
     g.append('circle').attr('r', r)
       .attr('fill', 'none').attr('stroke', 'rgba(255,255,255,.06)');
     g.append('text').attr('x', 3).attr('y', -r + 10)
       .attr('fill','rgba(255,255,255,.22)').attr('font-size', 9).attr('font-family','monospace')
-      .text(h === 3 ? '3+ hops' : `${h} hop${h===1?'':'s'}`);
+      .text(`${h} hop${h===1?'':'s'}`);
   });
 
   // Spokes
@@ -4166,7 +4170,7 @@ function drawRadialRolesChart(selector) {
 
   // Stacked radial area lines per hop (draw outermost first)
   const curve = d3.curveCardinalClosed.tension(0.4);
-  [3,2,1,0].forEach(hop => {
+  [7,6,5,4,3,2,1,0].forEach(hop => {
     const pts = roles.map((r, i) => {
       const cumCount = d3.sum(counts[r].slice(0, hop + 1));
       const a = i * angleSlice - Math.PI / 2;
@@ -4208,7 +4212,7 @@ function drawRadialRolesChart(selector) {
     const baseA = i * angleSlice - Math.PI / 2;
     // Jitter within ±35% of the sector and ±8% of the hop ring width
     const jA = (Math.random() - 0.5) * angleSlice * 0.7;
-    const ringMin = outerR * hop / 4, ringMax = outerR * (hop + 1) / 4;
+    const ringMin = outerR * hop / 8, ringMax = outerR * (hop + 1) / 8;
     const rv = ringMin + Math.random() * (ringMax - ringMin) * 0.85 + (ringMax - ringMin) * 0.08;
     const a = baseA + jA;
     const dx = Math.cos(a) * rv, dy = Math.sin(a) * rv;
@@ -4220,17 +4224,17 @@ function drawRadialRolesChart(selector) {
       .attr('stroke', 'var(--bg)').attr('stroke-width', 1)
       .style('cursor', 'pointer');
     dot.append('title').text(
-      `${n.long_name || '!'+n.id}\nRole: ${r}\nHops: ${hop === 3 && n.hops_away > 3 ? n.hops_away : hop}${n.via_mqtt ? ' (MQTT)' : ''}`
+      `${n.long_name || '!'+n.id}\nRole: ${r}\nHops: ${hop}${n.via_mqtt ? ' (MQTT)' : ''}`
     );
   });
 
-  // Legend
+  // Legend (0–7 hops)
   const leg = svg.append('g').attr('transform', `translate(8,8)`);
   hopColors.forEach((c, h) => {
-    leg.append('circle').attr('cx', 6).attr('cy', h*16+6).attr('r', 4).attr('fill', c);
-    leg.append('text').attr('x',14).attr('y', h*16+10)
+    leg.append('circle').attr('cx', 6).attr('cy', h*14+6).attr('r', 4).attr('fill', c);
+    leg.append('text').attr('x',14).attr('y', h*14+10)
       .attr('fill','var(--muted)').attr('font-size', 9)
-      .text(h === 3 ? '3+ hops' : `${h} hop${h===1?'':'s'}`);
+      .text(`${h} hop${h===1?'':'s'}`);
   });
 }
 
