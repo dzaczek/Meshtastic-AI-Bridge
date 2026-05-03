@@ -887,33 +887,52 @@ class MeshtasticHandler:
 
     def set_fixed_position(self, lat: float, lon: float, alt: int = 0,
                            reboot: bool = False) -> tuple:
-        """Set fixed position, write fixed_position=True to config, optionally reboot device."""
+        """Set fixed position using multiple methods for maximum firmware compatibility."""
         if not self.interface or not self.is_connected:
             return False, "Not connected"
         try:
+            import time as _t
             node = self.interface.getNode('^local')
-            # 1. Send the fixed position admin message (sets LOC_MANUAL on device)
-            node.setFixedPosition(lat, lon, alt)
-            # 2. Persist fixed_position=True so GPS cannot override after reboot
-            config_written = False
+            steps = []
+
+            # Method 1: sendPosition() — the CLI's --setlat/--setlon approach.
+            # The firmware notices this packet and updates its internal position store.
+            # Works across all firmware versions without requiring PKI admin keys.
+            try:
+                self.interface.sendPosition(
+                    latitude=lat, longitude=lon, altitude=alt,
+                    destinationId=0xFFFFFFFF, wantAck=False, channelIndex=0,
+                )
+                steps.append("positionBroadcast")
+            except Exception as sp_err:
+                print(f"WARNING: sendPosition failed: {sp_err}")
+
+            # Method 2: setFixedPosition() admin message (newer firmware ≥ 2.3)
+            # Sets LOC_MANUAL and stores coordinates in device position DB via AdminMessage.
+            try:
+                node.setFixedPosition(lat, lon, alt)
+                steps.append("setFixedPosition")
+            except Exception as sfp_err:
+                print(f"WARNING: setFixedPosition failed: {sfp_err}")
+
+            # Method 3: write fixed_position=True to localConfig (persists across reboots)
             try:
                 lc = getattr(node, 'localConfig', None)
                 if lc and hasattr(lc, 'position'):
                     lc.position.fixed_position = True
                     node.writeConfig("position")
-                    config_written = True
+                    steps.append("configSaved")
             except Exception as cfg_err:
-                print(f"WARNING: set_fixed_position could not write config: {cfg_err}")
-            msg = f"Fixed position set: {lat:.6f}, {lon:.6f} alt={alt}m"
-            if config_written:
-                msg += " (config saved)"
-            # 3. Optional reboot — required for firmware to honour fixed_position flag
+                print(f"WARNING: writeConfig(position) failed: {cfg_err}")
+
+            msg = f"Fixed position set: {lat:.6f}, {lon:.6f} alt={alt}m [{', '.join(steps)}]"
+
+            # Optional reboot so firmware picks up all changes from flash
             if reboot:
-                import time as _t
                 _t.sleep(1)
                 try:
                     node.reboot()
-                    msg += " — reboot sent, reconnecting in ~10s"
+                    msg += " — rebooting, reconnect in ~15s"
                 except Exception as rb_err:
                     msg += f" (reboot failed: {rb_err})"
             return True, msg
