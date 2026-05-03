@@ -713,6 +713,7 @@
     #graph-fs-refresh{background:none;border:1px solid var(--border-s);color:var(--muted);
       border-radius:4px;cursor:pointer;padding:3px 8px;font-size:.8em;}
     #graph-fs-refresh:hover{color:var(--primary);border-color:var(--primary);}
+    #graph-fs-color-btn:hover{background:rgba(77,255,209,.2);}
     #graph-fs-close{background:none;border:1px solid var(--border-s);color:var(--muted);
       border-radius:4px;cursor:pointer;padding:3px 10px;font-size:1.1em;}
     #graph-fs-close:hover{color:var(--text);border-color:var(--accent);}
@@ -3597,6 +3598,12 @@ let analyticsHeatmap = null;
 
 let _fsCurrentChartId = null;
 
+// Charts that have a color-mode toggle { chartId → colorModeKey }
+const _FS_COLOR_CHARTS = {
+  'd3-radial-roles-pkts': 'roles-pkts',
+  'd3-radial-hops-pkts':  'hops-pkts',
+};
+
 // Charts that need a full fetchAnalytics() when time changes
 const _FS_ANALYTICS_CHARTS = new Set([
   'd3-an-hourly','d3-an-types','d3-an-dest','d3-an-enc',
@@ -3709,12 +3716,46 @@ async function fsRefresh() {
   if (btn) { btn.textContent = '↻'; btn.style.color = ''; }
 }
 
+function _fsUpdateColorBtn(chartId) {
+  const btn = document.getElementById('graph-fs-color-btn');
+  if (!btn) return;
+  const key = _FS_COLOR_CHARTS[chartId];
+  if (key) {
+    btn.style.display = '';
+    btn.textContent = _COLOR_MODE_LABELS[_radialColorMode[key] || 'role'];
+  } else {
+    btn.style.display = 'none';
+  }
+}
+
+function fsCycleColor() {
+  const chartId = _fsCurrentChartId;
+  const key = _FS_COLOR_CHARTS[chartId];
+  if (!key) return;
+  // Cycle mode
+  const modes = _COLOR_MODE_CYCLES[key];
+  const cur = _radialColorMode[key] || 'role';
+  _radialColorMode[key] = modes[(modes.indexOf(cur) + 1) % modes.length];
+  // Sync widget button label
+  const widgetBtn = document.getElementById(`btn-color-${key}`);
+  if (widgetBtn) widgetBtn.textContent = _COLOR_MODE_LABELS[_radialColorMode[key]];
+  // Sync fullscreen button label
+  _fsUpdateColorBtn(chartId);
+  // Redraw chart in background then refresh fullscreen
+  if (_FS_RADIAL_DRAW[chartId]) {
+    _FS_RADIAL_DRAW[chartId]().then(() => {
+      setTimeout(() => _fsRenderChart(chartId), 650);
+    });
+  }
+}
+
 function openGraphFs(chartId, title) {
   _fsCurrentChartId = chartId;
   const overlay = document.getElementById('graph-fs-overlay');
   document.getElementById('graph-fs-title-text').textContent = title;
   overlay.classList.add('active');
   _fsMarkActiveTime();
+  _fsUpdateColorBtn(chartId);
   _fsRenderChart(chartId);
 }
 
@@ -7131,6 +7172,9 @@ async function registerPasskey(){
 <div id="graph-fs-overlay" onclick="if(event.target===this)closeGraphFs()">
   <div id="graph-fs-header">
     <span id="graph-fs-title-text"></span>
+    <button id="graph-fs-color-btn" onclick="fsCycleColor()" style="display:none;
+      background:var(--surf);border:1px solid var(--primary);color:var(--primary);
+      border-radius:4px;cursor:pointer;padding:3px 8px;font-size:.72em;font-weight:600;">● Role</button>
     <div id="graph-fs-time-picker">
       <span style="color:var(--muted);font-size:.72em;margin-right:2px;">⏱</span>
       <button class="fs-time-btn" data-h="0.0833" onclick="fsSetTime(this)">5m</button>
