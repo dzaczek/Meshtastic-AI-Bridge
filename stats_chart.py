@@ -226,14 +226,79 @@ def _draw_activity(ax, buckets, bucket_label):
                        rotation=40, ha='right', fontsize=6,
                        color=_hex_rgb(_MUTED))
     ax.set_ylabel('packets', color=_hex_rgb(_MUTED), fontsize=7)
-    ax.set_title(f'Activity ({bucket_label} buckets, 4h)', color=_hex_rgb(_TEXT), fontsize=9, pad=5)
+    ax.set_title(f'Activity — packet count per {bucket_label} bucket',
+                 color=_hex_rgb(_TEXT), fontsize=9, pad=5)
+
+
+def _draw_hop_reachability(ax, hop_data):
+    """Node reachability time-series: one line per hop distance 0-7."""
+    import numpy as np
+
+    ax.set_facecolor(_hex_rgb(_BG))
+    for sp in ax.spines.values():
+        sp.set_visible(False)
+    for sp in ['bottom', 'left']:
+        ax.spines[sp].set_visible(True)
+        ax.spines[sp].set_color((1, 1, 1, 0.12))
+    ax.tick_params(colors=_hex_rgb(_MUTED), labelsize=6)
+    ax.grid(axis='y', color='white', alpha=0.05, linewidth=0.5)
+
+    buckets = hop_data.get('buckets', [])
+    series  = hop_data.get('series', [])
+    blabel  = hop_data.get('bucket_label', '')
+
+    if not buckets or not series:
+        ax.text(0.5, 0.5, 'No hop reachability data',
+                ha='center', va='center',
+                color=_hex_rgb(_MUTED), transform=ax.transAxes, fontsize=8)
+        ax.set_title('Node Reachability by Hop Count',
+                     color=_hex_rgb(_TEXT), fontsize=9, pad=5)
+        return
+
+    x = np.arange(len(buckets))
+    for s in series:
+        col = RADIAL_HOP_COLORS[s['hop']] if s['hop'] < 8 else '#888'
+        y   = s['counts']
+        ax.plot(x, y, color=col, linewidth=1.6, alpha=0.9,
+                label=f"{s['hop']} hop{'s' if s['hop']!=1 else ''}")
+        # Dots on non-zero points
+        non_zero = [(i, v) for i, v in enumerate(y) if v > 0]
+        if non_zero:
+            xi, yi = zip(*non_zero)
+            ax.scatter(list(xi), list(yi), color=col, s=10, zorder=5, linewidths=0)
+
+    # X ticks
+    step = max(1, len(buckets) // 12)
+    ax.set_xticks(x[::step])
+    ax.set_xticklabels(buckets[::step], rotation=35, ha='right',
+                       fontsize=6, color=_hex_rgb(_MUTED))
+    ax.set_ylabel('distinct nodes', color=_hex_rgb(_MUTED), fontsize=7)
+    ax.yaxis.label.set_color(_hex_rgb(_MUTED))
+
+    # Legend (outside right)
+    legend = ax.legend(
+        loc='upper left', bbox_to_anchor=(1.01, 1), borderaxespad=0,
+        frameon=False, fontsize=7, labelcolor='white',
+        title='Hop dist.', title_fontsize=7,
+    )
+    legend.get_title().set_color(_hex_rgb(_MUTED))
+
+    time_desc = f'Time ({blabel} buckets)' if blabel else 'Time'
+    ax.set_xlabel(time_desc, color=_hex_rgb(_MUTED), fontsize=7)
+    ax.set_title(
+        'Node Reachability by Hop Count — distinct radio nodes visible per hop distance over time',
+        color=_hex_rgb(_TEXT), fontsize=9, pad=5,
+    )
 
 
 # ── Public API ─────────────────────────────────────────────────
 def generate_stats_image(db_module, hours: float = 4.0,
                          own_node_id: Optional[str] = None) -> bytes:
     """
-    Generate composite PNG (Roles×Hops | Force Graph | Activity bar).
+    Generate composite stats PNG with 4 charts stacked vertically:
+      Row 1 (side by side): Roles×Hops Radial | Unicast Packets Force Graph
+      Row 2 (full width):   Packet Activity bar chart
+      Row 3 (full width):   Node Reachability by Hop Count line chart
     Returns raw PNG bytes.
     """
     import matplotlib
@@ -241,10 +306,11 @@ def generate_stats_image(db_module, hours: float = 4.0,
     import matplotlib.pyplot as plt
     import matplotlib.gridspec as gridspec
 
-    # ── Data ──
-    analytics  = db_module.get_packet_analytics(hours=hours)
-    avg_hops   = db_module.get_avg_hops_per_node(hours=hours)
-    all_nodes  = db_module.get_all_nodes()
+    # ── Gather data ──
+    analytics   = db_module.get_packet_analytics(hours=hours)
+    avg_hops    = db_module.get_avg_hops_per_node(hours=hours)
+    hop_reach   = db_module.get_hop_reachability(hours=hours)
+    all_nodes   = db_module.get_all_nodes()
 
     node_names: dict = {}
     for n in all_nodes:
@@ -264,25 +330,30 @@ def generate_stats_image(db_module, hours: float = 4.0,
     bucket_lbl = analytics.get('bucket_label', '15m')
     top_links  = analytics.get('top_links', [])
 
-    # ── Layout: [radial | force] top, [activity] bottom ──
-    fig = plt.figure(figsize=(14, 8), facecolor=_hex_rgb(_BG))
+    # ── Layout ──
+    # Row 0: [Radial (square) | Force graph (square)]  height_ratio 1.6
+    # Row 1: [Activity bar — full width]               height_ratio 1.0
+    # Row 2: [Hop reachability lines — full width]     height_ratio 1.0
+    fig = plt.figure(figsize=(14, 11), facecolor=_hex_rgb(_BG))
     gs  = gridspec.GridSpec(
-        2, 2, figure=fig,
-        hspace=0.40, wspace=0.30,
-        height_ratios=[1.55, 1],
-        left=0.04, right=0.97,
-        top=0.91, bottom=0.09,
+        3, 2, figure=fig,
+        hspace=0.48, wspace=0.28,
+        height_ratios=[1.6, 1.0, 1.0],
+        left=0.05, right=0.93,
+        top=0.93, bottom=0.06,
     )
-    ax_r = fig.add_subplot(gs[0, 0])
-    ax_f = fig.add_subplot(gs[0, 1])
-    ax_a = fig.add_subplot(gs[1, :])
+    ax_r  = fig.add_subplot(gs[0, 0])          # Roles×Hops radial
+    ax_f  = fig.add_subplot(gs[0, 1])          # Force graph
+    ax_a  = fig.add_subplot(gs[1, :])          # Activity (full width)
+    ax_hr = fig.add_subplot(gs[2, :])          # Hop reachability (full width)
 
-    for ax in (ax_r, ax_f, ax_a):
+    for ax in (ax_r, ax_f, ax_a, ax_hr):
         ax.set_facecolor(_hex_rgb(_BG))
 
     _draw_radial(ax_r, nodes_radio, avg_hops)
     _draw_force(ax_f, top_links, node_names)
     _draw_activity(ax_a, buckets, bucket_lbl)
+    _draw_hop_reachability(ax_hr, hop_reach)
 
     ts_str = time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())
     fig.suptitle(

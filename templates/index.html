@@ -1847,6 +1847,17 @@
       </div>
     </div>
 
+    <!-- Node Reachability by Hops widget (full width, row below radials) -->
+    <div class="grid-stack-item" gs-id="an-hop-reach-widget" gs-x="0" gs-y="17" gs-w="12" gs-h="5">
+      <div class="grid-stack-item-content stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md); display:flex; flex-direction:column; height:100%;">
+        <div class="stat-title">Node Reachability by Hop Count
+          <span style="font-size:.7em;color:var(--muted);font-weight:400;margin-left:6px;">— distinct radio nodes seen per hop distance over time</span>
+          <button class="graph-expand-btn" onclick="openGraphFs('d3-hop-reachability','Node Reachability by Hop Count')">⤢</button>
+        </div>
+        <div id="d3-hop-reachability" style="flex:1; position:relative; overflow:hidden;"></div>
+      </div>
+    </div>
+
   </div> <!-- end global container -->
 
   <!-- Per-Node Analytics Container -->
@@ -3618,6 +3629,7 @@ const _FS_RADIAL_DRAW = {
   'd3-radial-roles':     () => drawRadialRolesChart('#d3-radial-roles'),
   'd3-radial-roles-pkts':() => drawRadialRolesPacketsChart('#d3-radial-roles-pkts'),
   'd3-radial-hops-pkts': () => drawRadialHopsPacketsChart('#d3-radial-hops-pkts'),
+  'd3-hop-reachability': () => drawHopReachabilityChart('#d3-hop-reachability'),
 };
 
 function _fsMarkActiveTime() {
@@ -4262,6 +4274,9 @@ async function initAnalytics() {
   } else {
     setTimeout(_drawAllRadial, 3000);
   }
+
+  // Hop reachability uses DB data — draw immediately after analytics load
+  drawHopReachabilityChart('#d3-hop-reachability');
 }
 
 // ── RADIAL ROLES × HOPS CHART ─────────────────────────────────────────────
@@ -4683,6 +4698,131 @@ async function drawRadialHopsPacketsChart(selector) {
     })));
   } else {
     _radialLegend(svg, RADIAL_HOP_COLORS.map((c, h) => ({ color: c, label: `${h} hop${h===1?'':'s'}` })));
+  }
+}
+
+// ── NODE REACHABILITY BY HOP COUNT ────────────────────────────
+// Line chart: X = time buckets, Y = distinct nodes visible,
+// one coloured line per hop distance (0 h … 7 h).
+async function drawHopReachabilityChart(selector) {
+  const container = document.querySelector(selector);
+  if (!container || typeof d3 === 'undefined') return;
+  container.innerHTML = '';
+
+  const _hours = parseFloat(document.getElementById('analytics-hours')?.value || '168');
+  let data = {};
+  try {
+    const r = await fetch(`/api/analytics/hop_reachability?hours=${_hours}`);
+    if (r.ok) data = await r.json();
+  } catch(e) {}
+
+  const buckets = data.buckets || [];
+  const series  = data.series  || [];
+  const blabel  = data.bucket_label || '';
+
+  if (!buckets.length || !series.length) {
+    container.innerHTML = '<div style="padding:20px;color:var(--muted);font-size:.8em">No hop reachability data in selected time range.</div>';
+    return;
+  }
+
+  const W = container.clientWidth  || 900;
+  const H = container.clientHeight || 260;
+  const margin = { top: 16, right: 130, bottom: 42, left: 42 };
+  const w = W - margin.left - margin.right;
+  const h = H - margin.top  - margin.bottom;
+
+  const svg = d3.select(container).append('svg').attr('width', W).attr('height', H);
+  const g   = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+  // Scales
+  const x = d3.scalePoint().domain(buckets).range([0, w]).padding(0.1);
+  const maxY = d3.max(series, s => d3.max(s.counts)) || 1;
+  const y = d3.scaleLinear().domain([0, maxY]).nice().range([h, 0]);
+
+  // Background grid
+  g.append('g').attr('class', 'grid')
+    .call(d3.axisLeft(y).ticks(4).tickSize(-w).tickFormat(''))
+    .selectAll('line').attr('stroke','rgba(255,255,255,.07)').attr('stroke-dasharray','3,3');
+  g.select('.grid .domain').remove();
+
+  // X axis — show only every N-th label to avoid crowding
+  const step = Math.max(1, Math.ceil(buckets.length / 14));
+  g.append('g')
+    .attr('transform', `translate(0,${h})`)
+    .call(d3.axisBottom(x)
+      .tickValues(buckets.filter((_, i) => i % step === 0))
+      .tickSize(4))
+    .selectAll('text')
+      .attr('fill', 'var(--muted)')
+      .attr('font-size', 9)
+      .attr('transform', 'rotate(-35)')
+      .attr('text-anchor', 'end');
+  g.select('.domain').attr('stroke','rgba(255,255,255,.15)');
+
+  // Y axis
+  g.append('g')
+    .call(d3.axisLeft(y).ticks(4).tickFormat(d3.format('d')))
+    .selectAll('text').attr('fill','var(--muted)').attr('font-size',9);
+  g.select('.domain').attr('stroke','rgba(255,255,255,.15)');
+
+  // Y axis label
+  g.append('text').attr('transform','rotate(-90)')
+    .attr('y',-34).attr('x',-(h/2))
+    .attr('text-anchor','middle')
+    .attr('fill','var(--muted)').attr('font-size',9)
+    .text('distinct nodes');
+
+  // Lines + dots per hop
+  const line = d3.line()
+    .x((_, i) => x(buckets[i]))
+    .y(d => y(d))
+    .defined(d => d > 0)
+    .curve(d3.curveMonotoneX);
+
+  series.forEach(s => {
+    const col = RADIAL_HOP_COLORS[s.hop] || '#888';
+    // Line
+    g.append('path')
+      .datum(s.counts)
+      .attr('fill','none')
+      .attr('stroke', col)
+      .attr('stroke-width', 1.8)
+      .attr('stroke-linejoin','round')
+      .attr('opacity', 0.9)
+      .attr('d', line);
+    // Dots on non-zero points
+    s.counts.forEach((cnt, i) => {
+      if (!cnt) return;
+      g.append('circle')
+        .attr('cx', x(buckets[i])).attr('cy', y(cnt))
+        .attr('r', 3).attr('fill', col).attr('fill-opacity', 0.85)
+        .attr('stroke','var(--bg)').attr('stroke-width',1)
+        .append('title')
+          .text(`${s.hop} hop${s.hop===1?'':'s'}  ·  ${buckets[i]}  ·  ${cnt} node${cnt===1?'':'s'}`);
+    });
+  });
+
+  // Legend (right side)
+  const leg = svg.append('g').attr('transform', `translate(${W - margin.right + 10}, ${margin.top})`);
+  leg.append('text').attr('y',-2).attr('fill','var(--muted)').attr('font-size',8.5).text('Hop distance');
+  series.forEach((s, idx) => {
+    const col = RADIAL_HOP_COLORS[s.hop] || '#888';
+    leg.append('line')
+      .attr('x1',0).attr('y1',idx*16+10).attr('x2',18).attr('y2',idx*16+10)
+      .attr('stroke',col).attr('stroke-width',2);
+    leg.append('circle').attr('cx',9).attr('cy',idx*16+10).attr('r',3).attr('fill',col);
+    leg.append('text').attr('x',22).attr('y',idx*16+14)
+      .attr('fill','rgba(255,255,255,.75)').attr('font-size',9)
+      .text(`${s.hop} hop${s.hop===1?'':'s'}`);
+  });
+
+  // X axis description
+  if (blabel) {
+    svg.append('text')
+      .attr('x', margin.left + w/2).attr('y', H - 2)
+      .attr('text-anchor','middle')
+      .attr('fill','var(--muted)').attr('font-size',8.5)
+      .text(`Time (${blabel} buckets)`);
   }
 }
 

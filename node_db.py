@@ -309,6 +309,58 @@ def get_node_packet_counts(hours: float = 168.0, no_mqtt: bool = True) -> dict:
     return {r[0]: r[1] for r in rows}
 
 
+def get_hop_reachability(hours: float = 4.0, no_mqtt: bool = True) -> dict:
+    """Return time-series node-reachability per hop count (0-7).
+
+    Result:
+      {
+        "buckets":      ["14:00", "14:15", ...],   # time labels
+        "series":       [{"hop": 0, "counts": [3, 2, ...]}, ...],
+        "bucket_label": "15m"
+      }
+    Each count = distinct nodes seen at that hop distance in that time bucket.
+    """
+    if not _conn:
+        return {}
+    import time as _time
+    cutoff = _time.time() - hours * 3600.0
+    bucket_secs, sqlite_fmt, label = _bucket_config(hours)
+    mq_and = "AND via_mqtt = 0" if no_mqtt else ""
+    with _lock:
+        rows = _conn.execute(
+            f"""SELECT
+                    strftime(?, datetime(
+                        CAST(ts/{bucket_secs} AS INTEGER)*{bucket_secs},
+                        'unixepoch','localtime')) AS b,
+                    hops_away,
+                    COUNT(DISTINCT node_id) AS cnt
+                FROM signal_history
+                WHERE ts >= ? AND hops_away IS NOT NULL
+                    AND hops_away BETWEEN 0 AND 7
+                    {mq_and}
+                GROUP BY b, hops_away
+                ORDER BY b, hops_away""",
+            [sqlite_fmt, cutoff],
+        ).fetchall()
+
+    from collections import defaultdict, OrderedDict
+    data: dict = defaultdict(lambda: defaultdict(int))
+    bucket_order: list = []
+    for b, hop, cnt in rows:
+        if b and b not in bucket_order:
+            bucket_order.append(b)
+        if b:
+            data[b][int(hop)] = cnt
+
+    series = []
+    for h in range(8):
+        counts = [data[b].get(h, 0) for b in bucket_order]
+        if any(c > 0 for c in counts):
+            series.append({"hop": h, "counts": counts})
+
+    return {"buckets": bucket_order, "series": series, "bucket_label": label}
+
+
 def get_avg_hops_per_node(hours: float = 168.0, no_mqtt: bool = True) -> dict:
     """Return {node_id: avg_hops_away} for all nodes seen within the time window.
     Uses average hop count so a node observed at 6 and 7 hops yields 6.5,
