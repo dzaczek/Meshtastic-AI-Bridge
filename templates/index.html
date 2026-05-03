@@ -1803,7 +1803,7 @@
         <div class="stat-title">Roles × Packets (Radial)
           <button id="btn-color-roles-pkts" onclick="cycleRadialColor('roles-pkts','#d3-radial-roles-pkts')"
             title="Color mode" style="background:var(--surf);border:1px solid var(--border);color:var(--primary);
-            border-radius:3px;cursor:pointer;padding:1px 5px;font-size:.65em;margin-right:2px;">● Role</button>
+            border-radius:3px;cursor:pointer;padding:1px 5px;font-size:.65em;margin-right:2px;">● Hops</button>
           <button class="graph-expand-btn" onclick="openGraphFs('d3-radial-roles-pkts','Node Roles × Packets')">⤢</button>
         </div>
         <div id="d3-radial-roles-pkts" style="flex:1; position:relative; overflow:hidden;"></div>
@@ -4301,27 +4301,10 @@ async function drawRadialRolesChart(selector) {
   // Integer bucket for stacked area counting (round to nearest)
   const _hopOf = n => Math.min(Math.round(_hopAvg(n)), 7);
 
-  // Role normaliser — empty/unknown → CLIENT
-  const roleLabel = r => {
-    const m = { CLIENT:'CLIENT', CLIENT_MUTE:'MUTE', MUTE_CLIENT:'MUTE',
-                ROUTER:'ROUTER', ROUTER_CLIENT:'ROUTER+', TRACKER:'TRACKER',
-                SENSOR:'SENSOR', TAK:'TAK', TAK_TRACKER:'TAK', CLIENT_HIDDEN:'HIDDEN',
-                LOST_AND_FOUND:'L&F' };
-    return m[(r||'').toUpperCase()] || 'CLIENT';
-  };
-  const roleKey = r => roleLabel(r);
-
-  // 8 colours for hops 0–7 (green → yellow → orange → red)
-  const hopColors = [
-    '#00ff88','#4dffd1','#88ccff','#88aaff',
-    '#cc88ff','#f0883e','#ff5555','#ff2222',
-  ];
-
   // Group nodes by role+hop
   const roleSeen = new Set();
-  nodes.forEach(n => roleSeen.add(roleKey(n.role)));
-  const ROLE_ORDER = ['ROUTER','ROUTER+','CLIENT','MUTE','TRACKER','SENSOR','TAK','HIDDEN','L&F'];
-  const roles = ROLE_ORDER.filter(r => roleSeen.has(r));
+  nodes.forEach(n => roleSeen.add(radialRoleLabel(n.role)));
+  const roles = ROLE_ORDER_RADIAL.filter(r => roleSeen.has(r));
   roleSeen.forEach(r => { if (!roles.includes(r)) roles.push(r); });
 
   // Count per role per hop (8 buckets: 0–7) using min hops from DB
@@ -4378,8 +4361,8 @@ async function drawRadialRolesChart(selector) {
       .x1((d,i) => pts[i][0]).y1((d,i) => pts[i][1]);
 
     g.append('path').attr('d', lineGen + 'Z')
-      .attr('fill', hopColors[hop] + '22')
-      .attr('stroke', hopColors[hop])
+      .attr('fill', RADIAL_HOP_COLORS[hop] + '22')
+      .attr('stroke', RADIAL_HOP_COLORS[hop])
       .attr('stroke-width', 1.5)
       .attr('stroke-linejoin', 'round');
   });
@@ -4395,16 +4378,13 @@ async function drawRadialRolesChart(selector) {
       .text(r);
   });
 
-  // Individual node dots with jitter within their role sector
-  const jitterSeed = {};
+  // Individual node dots — color = role (hop encoded by radial position)
   nodes.forEach(n => {
-    const r = roleKey(n.role);
+    const r = radialRoleLabel(n.role);
     const i = roles.indexOf(r);
     if (i < 0) return;
-    const hopBucket = _hopOf(n);         // integer for color/area
-    const hopFloat  = _hopAvg(n);         // float for precise radial position
+    const hopFloat  = _hopAvg(n);
     const baseA = i * angleSlice - Math.PI / 2;
-    // Dot placed at exact avg-hop radius + small jitter (±4% of one ring width)
     const ringW  = outerR / 8;
     const baseRv = outerR * hopFloat / 8;
     const jA  = (Math.random() - 0.5) * angleSlice * 0.7;
@@ -4412,12 +4392,7 @@ async function drawRadialRolesChart(selector) {
     const rv  = Math.max(ringW * 0.1, Math.min(outerR - ringW * 0.1, baseRv + jRv));
     const a = baseA + jA;
     const dx = Math.cos(a) * rv, dy = Math.sin(a) * rv;
-
-    // Color: interpolate between integer-hop colors for fractional values
-    const c1 = d3.color(hopColors[Math.floor(hopFloat)]) || d3.color('#888');
-    const c2 = d3.color(hopColors[Math.min(Math.ceil(hopFloat), 7)]) || c1;
-    const t  = hopFloat - Math.floor(hopFloat);
-    const fillColor = d3.interpolateRgb(c1, c2)(t);
+    const fillColor = ROLE_COLORS[r] || _ROLE_COLOR_DEFAULT;
 
     const dot = g.append('circle')
       .attr('cx', dx).attr('cy', dy).attr('r', 4.5)
@@ -4427,25 +4402,29 @@ async function drawRadialRolesChart(selector) {
       .style('cursor', 'pointer');
     const curHop = n.hops_away !== null && n.hops_away !== undefined ? n.hops_away : '?';
     const avgDisp = hopFloat % 1 === 0 ? hopFloat : hopFloat.toFixed(1);
-    const hopNote = hopFloat !== curHop
-      ? `avg ${avgDisp} (now: ${curHop})`
-      : `${avgDisp}`;
-    dot.append('title').text(
-      `${n.long_name || '!'+n.id}\nRole: ${roleKey(n.role)}\nHops: ${hopNote}`
-    );
+    const hopNote = hopFloat !== curHop ? `avg ${avgDisp} (now: ${curHop})` : `${avgDisp}`;
+    dot.append('title').text(`${n.long_name || '!'+n.id}\nRole: ${r}\nHops: ${hopNote}`);
   });
 
-  // Legend (0–7 hops)
-  const leg = svg.append('g').attr('transform', `translate(8,8)`);
-  hopColors.forEach((c, h) => {
-    leg.append('circle').attr('cx', 6).attr('cy', h*14+6).attr('r', 4).attr('fill', c);
-    leg.append('text').attr('x',14).attr('y', h*14+10)
-      .attr('fill','var(--muted)').attr('font-size', 9)
-      .text(`${h} hop${h===1?'':'s'}`);
+  // Legend — role colors (hop rings shown by concentric background circles)
+  const _legRoles1 = ROLE_ORDER_RADIAL.filter(r => roleSeen.has(r));
+  const leg = svg.append('g').attr('transform', 'translate(8,8)');
+  _legRoles1.forEach((r, idx) => {
+    const c = ROLE_COLORS[r] || _ROLE_COLOR_DEFAULT;
+    leg.append('circle').attr('cx', 6).attr('cy', idx*14+6).attr('r', 4).attr('fill', c);
+    leg.append('text').attr('x', 14).attr('y', idx*14+10)
+      .attr('fill','var(--muted)').attr('font-size', 9).text(r);
   });
 }
 
 // ── RADIAL: shared helpers ────────────────────────────────────
+const RADIAL_HOP_COLORS = ['#00ff88','#4dffd1','#88ccff','#88aaff','#cc88ff','#f0883e','#ff5555','#ff2222'];
+const ROLE_ORDER_RADIAL = ['ROUTER','ROUTER+','CLIENT','MUTE','TRACKER','SENSOR','TAK','HIDDEN','L&F'];
+function radialRoleLabel(r) {
+  const m={CLIENT:'CLIENT',CLIENT_MUTE:'MUTE',MUTE_CLIENT:'MUTE',ROUTER:'ROUTER',ROUTER_CLIENT:'ROUTER+',
+           TRACKER:'TRACKER',SENSOR:'SENSOR',TAK:'TAK',TAK_TRACKER:'TAK',CLIENT_HIDDEN:'HIDDEN',LOST_AND_FOUND:'L&F'};
+  return m[(r||'').toUpperCase()]||'CLIENT';
+}
 const ROLE_COLORS = {
   'ROUTER':  '#f0883e',
   'ROUTER+': '#ffc84d',
@@ -4460,10 +4439,12 @@ const ROLE_COLORS = {
 const _ROLE_COLOR_DEFAULT = '#4dffd1';
 
 // Color modes per chart: 'role' | 'packets' | 'hops'
-const _radialColorMode = { 'roles-pkts': 'role', 'hops-pkts': 'role' };
+// roles-pkts: angle=role, radius=pkts → color encodes HOPS (third dimension)
+// hops-pkts:  angle=hops, radius=pkts → color encodes ROLE (third dimension)
+const _radialColorMode = { 'roles-pkts': 'hops', 'hops-pkts': 'role' };
 
 const _COLOR_MODE_CYCLES = {
-  'roles-pkts': ['role', 'packets'],
+  'roles-pkts': ['hops', 'packets'],
   'hops-pkts':  ['role', 'hops'],
 };
 const _COLOR_MODE_LABELS = { role:'● Role', packets:'● Pkts', hops:'● Hops' };
@@ -4493,26 +4474,37 @@ async function drawRadialRolesPacketsChart(selector) {
   );
   if (!nodes.length) { container.innerHTML='<div style="padding:20px;color:var(--muted);font-size:.8em">No data.</div>'; return; }
 
-  let pktMap = {};
-  try { const r = await fetch(`/api/analytics/node_packet_counts?hours=${_hours}`); if(r.ok) pktMap=await r.json(); } catch(e){}
+  let pktMap = {}, avgHopsMap2 = {};
+  try {
+    const [r1, r2] = await Promise.all([
+      fetch(`/api/analytics/node_packet_counts?hours=${_hours}`),
+      fetch(`/api/analytics/avg_hops?hours=${_hours}`)
+    ]);
+    if(r1.ok) pktMap = await r1.json();
+    if(r2.ok) avgHopsMap2 = await r2.json();
+  } catch(e){}
 
-  const roleLabel = r => {
-    const m={CLIENT:'CLIENT',CLIENT_MUTE:'MUTE',MUTE_CLIENT:'MUTE',ROUTER:'ROUTER',ROUTER_CLIENT:'ROUTER+',
-             TRACKER:'TRACKER',SENSOR:'SENSOR',TAK:'TAK',TAK_TRACKER:'TAK',CLIENT_HIDDEN:'HIDDEN',LOST_AND_FOUND:'L&F'};
-    return m[(r||'').toUpperCase()]||'CLIENT';
-  };
-  const ROLE_ORDER=['ROUTER','ROUTER+','CLIENT','MUTE','TRACKER','SENSOR','TAK','HIDDEN','L&F'];
-  const roleSeen=new Set(); nodes.forEach(n=>roleSeen.add(roleLabel(n.role)));
-  const roles=ROLE_ORDER.filter(r=>roleSeen.has(r));
+  const roleSeen=new Set(); nodes.forEach(n=>roleSeen.add(radialRoleLabel(n.role)));
+  const roles=ROLE_ORDER_RADIAL.filter(r=>roleSeen.has(r));
   roleSeen.forEach(r=>{if(!roles.includes(r))roles.push(r);});
 
   const pktOf = n => pktMap[n.id] || 0;
+  const hopFloatOf2 = n => {
+    const db=avgHopsMap2[n.id], cur=n.hops_away;
+    const v=(db!==undefined&&db!==null)?db:(cur!==null&&cur!==undefined?cur:7);
+    return Math.min(Math.max(v,0),7);
+  };
   const maxPkt = d3.max(nodes.map(pktOf)) || 1;
-  const colorMode = _radialColorMode['roles-pkts'] || 'role';
+  const colorMode = _radialColorMode['roles-pkts'] || 'hops';
   const pktColorScale = d3.scaleSequential(d3.interpolateYlOrRd).domain([0, maxPkt]);
-  const dotColor = n => colorMode === 'packets'
-    ? pktColorScale(pktOf(n))
-    : (ROLE_COLORS[roleLabel(n.role)] || _ROLE_COLOR_DEFAULT);
+  const dotColor = n => {
+    if (colorMode === 'packets') return pktColorScale(pktOf(n));
+    // Default: hop gradient (encodes distance not already shown in sectors)
+    const hopF = hopFloatOf2(n);
+    const c1 = d3.color(RADIAL_HOP_COLORS[Math.floor(hopF)]) || d3.color('#888');
+    const c2 = d3.color(RADIAL_HOP_COLORS[Math.min(Math.ceil(hopF),7)]) || c1;
+    return d3.interpolateRgb(c1,c2)(hopF%1);
+  };
 
   const W=container.clientWidth||380, H=container.clientHeight||360;
   const cx=W/2, cy=H/2, outerR=Math.min(cx,cy)*0.76, labelR=outerR+22;
@@ -4539,27 +4531,46 @@ async function drawRadialRolesPacketsChart(selector) {
 
   // Dots
   nodes.forEach(n=>{
-    const r=roleLabel(n.role), i=roles.indexOf(r);
+    const r=radialRoleLabel(n.role), i=roles.indexOf(r);
     if(i<0) return;
     const pkts=pktOf(n);
     const rv=Math.max(4, rScale(pkts));
     const jA=(Math.random()-.5)*angleSlice*0.7;
     const a=i*angleSlice-Math.PI/2+jA;
+    const hopF2=hopFloatOf2(n);
     const dot=g.append('circle').attr('cx',Math.cos(a)*rv).attr('cy',Math.sin(a)*rv)
       .attr('r',4.5).attr('fill',dotColor(n)).attr('fill-opacity',.85)
       .attr('stroke','var(--bg)').attr('stroke-width',1).style('cursor','pointer');
-    dot.append('title').text(`${n.long_name||'!'+n.id}\nRole: ${r}\nPackets: ${pkts}`);
+    dot.append('title').text(`${n.long_name||'!'+n.id}\nRole: ${r}\nPackets: ${pkts}\nAvg hops: ${hopF2%1===0?hopF2:hopF2.toFixed(1)}`);
   });
 
-  // Role labels — colored in role mode
+  // Role labels
   roles.forEach((r,i)=>{
     const a=i*angleSlice-Math.PI/2;
     const x=Math.cos(a)*labelR, y=Math.sin(a)*labelR;
-    const labelColor = colorMode === 'role' ? (ROLE_COLORS[r]||'var(--text)') : 'var(--text)';
     g.append('text').attr('x',x).attr('y',y+4)
       .attr('text-anchor',Math.abs(x)<5?'middle':x>0?'start':'end')
-      .attr('fill',labelColor).attr('font-size',10).attr('font-family','var(--font-mono)').text(r);
+      .attr('fill','var(--text)').attr('font-size',10).attr('font-family','var(--font-mono)').text(r);
   });
+
+  // Legend — hop gradient or packet scale
+  const leg2 = svg.append('g').attr('transform', 'translate(8,8)');
+  if (colorMode === 'hops') {
+    RADIAL_HOP_COLORS.forEach((c, h) => {
+      leg2.append('circle').attr('cx',6).attr('cy',h*14+6).attr('r',4).attr('fill',c);
+      leg2.append('text').attr('x',14).attr('y',h*14+10)
+        .attr('fill','var(--muted)').attr('font-size',9).text(`${h}h`);
+    });
+  } else {
+    const steps=5;
+    for(let i=0;i<steps;i++){
+      const t=(steps-1-i)/(steps-1);
+      leg2.append('rect').attr('x',2).attr('y',i*14).attr('width',8).attr('height',12)
+        .attr('fill',pktColorScale(t*maxPkt));
+      leg2.append('text').attr('x',14).attr('y',i*14+10)
+        .attr('fill','var(--muted)').attr('font-size',9).text(Math.round(t*maxPkt)+'p');
+    }
+  }
 }
 
 // ── RADIAL: Hops × Packets ────────────────────────────────────
@@ -4586,25 +4597,19 @@ async function drawRadialHopsPacketsChart(selector) {
     if(r2.ok) avgHopsMap=await r2.json();
   } catch(e){}
 
-  const hopColors=['#00ff88','#4dffd1','#88ccff','#88aaff','#cc88ff','#f0883e','#ff5555','#ff2222'];
   const pktOf = n => pktMap[n.id] || 0;
   const hopFloatOf = n => {
     const db=avgHopsMap[n.id], cur=n.hops_away;
     const v=(db!==undefined&&db!==null)?db:(cur!==null&&cur!==undefined?cur:7);
     return Math.min(Math.max(v,0),7);
   };
-  const roleLabel2 = r => {
-    const m={CLIENT:'CLIENT',CLIENT_MUTE:'MUTE',MUTE_CLIENT:'MUTE',ROUTER:'ROUTER',ROUTER_CLIENT:'ROUTER+',
-             TRACKER:'TRACKER',SENSOR:'SENSOR',TAK:'TAK',TAK_TRACKER:'TAK',CLIENT_HIDDEN:'HIDDEN',LOST_AND_FOUND:'L&F'};
-    return m[(r||'').toUpperCase()]||'CLIENT';
-  };
   const maxPkt = d3.max(nodes.map(pktOf)) || 1;
   const colorModeH = _radialColorMode['hops-pkts'] || 'role';
   const dotColorH = n => {
-    if (colorModeH === 'role') return ROLE_COLORS[roleLabel2(n.role)] || _ROLE_COLOR_DEFAULT;
+    if (colorModeH === 'role') return ROLE_COLORS[radialRoleLabel(n.role)] || _ROLE_COLOR_DEFAULT;
     const hopF = hopFloatOf(n);
-    const c1=d3.color(hopColors[Math.floor(hopF)])||d3.color('#888');
-    const c2=d3.color(hopColors[Math.min(Math.ceil(hopF),7)])||c1;
+    const c1=d3.color(RADIAL_HOP_COLORS[Math.floor(hopF)])||d3.color('#888');
+    const c2=d3.color(RADIAL_HOP_COLORS[Math.min(Math.ceil(hopF),7)])||c1;
     return d3.interpolateRgb(c1,c2)(hopF%1);
   };
 
@@ -4640,12 +4645,12 @@ async function drawRadialHopsPacketsChart(selector) {
     const baseA=Math.floor(hopF)*angleSlice-Math.PI/2;
     const sectorFrac=(hopF%1);
     const jA=(Math.random()-.5)*angleSlice*0.5+sectorFrac*angleSlice*0.8;
-    const a=baseA+angleSlice*0.1+jA;
+    const a=baseA+jA;
     const dot=g.append('circle').attr('cx',Math.cos(a)*rv).attr('cy',Math.sin(a)*rv)
       .attr('r',4.5).attr('fill',dotColorH(n)).attr('fill-opacity',.85)
       .attr('stroke','var(--bg)').attr('stroke-width',1).style('cursor','pointer');
     const avgDisp=hopF%1===0?hopF:hopF.toFixed(1);
-    dot.append('title').text(`${n.long_name||'!'+n.id}\nRole: ${roleLabel2(n.role)}\nAvg hops: ${avgDisp}\nPackets: ${pkts}`);
+    dot.append('title').text(`${n.long_name||'!'+n.id}\nRole: ${radialRoleLabel(n.role)}\nAvg hops: ${avgDisp}\nPackets: ${pkts}`);
   });
 
   // Hop labels
@@ -4653,11 +4658,29 @@ async function drawRadialHopsPacketsChart(selector) {
     const a=h*angleSlice-Math.PI/2;
     const x=Math.cos(a)*labelR, y=Math.sin(a)*labelR;
     g.append('circle').attr('cx',Math.cos(a)*(outerR+10)).attr('cy',Math.sin(a)*(outerR+10))
-      .attr('r',5).attr('fill',hopColors[h]);
+      .attr('r',5).attr('fill',RADIAL_HOP_COLORS[h]);
     g.append('text').attr('x',x).attr('y',y+4)
       .attr('text-anchor',Math.abs(x)<5?'middle':x>0?'start':'end')
       .attr('fill','var(--text)').attr('font-size',10).attr('font-family','var(--font-mono)')
       .text(`${h}h`);
+  }
+
+  // Legend — role colors or hop gradient
+  const _seenRoles3 = new Set(nodes.map(n => radialRoleLabel(n.role)));
+  const leg3 = svg.append('g').attr('transform', 'translate(8,8)');
+  if (colorModeH === 'role') {
+    ROLE_ORDER_RADIAL.filter(r => _seenRoles3.has(r)).forEach((r, idx) => {
+      const c = ROLE_COLORS[r] || _ROLE_COLOR_DEFAULT;
+      leg3.append('circle').attr('cx',6).attr('cy',idx*14+6).attr('r',4).attr('fill',c);
+      leg3.append('text').attr('x',14).attr('y',idx*14+10)
+        .attr('fill','var(--muted)').attr('font-size',9).text(r);
+    });
+  } else {
+    RADIAL_HOP_COLORS.forEach((c, h) => {
+      leg3.append('circle').attr('cx',6).attr('cy',h*14+6).attr('r',4).attr('fill',c);
+      leg3.append('text').attr('x',14).attr('y',h*14+10)
+        .attr('fill','var(--muted)').attr('font-size',9).text(`${h}h`);
+    });
   }
 }
 
