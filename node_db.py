@@ -324,7 +324,12 @@ def get_hop_reachability(hours: float = 4.0, no_mqtt: bool = True) -> dict:
         return {}
     import time as _time
     cutoff = _time.time() - hours * 3600.0
-    bucket_secs, sqlite_fmt, label = _bucket_config(hours)
+    # Use finer resolution than the global _bucket_config for this chart:
+    # 1-minute buckets for ≤1h, 5m for ≤3h, 10m for ≤6h, then standard.
+    if   hours <= 1:   bucket_secs, sqlite_fmt, label = 60,       '%H:%M',     '1m'
+    elif hours <= 3:   bucket_secs, sqlite_fmt, label = 5*60,     '%H:%M',     '5m'
+    elif hours <= 6:   bucket_secs, sqlite_fmt, label = 10*60,    '%H:%M',     '10m'
+    else:              bucket_secs, sqlite_fmt, label = _bucket_config(hours)
     mq_and = "AND via_mqtt = 0" if no_mqtt else ""
     with _lock:
         rows = _conn.execute(
