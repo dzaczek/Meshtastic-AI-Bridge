@@ -4387,8 +4387,8 @@ async function drawRadialRolesChart(selector) {
     const baseA = i * angleSlice - Math.PI / 2;
     const ringW  = outerR / 8;
     const baseRv = outerR * hopFloat / 8;
-    const jA  = (Math.random() - 0.5) * angleSlice * 0.7;
-    const jRv = (Math.random() - 0.5) * ringW * 0.08;
+    const jA  = _nodeHash(n.id)       * angleSlice * 0.7;
+    const jRv = _nodeHash(n.id, 'r')  * ringW * 0.08;
     const rv  = Math.max(ringW * 0.1, Math.min(outerR - ringW * 0.1, baseRv + jRv));
     const a = baseA + jA;
     const dx = Math.cos(a) * rv, dy = Math.sin(a) * rv;
@@ -4406,15 +4406,10 @@ async function drawRadialRolesChart(selector) {
     dot.append('title').text(`${n.long_name || '!'+n.id}\nRole: ${r}\nHops: ${hopNote}`);
   });
 
-  // Legend — role colors (hop rings shown by concentric background circles)
-  const _legRoles1 = ROLE_ORDER_RADIAL.filter(r => roleSeen.has(r));
-  const leg = svg.append('g').attr('transform', 'translate(8,8)');
-  _legRoles1.forEach((r, idx) => {
-    const c = ROLE_COLORS[r] || _ROLE_COLOR_DEFAULT;
-    leg.append('circle').attr('cx', 6).attr('cy', idx*14+6).attr('r', 4).attr('fill', c);
-    leg.append('text').attr('x', 14).attr('y', idx*14+10)
-      .attr('fill','var(--muted)').attr('font-size', 9).text(r);
-  });
+  // Legend — role colors
+  _radialLegend(svg, ROLE_ORDER_RADIAL.filter(r => roleSeen.has(r)).map(r => ({
+    color: ROLE_COLORS[r] || _ROLE_COLOR_DEFAULT, label: r
+  })));
 }
 
 // ── RADIAL: shared helpers ────────────────────────────────────
@@ -4424,6 +4419,29 @@ function radialRoleLabel(r) {
   const m={CLIENT:'CLIENT',CLIENT_MUTE:'MUTE',MUTE_CLIENT:'MUTE',ROUTER:'ROUTER',ROUTER_CLIENT:'ROUTER+',
            TRACKER:'TRACKER',SENSOR:'SENSOR',TAK:'TAK',TAK_TRACKER:'TAK',CLIENT_HIDDEN:'HIDDEN',LOST_AND_FOUND:'L&F'};
   return m[(r||'').toUpperCase()]||'CLIENT';
+}
+// Deterministic [−0.5, 0.5) value seeded from node id — stable across redraws
+function _nodeHash(id, salt='') {
+  let h = 0x9e3779b9;
+  const s = String(id) + salt;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(31, h) ^ s.charCodeAt(i)) | 0;
+  return ((h >>> 0) % 100000) / 100000 - 0.5;
+}
+// Draw a small legend box (top-left of svg); entries = [{color, label}]
+function _radialLegend(svg, entries) {
+  if (!entries.length) return;
+  const pad = 4, r = 4, rowH = 14;
+  const bh = entries.length * rowH + pad * 2;
+  const bw = 72;
+  const g = svg.append('g').attr('transform', `translate(6,6)`);
+  g.append('rect').attr('width', bw).attr('height', bh).attr('rx', 3)
+    .attr('fill','rgba(0,0,0,0.45)').attr('stroke','rgba(255,255,255,0.08)').attr('stroke-width',1);
+  entries.forEach(({color, label}, idx) => {
+    g.append('circle').attr('cx', pad+r).attr('cy', pad + idx*rowH + rowH/2).attr('r', r).attr('fill', color);
+    g.append('text').attr('x', pad+r*2+4).attr('y', pad + idx*rowH + rowH/2 + 3.5)
+      .attr('fill','rgba(255,255,255,0.75)').attr('font-size', 9).attr('font-family','monospace')
+      .text(label);
+  });
 }
 const ROLE_COLORS = {
   'ROUTER':  '#f0883e',
@@ -4535,7 +4553,7 @@ async function drawRadialRolesPacketsChart(selector) {
     if(i<0) return;
     const pkts=pktOf(n);
     const rv=Math.max(4, rScale(pkts));
-    const jA=(Math.random()-.5)*angleSlice*0.7;
+    const jA=_nodeHash(n.id)*angleSlice*0.7;
     const a=i*angleSlice-Math.PI/2+jA;
     const hopF2=hopFloatOf2(n);
     const dot=g.append('circle').attr('cx',Math.cos(a)*rv).attr('cy',Math.sin(a)*rv)
@@ -4554,22 +4572,14 @@ async function drawRadialRolesPacketsChart(selector) {
   });
 
   // Legend — hop gradient or packet scale
-  const leg2 = svg.append('g').attr('transform', 'translate(8,8)');
   if (colorMode === 'hops') {
-    RADIAL_HOP_COLORS.forEach((c, h) => {
-      leg2.append('circle').attr('cx',6).attr('cy',h*14+6).attr('r',4).attr('fill',c);
-      leg2.append('text').attr('x',14).attr('y',h*14+10)
-        .attr('fill','var(--muted)').attr('font-size',9).text(`${h}h`);
-    });
+    _radialLegend(svg, RADIAL_HOP_COLORS.map((c, h) => ({ color: c, label: `${h} hop${h===1?'':'s'}` })));
   } else {
-    const steps=5;
-    for(let i=0;i<steps;i++){
-      const t=(steps-1-i)/(steps-1);
-      leg2.append('rect').attr('x',2).attr('y',i*14).attr('width',8).attr('height',12)
-        .attr('fill',pktColorScale(t*maxPkt));
-      leg2.append('text').attr('x',14).attr('y',i*14+10)
-        .attr('fill','var(--muted)').attr('font-size',9).text(Math.round(t*maxPkt)+'p');
-    }
+    const steps = 5;
+    _radialLegend(svg, Array.from({length: steps}, (_, i) => {
+      const t = (steps-1-i)/(steps-1);
+      return { color: pktColorScale(t*maxPkt), label: Math.round(t*maxPkt)+' pkt' };
+    }));
   }
 }
 
@@ -4644,7 +4654,7 @@ async function drawRadialHopsPacketsChart(selector) {
     // Place within the hop sector (fraction within sector = fractional part of avg hops)
     const baseA=Math.floor(hopF)*angleSlice-Math.PI/2;
     const sectorFrac=(hopF%1);
-    const jA=(Math.random()-.5)*angleSlice*0.5+sectorFrac*angleSlice*0.8;
+    const jA=_nodeHash(n.id)*angleSlice*0.5+sectorFrac*angleSlice*0.8;
     const a=baseA+jA;
     const dot=g.append('circle').attr('cx',Math.cos(a)*rv).attr('cy',Math.sin(a)*rv)
       .attr('r',4.5).attr('fill',dotColorH(n)).attr('fill-opacity',.85)
@@ -4667,20 +4677,12 @@ async function drawRadialHopsPacketsChart(selector) {
 
   // Legend — role colors or hop gradient
   const _seenRoles3 = new Set(nodes.map(n => radialRoleLabel(n.role)));
-  const leg3 = svg.append('g').attr('transform', 'translate(8,8)');
   if (colorModeH === 'role') {
-    ROLE_ORDER_RADIAL.filter(r => _seenRoles3.has(r)).forEach((r, idx) => {
-      const c = ROLE_COLORS[r] || _ROLE_COLOR_DEFAULT;
-      leg3.append('circle').attr('cx',6).attr('cy',idx*14+6).attr('r',4).attr('fill',c);
-      leg3.append('text').attr('x',14).attr('y',idx*14+10)
-        .attr('fill','var(--muted)').attr('font-size',9).text(r);
-    });
+    _radialLegend(svg, ROLE_ORDER_RADIAL.filter(r => _seenRoles3.has(r)).map(r => ({
+      color: ROLE_COLORS[r] || _ROLE_COLOR_DEFAULT, label: r
+    })));
   } else {
-    RADIAL_HOP_COLORS.forEach((c, h) => {
-      leg3.append('circle').attr('cx',6).attr('cy',h*14+6).attr('r',4).attr('fill',c);
-      leg3.append('text').attr('x',14).attr('y',h*14+10)
-        .attr('fill','var(--muted)').attr('font-size',9).text(`${h}h`);
-    });
+    _radialLegend(svg, RADIAL_HOP_COLORS.map((c, h) => ({ color: c, label: `${h} hop${h===1?'':'s'}` })));
   }
 }
 
