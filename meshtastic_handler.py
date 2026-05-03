@@ -920,6 +920,26 @@ class MeshtasticHandler:
                 print(f"WARNING: setFixedPosition failed: {sfp_err}")
                 return False, f"setFixedPosition error: {sfp_err}"
 
+            # Update Python library's local cache immediately so verify/display
+            # shows the new position without waiting for the next 1-hour broadcast.
+            try:
+                raw_nodes = getattr(self.interface, 'nodes', None) or {}
+                for num, info in raw_nodes.items():
+                    if num == self.node_id:
+                        if 'position' not in info or info['position'] is None:
+                            info['position'] = {}
+                        info['position'].update({
+                            'latitude':       lat,
+                            'longitude':      lon,
+                            'altitude':       alt,
+                            'latitudeI':      int(lat * 1e7),
+                            'longitudeI':     int(lon * 1e7),
+                            'locationSource': 1,  # LOC_MANUAL
+                        })
+                        break
+            except Exception as cache_err:
+                print(f"WARNING: local cache update failed: {cache_err}")
+
             msg = f"Fixed position set: {lat:.6f}, {lon:.6f} alt={alt}m"
 
             if reboot:
@@ -938,13 +958,28 @@ class MeshtasticHandler:
         if not self.interface or not self.node_id:
             return None
         try:
-            # Primary: read from interface.nodes (most up-to-date cached value)
+            # Primary: read from interface.nodes cache
             pos = {}
             raw_nodes = getattr(self.interface, 'nodes', None) or {}
             for num, info in raw_nodes.items():
                 if num == self.node_id:
                     pos = info.get('position') or {}
                     break
+
+            # If cache has no locationSource the data may be stale (pre-setFixedPosition
+            # broadcast). Try to get fresher data from the device nodeInfo via admin.
+            src_raw = pos.get('locationSource') or pos.get('location_source')
+            if not src_raw:
+                try:
+                    local_node = getattr(self.interface, 'localNode', None)
+                    if local_node:
+                        ni = getattr(local_node, 'nodeInfo', None)
+                        if isinstance(ni, dict):
+                            fresh = ni.get('position') or {}
+                            if fresh:
+                                pos = fresh
+                except Exception:
+                    pass
 
             # Fallback: try localNode.nodeInfo
             if not pos:
