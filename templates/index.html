@@ -4268,7 +4268,7 @@ async function drawRadialRolesChart(selector) {
   // Count per role per hop (8 buckets: 0–7) using min hops from DB
   const counts = {};
   roles.forEach(r => { counts[r] = [0,0,0,0,0,0,0,0]; });
-  nodes.forEach(n => { const r = roleKey(n.role); if(counts[r]) counts[r][_hopOf(n)]++; });
+  nodes.forEach(n => { const r = radialRoleLabel(n.role); if(counts[r]) counts[r][_hopOf(n)]++; });
 
   const W = container.clientWidth  || 380;
   const H = container.clientHeight || 360;
@@ -4647,10 +4647,16 @@ async function drawRadialHopsPacketsChart(selector) {
 // ── NODE REACHABILITY BY HOP COUNT ────────────────────────────
 // Line chart: X = time buckets, Y = distinct nodes visible,
 // one coloured line per hop distance (0 h … 7 h).
+// Grafana-style interactive legend: click to toggle individual series.
+const _hopReachHidden = new Set(); // persists across redraws
+
 async function drawHopReachabilityChart(selector) {
   const container = document.querySelector(selector);
   if (!container || typeof d3 === 'undefined') return;
   container.innerHTML = '';
+  // Need flex column so legendRow + chartDiv stack vertically
+  container.style.display = 'flex';
+  container.style.flexDirection = 'column';
 
   const _hours = parseFloat(document.getElementById('analytics-hours')?.value || '168');
   let data = {};
@@ -4668,27 +4674,46 @@ async function drawHopReachabilityChart(selector) {
     return;
   }
 
-  const W = container.clientWidth  || 900;
-  const H = container.clientHeight || 260;
-  const margin = { top: 16, right: 130, bottom: 42, left: 42 };
+  // ── Interactive HTML legend (Grafana-style click-to-toggle) ──
+  const legendRow = document.createElement('div');
+  legendRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:5px;padding:0 4px 5px;flex-shrink:0;align-items:center;';
+  const legendTitle = document.createElement('span');
+  legendTitle.style.cssText = 'font-size:.68em;color:var(--muted);margin-right:4px;';
+  legendTitle.textContent = 'Hop distance:';
+  legendRow.appendChild(legendTitle);
+  container.appendChild(legendRow);
+
+  // SVG sits in a flex-growing div below the legend
+  const chartDiv = document.createElement('div');
+  chartDiv.style.cssText = 'flex:1;position:relative;min-height:0;overflow:hidden;';
+  container.appendChild(chartDiv);
+
+  const W = chartDiv.clientWidth  || 900;
+  const H = chartDiv.clientHeight || 240;
+  const margin = { top: 12, right: 12, bottom: 38, left: 40 };
   const w = W - margin.left - margin.right;
   const h = H - margin.top  - margin.bottom;
 
-  const svg = d3.select(container).append('svg').attr('width', W).attr('height', H);
+  const svg = d3.select(chartDiv).append('svg').attr('width', W).attr('height', H);
   const g   = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
 
-  // Scales
+  // Scales — only over visible series
   const x = d3.scalePoint().domain(buckets).range([0, w]).padding(0.1);
-  const maxY = d3.max(series, s => d3.max(s.counts)) || 1;
+  const visibleSeries = () => series.filter(s => !_hopReachHidden.has(s.hop));
+  const getMaxY = () => d3.max(visibleSeries(), s => d3.max(s.counts)) || 1;
+  let maxY = getMaxY();
   const y = d3.scaleLinear().domain([0, maxY]).nice().range([h, 0]);
 
   // Background grid
-  g.append('g').attr('class', 'grid')
-    .call(d3.axisLeft(y).ticks(4).tickSize(-w).tickFormat(''))
-    .selectAll('line').attr('stroke','rgba(255,255,255,.07)').attr('stroke-dasharray','3,3');
-  g.select('.grid .domain').remove();
+  const gridG = g.append('g').attr('class', 'grid');
+  const drawGrid = () => {
+    gridG.call(d3.axisLeft(y).ticks(4).tickSize(-w).tickFormat(''));
+    gridG.selectAll('line').attr('stroke','rgba(255,255,255,.07)').attr('stroke-dasharray','3,3');
+    gridG.select('.domain').remove();
+  };
+  drawGrid();
 
-  // X axis — show only every N-th label to avoid crowding
+  // X axis
   const step = Math.max(1, Math.ceil(buckets.length / 14));
   g.append('g')
     .attr('transform', `translate(0,${h})`)
@@ -4696,77 +4721,130 @@ async function drawHopReachabilityChart(selector) {
       .tickValues(buckets.filter((_, i) => i % step === 0))
       .tickSize(4))
     .selectAll('text')
-      .attr('fill', 'var(--muted)')
-      .attr('font-size', 9)
-      .attr('transform', 'rotate(-35)')
-      .attr('text-anchor', 'end');
+      .attr('fill','var(--muted)').attr('font-size',9)
+      .attr('transform','rotate(-35)').attr('text-anchor','end');
   g.select('.domain').attr('stroke','rgba(255,255,255,.15)');
 
   // Y axis
-  g.append('g')
-    .call(d3.axisLeft(y).ticks(4).tickFormat(d3.format('d')))
-    .selectAll('text').attr('fill','var(--muted)').attr('font-size',9);
-  g.select('.domain').attr('stroke','rgba(255,255,255,.15)');
+  const yAxisG = g.append('g');
+  const drawYAxis = () => {
+    yAxisG.call(d3.axisLeft(y).ticks(4).tickFormat(d3.format('d')));
+    yAxisG.selectAll('text').attr('fill','var(--muted)').attr('font-size',9);
+    yAxisG.select('.domain').attr('stroke','rgba(255,255,255,.15)');
+  };
+  drawYAxis();
 
-  // Y axis label
   g.append('text').attr('transform','rotate(-90)')
-    .attr('y',-34).attr('x',-(h/2))
-    .attr('text-anchor','middle')
-    .attr('fill','var(--muted)').attr('font-size',9)
-    .text('distinct nodes');
+    .attr('y',-32).attr('x',-(h/2)).attr('text-anchor','middle')
+    .attr('fill','var(--muted)').attr('font-size',9).text('nodes visible');
 
-  // Lines + dots per hop
+  // X axis label
+  if (blabel) {
+    svg.append('text')
+      .attr('x', margin.left + w/2).attr('y', H - 1)
+      .attr('text-anchor','middle')
+      .attr('fill','var(--muted)').attr('font-size',8)
+      .text(`Time (${blabel} buckets) — click legend to toggle series`);
+  }
+
+  // Lines + dots — store D3 selections for toggle
   const line = d3.line()
     .x((_, i) => x(buckets[i]))
     .y(d => y(d))
     .defined(d => d > 0)
     .curve(d3.curveMonotoneX);
 
+  const seriesEls = {}; // hop → { pathSel, dotsSel }
   series.forEach(s => {
     const col = RADIAL_HOP_COLORS[s.hop] || '#888';
-    // Line
-    g.append('path')
+    const hidden = _hopReachHidden.has(s.hop);
+
+    const pathSel = g.append('path')
       .datum(s.counts)
-      .attr('fill','none')
-      .attr('stroke', col)
-      .attr('stroke-width', 1.8)
-      .attr('stroke-linejoin','round')
-      .attr('opacity', 0.9)
+      .attr('fill','none').attr('stroke', col)
+      .attr('stroke-width', 2).attr('stroke-linejoin','round')
+      .attr('opacity', hidden ? 0 : 0.9)
+      .attr('pointer-events','none')
       .attr('d', line);
-    // Dots on non-zero points
+
+    const dotsSel = g.append('g').attr('opacity', hidden ? 0 : 0.85);
     s.counts.forEach((cnt, i) => {
       if (!cnt) return;
-      g.append('circle')
+      dotsSel.append('circle')
         .attr('cx', x(buckets[i])).attr('cy', y(cnt))
-        .attr('r', 3).attr('fill', col).attr('fill-opacity', 0.85)
+        .attr('r', 3).attr('fill', col)
         .attr('stroke','var(--bg)').attr('stroke-width',1)
         .append('title')
           .text(`${s.hop} hop${s.hop===1?'':'s'}  ·  ${buckets[i]}  ·  ${cnt} node${cnt===1?'':'s'}`);
     });
+
+    seriesEls[s.hop] = { pathSel, dotsSel };
   });
 
-  // Legend (right side)
-  const leg = svg.append('g').attr('transform', `translate(${W - margin.right + 10}, ${margin.top})`);
-  leg.append('text').attr('y',-2).attr('fill','var(--muted)').attr('font-size',8.5).text('Hop distance');
-  series.forEach((s, idx) => {
+  // ── Legend chips ────────────────────────────────────────────
+  const refreshChart = () => {
+    maxY = getMaxY();
+    y.domain([0, maxY]).nice();
+    series.forEach(s => {
+      if (!seriesEls[s.hop]) return;
+      const hidden = _hopReachHidden.has(s.hop);
+      seriesEls[s.hop].pathSel.attr('opacity', hidden ? 0 : 0.9);
+      seriesEls[s.hop].dotsSel.attr('opacity', hidden ? 0 : 0.85);
+      // Redraw path with updated y scale
+      if (!hidden) seriesEls[s.hop].pathSel.attr('d', line);
+    });
+    drawGrid();
+    drawYAxis();
+  };
+
+  series.forEach(s => {
     const col = RADIAL_HOP_COLORS[s.hop] || '#888';
-    leg.append('line')
-      .attr('x1',0).attr('y1',idx*16+10).attr('x2',18).attr('y2',idx*16+10)
-      .attr('stroke',col).attr('stroke-width',2);
-    leg.append('circle').attr('cx',9).attr('cy',idx*16+10).attr('r',3).attr('fill',col);
-    leg.append('text').attr('x',22).attr('y',idx*16+14)
-      .attr('fill','rgba(255,255,255,.75)').attr('font-size',9)
-      .text(`${s.hop} hop${s.hop===1?'':'s'}`);
+    const chip = document.createElement('span');
+    chip.style.cssText = `
+      display:inline-flex;align-items:center;gap:4px;
+      padding:2px 8px 2px 6px;border-radius:3px;cursor:pointer;
+      font-size:.72em;font-family:var(--font-mono);
+      border:1px solid ${col};color:${col};
+      transition:opacity .15s;user-select:none;
+    `;
+    // colour swatch + label
+    chip.innerHTML = `<span style="display:inline-block;width:18px;height:2px;background:${col};border-radius:1px;"></span>${s.hop}h`;
+
+    const updateChip = () => {
+      chip.style.opacity = _hopReachHidden.has(s.hop) ? '0.28' : '1';
+      chip.style.textDecoration = _hopReachHidden.has(s.hop) ? 'line-through' : '';
+    };
+    updateChip();
+
+    chip.addEventListener('click', () => {
+      if (_hopReachHidden.has(s.hop)) {
+        _hopReachHidden.delete(s.hop);
+      } else {
+        // Don't hide the last visible series
+        if (_hopReachHidden.size >= series.length - 1) return;
+        _hopReachHidden.add(s.hop);
+      }
+      updateChip();
+      refreshChart();
+    });
+
+    legendRow.appendChild(chip);
   });
 
-  // X axis description
-  if (blabel) {
-    svg.append('text')
-      .attr('x', margin.left + w/2).attr('y', H - 2)
-      .attr('text-anchor','middle')
-      .attr('fill','var(--muted)').attr('font-size',8.5)
-      .text(`Time (${blabel} buckets)`);
-  }
+  // "Show all" button — redraws entire chart with cleared hidden set
+  const resetChip = document.createElement('span');
+  resetChip.textContent = '✕ All';
+  resetChip.title = 'Show all series';
+  resetChip.style.cssText = `
+    padding:2px 8px;border-radius:3px;cursor:pointer;font-size:.72em;
+    border:1px solid var(--muted);color:var(--muted);margin-left:4px;
+    user-select:none;
+  `;
+  resetChip.addEventListener('click', () => {
+    _hopReachHidden.clear();
+    drawHopReachabilityChart(selector);
+  });
+  legendRow.appendChild(resetChip);
 }
 
 // ── CONFIG TAB ────────────────────────────────────────────────
