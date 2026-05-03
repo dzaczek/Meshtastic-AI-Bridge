@@ -1074,7 +1074,7 @@
     }
   </style>
   <script src="https://d3js.org/d3.v7.min.js"></script>
-  <script src="https://leaflet.github.io/Leaflet.heat/dist/leaflet-heat.js"></script>
+  <!-- leaflet-heat removed: heatmap widget was deleted -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/gridstack.js/10.1.2/gridstack-all.js"></script>
 </head>
 <body>
@@ -2519,7 +2519,13 @@ function getNodeById(id) {
   return nodesCache.find(n => n.id === clean || n.id === id) || null;
 }
 function clickMsgSender(nodeId) {
-  openNodeById(nodeId);
+  // Normalize: strip ! prefix so it matches nodesCache .id format
+  const cleanId = String(nodeId || '').replace(/^!/, '').toLowerCase();
+  const node = nodesCache.find(n => n.id === cleanId);
+  const name = node
+    ? (node.long_name || node.short_name || ('!' + cleanId))
+    : ('!' + cleanId);
+  filterBySender(cleanId, name);
 }
 function openNodeById(nodeId) {
   if (!nodeId) return;
@@ -2586,7 +2592,7 @@ function switchTab(name) {
   // Clear global unread badge when entering chat
   if (name==='chat') { unreadCounts = {}; _updateConvBadges(); }
   // Let GridStack recalculate layout when tab becomes visible
-  setTimeout(() => { if (grids[name]) grids[name].onParentResize(); }, 50);
+  setTimeout(() => { if (grids[name]) window.dispatchEvent(new Event('resize')); }, 50);
 }
 
 function mobChatBack() {
@@ -2607,10 +2613,12 @@ function msgVisible(msg) {
   // Sender filter (set by clicking a name in the chat): show ALL messages
   // from OR to this node — broadcast and DM alike — so the user sees the
   // full conversation history, not just private messages.
+  // Normalize by stripping ! prefix so format differences don't break matching.
   if (chatSenderFilter) {
-    const sid = (msg.sender_id  || '').toLowerCase();
-    const did = (msg.destination_id || '').toLowerCase();
-    return sid === chatSenderFilter || did === chatSenderFilter;
+    const cf  = chatSenderFilter.replace(/^!/, '').toLowerCase();
+    const sid = (msg.sender_id       || '').replace(/^!/, '').toLowerCase();
+    const did = (msg.destination_id  || '').replace(/^!/, '').toLowerCase();
+    return sid === cf || did === cf;
   }
 
   if (activeConv === 'all') return true;
@@ -6862,7 +6870,7 @@ async function fetchAITokenStats() {
   fetch('/api/sys_packets_to_chat').then(r=>r.json()).then(d=>_updateSysFeedBtn(null, d.enabled)).catch(()=>{});
 
   await fetchStatus();
-  await fetchChannels();
+  fetchChannels();        // non-blocking: channels load in background; messages don't wait
   await fetchMessages();
   await fetchNodes();
   await fetchPackets();
