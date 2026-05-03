@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import MagicMock, patch
 import json
-from hal_bot import HalBot
+import sys; sys.modules["requests"] = __import__("requests"); from hal_bot import HalBot
 
 @pytest.fixture
 def bot():
