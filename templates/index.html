@@ -1782,14 +1782,6 @@
       </div>
     </div>
 
-    <!-- Heatmap -->
-    <div class="grid-stack-item" gs-id="an-heatmap-widget" gs-x="0" gs-y="8" gs-w="12" gs-h="4">
-      <div class="grid-stack-item-content stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md); display:flex; flex-direction:column; height:100%;">
-        <div class="stat-title">Most Talkative Nodes (Heatmap)<button class="graph-expand-btn" onclick="openHeatmapFs()" title="Fullscreen">⤢</button></div>
-        <div id="analytics-heatmap" style="flex:1; border-radius:var(--r-md); border:1px solid var(--border-s); position:relative; z-index:0;"></div>
-      </div>
-    </div>
-
     <!-- Node Role vs Hop Radial Chart -->
     <div class="grid-stack-item" gs-id="an-radial-widget" gs-x="0" gs-y="12" gs-w="4" gs-h="5">
       <div class="grid-stack-item-content stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md); display:flex; flex-direction:column; height:100%;">
@@ -3605,8 +3597,6 @@ function clearDm() {
 
 
 // ── ANALYTICS (D3) ─────────────────────────────────────────────────────────────
-let analyticsHeatmap = null;
-
 let _fsCurrentChartId = null;
 
 // Charts that have a color-mode toggle { chartId → colorModeKey }
@@ -3769,15 +3759,6 @@ function openGraphFs(chartId, title) {
   _fsMarkActiveTime();
   _fsUpdateColorBtn(chartId);
   _fsRenderChart(chartId);
-}
-
-function openHeatmapFs() {
-  const el = document.getElementById('analytics-heatmap');
-  if (el.requestFullscreen) {
-    el.requestFullscreen().then(() => {
-      setTimeout(() => { if (analyticsHeatmap) analyticsHeatmap.invalidateSize(); }, 200);
-    });
-  }
 }
 
 function closeGraphFs() {
@@ -4222,44 +4203,6 @@ async function initAnalytics() {
     else
       document.querySelector('#d3-an-dm-text-graph').innerHTML =
         '<p style="color:var(--muted);padding:20px;font-size:.8em">No text DMs in this period.</p>';
-
-    // 8. Heatmap
-    if (!analyticsHeatmap) {
-      analyticsHeatmap = L.map('analytics-heatmap', {zoomControl:true, attributionControl:false})
-        .setView([0, 0], 2);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 18}).addTo(analyticsHeatmap);
-    }
-
-    // Clear old layers
-    analyticsHeatmap.eachLayer(layer => {
-      if (layer._heat || (typeof L.HeatLayer !== 'undefined' && layer instanceof L.HeatLayer)) {
-        analyticsHeatmap.removeLayer(layer);
-      }
-    });
-
-    const heatPoints = [];
-    const bounds = [];
-    if (data.top_senders && data.node_positions) {
-      data.top_senders.forEach(s => {
-        const pos = data.node_positions[s.id];
-        if (pos && pos.lat && pos.lon) {
-          heatPoints.push([pos.lat, pos.lon, s.count]);
-          bounds.push([pos.lat, pos.lon]);
-        }
-      });
-    }
-
-    if (heatPoints.length > 0) {
-      L.heatLayer(heatPoints, {radius: 25, blur: 15, maxZoom: 17}).addTo(analyticsHeatmap);
-      if (bounds.length > 1) {
-        analyticsHeatmap.fitBounds(bounds, {padding: [50, 50]});
-      } else if (bounds.length === 1) {
-        analyticsHeatmap.setView(bounds[0], 10);
-      }
-    }
-
-    // Invalidate size in case tab wasn't visible when map was created
-    setTimeout(() => { if(analyticsHeatmap) analyticsHeatmap.invalidateSize(); }, 100);
 
   } catch(e) { console.error('Analytics load error:', e); }
 
@@ -6939,7 +6882,6 @@ function initGridStack() {
   // Resize charts on layout change
   const resizeCharts = () => {
     if (window.opsLeafMap) window.opsLeafMap.invalidateSize();
-    if (window.heatmapLeafMap) window.heatmapLeafMap.invalidateSize();
     if (window.leafMap) window.leafMap.invalidateSize();
   };
 
