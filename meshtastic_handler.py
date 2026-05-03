@@ -887,49 +887,42 @@ class MeshtasticHandler:
 
     def set_fixed_position(self, lat: float, lon: float, alt: int = 0,
                            reboot: bool = False) -> tuple:
-        """Set fixed position using multiple methods for maximum firmware compatibility."""
+        """Set fixed position matching official Meshtastic CLI behaviour."""
         if not self.interface or not self.is_connected:
             return False, "Not connected"
         try:
             import time as _t
             node = self.interface.getNode('^local')
-            steps = []
 
-            # Method 1: sendPosition() — the CLI's --setlat/--setlon approach.
-            # The firmware notices this packet and updates its internal position store.
-            # Works across all firmware versions without requiring PKI admin keys.
-            try:
-                self.interface.sendPosition(
-                    latitude=lat, longitude=lon, altitude=alt,
-                    destinationId=0xFFFFFFFF, wantAck=False, channelIndex=0,
-                )
-                steps.append("positionBroadcast")
-            except Exception as sp_err:
-                print(f"WARNING: sendPosition failed: {sp_err}")
-
-            # Method 2: setFixedPosition() admin message (newer firmware ≥ 2.3)
-            # Sets LOC_MANUAL and stores coordinates in device position DB via AdminMessage.
-            try:
-                node.setFixedPosition(lat, lon, alt)
-                steps.append("setFixedPosition")
-            except Exception as sfp_err:
-                print(f"WARNING: setFixedPosition failed: {sfp_err}")
-
-            # Method 3: write fixed_position=True to localConfig (persists across reboots)
+            # Step 1: Ensure fixed_position=True is persisted in config flash.
+            # This must come BEFORE setFixedPosition so the flag is already in
+            # firmware config by the time coordinates are written.
             try:
                 lc = getattr(node, 'localConfig', None)
                 if lc and hasattr(lc, 'position'):
                     lc.position.fixed_position = True
                     node.writeConfig("position")
-                    steps.append("configSaved")
+                    _t.sleep(0.5)  # give firmware time to process config write
             except Exception as cfg_err:
                 print(f"WARNING: writeConfig(position) failed: {cfg_err}")
 
-            msg = f"Fixed position set: {lat:.6f}, {lon:.6f} alt={alt}m [{', '.join(steps)}]"
+            # Step 2: Send SET_FIXED_POSITION admin message — the only reliable way
+            # to update stored coordinates on firmware ≥ 2.3.
+            # NOTE: sendPosition() is intentionally NOT used here because the
+            # firmware ignores broadcast position packets when fixedPosition=True.
+            # The official meshtastic CLI uses setFixedPosition() exclusively.
+            try:
+                node.setFixedPosition(lat, lon, alt)
+                # Wait for the flash write to complete on the device side.
+                # Without this delay the reboot may happen before the write finishes.
+                _t.sleep(1.5)
+            except Exception as sfp_err:
+                print(f"WARNING: setFixedPosition failed: {sfp_err}")
+                return False, f"setFixedPosition error: {sfp_err}"
 
-            # Optional reboot so firmware picks up all changes from flash
+            msg = f"Fixed position set: {lat:.6f}, {lon:.6f} alt={alt}m"
+
             if reboot:
-                _t.sleep(1)
                 try:
                     node.reboot()
                     msg += " — rebooting, reconnect in ~15s"
@@ -980,10 +973,15 @@ class MeshtasticHandler:
             lat = lat_i / 1e7 if lat_i else None
             lon = lon_i / 1e7 if lon_i else None
 
-            src = pos.get('locationSource') or pos.get('location_source') or 0
-            if src is None:
-                src = 0
-            src = int(src)
+            _LOC_SRC = {'LOC_UNSET': 0, 'LOC_MANUAL': 1, 'LOC_INTERNAL': 2, 'LOC_EXTERNAL': 3}
+            src_raw = pos.get('locationSource') or pos.get('location_source') or 0
+            if isinstance(src_raw, str):
+                src = _LOC_SRC.get(src_raw, 0)
+            else:
+                try:
+                    src = int(src_raw)
+                except (TypeError, ValueError):
+                    src = 0
             src_name = {0: 'UNSET', 1: 'MANUAL', 2: 'INTERNAL(GPS)', 3: 'EXTERNAL'}.get(src, f'src={src}')
             return {
                 'lat': lat, 'lon': lon,

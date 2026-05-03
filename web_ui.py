@@ -176,9 +176,6 @@ def _schedule_save() -> None:
     t.start()
 
 
-# Load persisted messages and UI settings immediately at module import
-_load_chat_history()
-_load_ui_settings()
 _status: dict = {
     "connected": False,
     "node_id": None,
@@ -192,6 +189,10 @@ _status: dict = {
     "bot_private_replies": False,
     "sys_packets_to_chat": False,
 }
+
+# Load persisted messages and UI settings immediately at module import
+_load_chat_history()
+_load_ui_settings()
 
 
 def is_ai_enabled() -> bool:
@@ -658,6 +659,9 @@ def _parse_packet(packet: dict, interface) -> dict:
 # Node / channel helpers
 # ---------------------------------------------------------------------------
 
+_LOC_SRC_MAP = {"LOC_UNSET": 0, "LOC_MANUAL": 1, "LOC_INTERNAL": 2, "LOC_EXTERNAL": 3}
+
+
 def _build_nodes_list(handler) -> list:
     if not handler or not handler.interface:
         return []
@@ -691,6 +695,15 @@ def _build_nodes_list(handler) -> list:
             if lat_i: lat = lat_i / 1e7
             if lon_i: lon = lon_i / 1e7
         loc_src = pos.get("locationSource") or pos.get("location_source") or 0
+        # The Meshtastic library may return loc_src as a string enum name
+        # (e.g. 'LOC_MANUAL') or as an integer. Map both safely to an int.
+        if isinstance(loc_src, str):
+            loc_src_int = _LOC_SRC_MAP.get(loc_src, 0)
+        else:
+            try:
+                loc_src_int = int(loc_src)
+            except (TypeError, ValueError):
+                loc_src_int = 0
 
         metrics = nd.get("deviceMetrics") or {}
         battery = nd.get("batteryLevel") or metrics.get("batteryLevel")
@@ -718,7 +731,7 @@ def _build_nodes_list(handler) -> list:
             "lat":       lat,
             "lon":       lon,
             "altitude":      pos.get("altitude"),
-            "location_source": int(loc_src) if loc_src else 0,
+            "location_source": loc_src_int,
             "is_mine":       num == my_num,
             "is_favorite": nd.get("isFavorite", False),
         })
