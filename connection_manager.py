@@ -124,21 +124,30 @@ class ConnectionStateMachine:
                 logger.debug(f"Unexpected connection success in state: {current_state}")
 
     def connection_failed(self, error: Optional[Exception] = None) -> None:
-        """Handle connection failure"""
+        """Handle connection failure — always schedules a retry (no permanent FAILED trap)."""
         with self._operation_lock:
             current_state = self.state
-            if current_state in {ConnectionState.CONNECTING, ConnectionState.RECONNECTING}:
+            if current_state in {ConnectionState.CONNECTING, ConnectionState.RECONNECTING,
+                                  ConnectionState.CONNECTED}:
                 self._retry_count += 1
-                if self._retry_count >= self.config.max_retries:
-                    if self._set_state(ConnectionState.FAILED):
-                        logger.error(f"Connection failed after {self._retry_count} attempts. Last error: {error}")
+                delay = self._calculate_retry_delay()
+                # Log more prominently after many retries but never give up
+                if self._retry_count % 5 == 0:
+                    logger.warning(
+                        f"Reconnect attempt {self._retry_count} failed (will keep retrying). "
+                        f"Last error: {error}"
+                    )
                 else:
-                    delay = self._calculate_retry_delay()
-                    logger.info(f"Connection attempt {self._retry_count}/{self.config.max_retries} failed. Retrying in {delay:.1f}s. Error: {error}")
-                    if self._set_state(ConnectionState.RECONNECTING):
-                        self._schedule_reconnect(delay)
+                    logger.info(
+                        f"Connection attempt {self._retry_count} failed. "
+                        f"Retrying in {delay:.1f}s. Error: {error}"
+                    )
+                # Always try to move to RECONNECTING (from any of the above states)
+                if self.state != ConnectionState.RECONNECTING:
+                    self._set_state(ConnectionState.RECONNECTING)
+                self._schedule_reconnect(delay)
             else:
-                logger.debug(f"Unexpected connection failure in state: {current_state}")
+                logger.debug(f"connection_failed() ignored in state: {current_state}")
 
     def _calculate_retry_delay(self) -> float:
         """Calculate exponential backoff delay with jitter"""
@@ -177,39 +186,31 @@ class ConnectionStateMachine:
             self._connection_check_thread.start()
 
     def _connection_monitor_loop(self) -> None:
-        """Monitor connection health and handle reconnection"""
-        consecutive_failures = 0
+        """Monitor connection health and handle reconnection.
+
+        Uses a time-based inactivity window (60 s) instead of a per-tick
+        counter so normal quiet periods don't trigger spurious reconnects.
+        """
+        INACTIVITY_TIMEOUT = 60.0  # seconds of silence before declaring unhealthy
         while not self._stop_event.is_set():
             try:
-                current_state = self.state
-                if current_state == ConnectionState.CONNECTED:
-                    # Check connection health
-                    if not self._connection_healthy:
-                        consecutive_failures += 1
-                        logger.debug(f"Connection health check failed (attempt {consecutive_failures})")
-                        if consecutive_failures >= 3:  # Require multiple failures before reconnecting
-                            logger.warning("Multiple connection health checks failed, initiating reconnection")
-                            with self._operation_lock:
-                                if self.state == ConnectionState.CONNECTED:
-                                    self._set_state(ConnectionState.RECONNECTING)
-                                    self.connection_failed()
-                            consecutive_failures = 0
-                    else:
-                        # Reset health flag and failure counter for next check
-                        self._connection_healthy = False
-                        consecutive_failures = 0
-                        logger.debug("Connection health check passed")
-                
+                if self.state == ConnectionState.CONNECTED:
+                    silence = (datetime.now() - self._last_activity).total_seconds()
+                    if silence > INACTIVITY_TIMEOUT:
+                        logger.warning(
+                            f"No activity for {silence:.0f}s — initiating reconnection"
+                        )
+                        self.connection_failed(
+                            Exception(f"Inactivity timeout ({silence:.0f}s)")
+                        )
                 time.sleep(self.config.connection_check_interval)
-            except Exception as e:
-                logger.error(f"Error in connection monitor: {e}")
-                consecutive_failures = 0  # Reset on error
-                time.sleep(1.0)  # Prevent tight loop on error
+            except Exception as exc:
+                logger.error(f"Error in connection monitor: {exc}")
+                time.sleep(1.0)
 
     def update_activity(self) -> None:
-        """Update last activity timestamp and connection health"""
+        """Update last activity timestamp."""
         self._last_activity = datetime.now()
-        self._connection_healthy = True
         logger.debug("Connection activity updated")
 
     def shutdown(self) -> None:

@@ -541,93 +541,161 @@ def try_create_cli_app_instance(attempt_num):
 
 def cli_connection_monitor_loop(app_instance_ref_list, stop_event_ref):
     dprint("CLI Connection monitor thread started.")
-    app_config_local = config 
+    app_config_local = config
     while not stop_event_ref.is_set():
+        # ── Sleep between checks ──────────────────────────────
         for _ in range(getattr(app_config_local, 'MONITOR_CONNECTION_INTERVAL', 30)):
-            if stop_event_ref.is_set(): break
+            if stop_event_ref.is_set():
+                break
             time.sleep(1)
-        if stop_event_ref.is_set(): break
-        if not app_instance_ref_list or app_instance_ref_list[0] is None: 
+        if stop_event_ref.is_set():
+            break
+
+        # ── Guard: app not ready yet ──────────────────────────
+        if not app_instance_ref_list or app_instance_ref_list[0] is None:
             dprint("CLI Monitor: App instance is None.")
             time.sleep(5)
             continue
-        app = app_instance_ref_list[0]
-        if not app or not hasattr(app, 'meshtastic_handler'): 
-            dprint("CLI Monitor: App instance or meshtastic_handler not available.")
-            continue
-        if not app.meshtastic_handler or not app.meshtastic_handler.is_connected:
-            if not app.is_actively_reconnecting:
-                print("INFO: CLI Monitor: Detected disconnection. Attempting to re-establish.")
-                app.is_actively_reconnecting = True
-                if _HAS_WEB_UI:
-                    web_ui.update_status(connected=False, reconnecting=True)
-                    web_ui.add_message("Utracono polaczenie - trwa ponowne laczenie...", "system", -1, "system")
-                if _HAS_ERROR_REPORTER:
-                    error_reporter.report("Meshtastic disconnected", "Attempting reconnection.", level="WARNING")
-                if app.meshtastic_handler: 
-                    dprint("CLI Monitor closing existing handler.")
-                    app.meshtastic_handler.close()
+
+        # Wrap the entire check+reconnect block so a single unhandled
+        # exception cannot silently kill the monitor thread.
+        try:
+            app = app_instance_ref_list[0]
+            if not app or not hasattr(app, 'meshtastic_handler'):
+                dprint("CLI Monitor: App instance or meshtastic_handler not available.")
+                continue
+
+            connected = (app.meshtastic_handler is not None
+                         and app.meshtastic_handler.is_connected)
+
+            if not connected:
+                if not app.is_actively_reconnecting:
+                    print("INFO: CLI Monitor: Disconnection detected. Reconnecting...")
+                    app.is_actively_reconnecting = True
+
+                    try:
+                        if _HAS_WEB_UI:
+                            web_ui.update_status(connected=False, reconnecting=True)
+                            web_ui.add_message(
+                                "Connection lost — reconnecting...", "system", -1, "system"
+                            )
+                    except Exception:
+                        pass
+
+                    try:
+                        if _HAS_ERROR_REPORTER:
+                            error_reporter.report(
+                                "Meshtastic disconnected", "Attempting reconnection.", level="WARNING"
+                            )
+                    except Exception:
+                        pass
+
+                    # Close stale handler
+                    try:
+                        if app.meshtastic_handler:
+                            app.meshtastic_handler.close()
+                    except Exception:
+                        pass
                     app.meshtastic_handler = None
                     app.ai_node_id_hex = None
-                reconnect_attempts = 0
-                max_retries = getattr(app_config_local, 'RECONNECTION_MAX_RETRIES', 3)
-                retry_delay = getattr(app_config_local, 'RECONNECTION_RETRY_DELAY', 10)
-                while reconnect_attempts < max_retries and not stop_event_ref.is_set():
-                    reconnect_attempts += 1
-                    dprint(f"CLI Monitor: Reconnection attempt {reconnect_attempts}/{max_retries}...")
-                    try:
-                        app.meshtastic_handler = MeshtasticHandler(
-                            connection_type=app.app_config.MESHTASTIC_CONNECTION_TYPE,
-                            device_specifier=app.app_config.MESHTASTIC_DEVICE_SPECIFIER,
-                            on_message_received_callback=app.handle_meshtastic_message,
-                            on_packet_callback=web_ui.on_packet if _HAS_WEB_UI else None,
-                        )
-                        connect_wait_retries = 7
-                        reconnected_successfully = False
-                        while connect_wait_retries > 0:
-                            if app.meshtastic_handler.is_connected: 
-                                reconnected_successfully = True
+
+                    # ── Reconnect loop (retries from config) ──
+                    retry_delay  = getattr(app_config_local, 'RECONNECTION_RETRY_DELAY', 15)
+                    max_attempts = getattr(app_config_local, 'RECONNECTION_MAX_RETRIES', 3)
+                    reconnected  = False
+
+                    for attempt in range(1, max_attempts + 1):
+                        if stop_event_ref.is_set():
+                            break
+                        dprint(f"CLI Monitor: Reconnect attempt {attempt}/{max_attempts}...")
+                        try:
+                            app.meshtastic_handler = MeshtasticHandler(
+                                connection_type=app.app_config.MESHTASTIC_CONNECTION_TYPE,
+                                device_specifier=app.app_config.MESHTASTIC_DEVICE_SPECIFIER,
+                                on_message_received_callback=app.handle_meshtastic_message,
+                                on_packet_callback=web_ui.on_packet if _HAS_WEB_UI else None,
+                            )
+                            # Wait up to 15s for the handler to connect
+                            for _ in range(15):
+                                if app.meshtastic_handler.is_connected:
+                                    break
+                                time.sleep(1)
+
+                            if (app.meshtastic_handler.is_connected
+                                    and app.meshtastic_handler.node_id is not None):
+                                app.ai_node_id_hex = f"{app.meshtastic_handler.node_id:x}"
+                                print(f"INFO: CLI Monitor: Reconnected. Node ID: {app.ai_node_id_hex}")
+                                reconnected = True
                                 break
-                            time.sleep(1)
-                            connect_wait_retries -= 1
-                        if reconnected_successfully and app.meshtastic_handler.node_id is not None: 
-                            app.ai_node_id_hex = f"{app.meshtastic_handler.node_id:x}"
-                            print(f"INFO: CLI Monitor: Reconnection successful! AI Node ID: {app.ai_node_id_hex}")
-                            break 
-                        else: 
-                            dprint(f"CLI Monitor: Reconn attempt {reconnect_attempts} - handler status uncertain.")
-                            if app.meshtastic_handler: app.meshtastic_handler.close()
-                            app.meshtastic_handler = None 
-                    except Exception as e_recon: 
-                        print(f"ERROR: CLI Monitor: Exception during reconn attempt {reconnect_attempts}: {e_recon}")
-                        if app.meshtastic_handler: app.meshtastic_handler.close()
-                        app.meshtastic_handler = None 
-                    if reconnect_attempts < max_retries and not stop_event_ref.is_set():
-                        dprint(f"CLI Monitor: Waiting {retry_delay}s before next attempt.")
-                        for _ in range(retry_delay): 
-                            if stop_event_ref.is_set(): break
-                            time.sleep(1)
-                    if stop_event_ref.is_set(): break 
-                if not (app.meshtastic_handler and app.meshtastic_handler.is_connected):
-                    print("ERROR: CLI Monitor: Failed to reconnect.")
-                    if _HAS_ERROR_REPORTER:
-                        error_reporter.report(
-                            "Meshtastic reconnection failed",
-                            f"All {max_retries} reconnection attempts exhausted. Device may be offline.",
-                        )
-                    if _HAS_WEB_UI:
-                        web_ui.update_status(connected=False, reconnecting=False,
-                                             last_error="Reconnection failed - device offline?")
-                        web_ui.add_message("Utracono polaczenie z urzadzeniem Meshtastic", "system", -1, "error")
-                else:
-                    if _HAS_WEB_UI:
-                        web_ui.update_status(connected=True, reconnecting=False, last_error=None)
-                        web_ui.add_message("Polaczono ponownie z urzadzeniem Meshtastic", "system", -1, "system")
-                app.is_actively_reconnecting = False
-            else: 
-                if app.meshtastic_handler and app.meshtastic_handler.is_connected and app.is_actively_reconnecting: 
+                            else:
+                                dprint(f"CLI Monitor: Attempt {attempt} — not connected within timeout.")
+                                try:
+                                    app.meshtastic_handler.close()
+                                except Exception:
+                                    pass
+                                app.meshtastic_handler = None
+                        except Exception as exc:
+                            print(f"ERROR: CLI Monitor: Attempt {attempt} exception: {exc}")
+                            try:
+                                if app.meshtastic_handler:
+                                    app.meshtastic_handler.close()
+                            except Exception:
+                                pass
+                            app.meshtastic_handler = None
+
+                        # Wait between attempts (interruptible)
+                        if attempt < max_attempts and not stop_event_ref.is_set():
+                            for _ in range(retry_delay):
+                                if stop_event_ref.is_set():
+                                    break
+                                time.sleep(1)
+
+                    # ── Report outcome ────────────────────────
+                    try:
+                        if reconnected:
+                            if _HAS_WEB_UI:
+                                web_ui.update_status(connected=True, reconnecting=False, last_error=None)
+                                web_ui.add_message(
+                                    "Reconnected to Meshtastic device.", "system", -1, "system"
+                                )
+                        else:
+                            print("ERROR: CLI Monitor: All reconnect attempts failed — will retry next cycle.")
+                            if _HAS_ERROR_REPORTER:
+                                error_reporter.report(
+                                    "Meshtastic reconnection failed",
+                                    f"All {max_attempts} attempts exhausted. Will retry in "
+                                    f"{getattr(app_config_local, 'MONITOR_CONNECTION_INTERVAL', 30)}s.",
+                                )
+                            if _HAS_WEB_UI:
+                                web_ui.update_status(
+                                    connected=False, reconnecting=False,
+                                    last_error="Reconnection failed — retrying automatically..."
+                                )
+                                web_ui.add_message(
+                                    "Connection lost — could not reconnect. Retrying...",
+                                    "system", -1, "error"
+                                )
+                    except Exception:
+                        pass
+
                     app.is_actively_reconnecting = False
-                    dprint("CLI Monitor: Connection restored.")
+
+            else:
+                # Connected — clear stale reconnecting flag if it got stuck
+                if app.is_actively_reconnecting:
+                    app.is_actively_reconnecting = False
+                    dprint("CLI Monitor: Connection restored (flag cleared).")
+
+        except Exception as monitor_exc:
+            # Never let the monitor thread die — log and continue
+            print(f"ERROR: CLI Monitor: Unhandled exception (continuing): {monitor_exc}")
+            try:
+                app = app_instance_ref_list[0] if app_instance_ref_list else None
+                if app:
+                    app.is_actively_reconnecting = False
+            except Exception:
+                pass
+
     dprint("CLI Connection monitor thread finished.")
 
 
