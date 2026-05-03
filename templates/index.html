@@ -2508,6 +2508,10 @@ let nodesCache    = [];
 let channelsCache = [];   // [{index, name}] from /api/channels
 let _channelRetries = 0;
 
+// Chat state — declared here (before any function that uses them) to avoid TDZ
+let chatSenderFilter = null;  // null = show all; hex node id = filter by sender
+let dmNodeId         = null;  // hex id of DM target for the send bar
+
 function chName(idx) {
   const ch = channelsCache.find(c => c.index === Number(idx));
   return ch ? (ch.name || `ch${idx}`) : `ch${idx}`;
@@ -3565,14 +3569,10 @@ function _updateSysFeedBtn(btn, enabled) {
 }
 
 function setChatUserSearch(val) { chatUserSearch = val.toLowerCase().trim(); renderDmList(nodesCache); }
-let chatSenderFilter = null;  // null = show all, string = node id
-
 function setChatHopFilter(val)  { chatHopFilter = val;  renderDmList(nodesCache); }
 function setChatSeenFilter(secs){ chatSeenFilter = secs; renderDmList(nodesCache); }
 
 // renderDmList is defined earlier (fills conv-nodes)
-
-let dmNodeId = null;   // hex id of DM target, null = channel mode
 
 function filterBySender(nodeId, name) {
   if (chatSenderFilter === nodeId) {
