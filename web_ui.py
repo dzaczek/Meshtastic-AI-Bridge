@@ -1196,6 +1196,15 @@ if _HAS_FLASK:
         no_mqtt = request.args.get("no_mqtt", "1") != "0"
         return jsonify(_node_db.get_avg_hops_per_node(hours=hours, no_mqtt=no_mqtt))
 
+    @app.route("/api/analytics/node_packet_counts")
+    @login_required
+    def api_analytics_node_packet_counts():
+        if not _HAS_NODE_DB:
+            return jsonify({})
+        hours = float(request.args.get("hours", 168))
+        no_mqtt = request.args.get("no_mqtt", "1") != "0"
+        return jsonify(_node_db.get_node_packet_counts(hours=hours, no_mqtt=no_mqtt))
+
     @app.route("/api/analytics/packets")
     @login_required
     def api_analytics_packets():

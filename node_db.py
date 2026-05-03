@@ -291,6 +291,24 @@ def get_node(node_id: str) -> dict | None:
     return dict(row) if row else None
 
 
+def get_node_packet_counts(hours: float = 168.0, no_mqtt: bool = True) -> dict:
+    """Return {node_id: packet_count} for all radio nodes in the time window."""
+    if not _conn:
+        return {}
+    import time
+    cutoff = time.time() - hours * 3600.0
+    mq_and = "AND via_mqtt = 0" if no_mqtt else ""
+    with _lock:
+        rows = _conn.execute(
+            f"""SELECT from_id, COUNT(*) as cnt
+                FROM packets
+                WHERE ts >= ? AND from_id != '?' {mq_and}
+                GROUP BY from_id""",
+            (cutoff,),
+        ).fetchall()
+    return {r[0]: r[1] for r in rows}
+
+
 def get_avg_hops_per_node(hours: float = 168.0, no_mqtt: bool = True) -> dict:
     """Return {node_id: avg_hops_away} for all nodes seen within the time window.
     Uses average hop count so a node observed at 6 and 7 hops yields 6.5,

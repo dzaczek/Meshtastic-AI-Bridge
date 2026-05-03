@@ -1779,10 +1779,24 @@
     </div>
 
     <!-- Node Role vs Hop Radial Chart -->
-    <div class="grid-stack-item" gs-id="an-radial-widget" gs-x="0" gs-y="12" gs-w="6" gs-h="5">
+    <div class="grid-stack-item" gs-id="an-radial-widget" gs-x="0" gs-y="12" gs-w="4" gs-h="5">
       <div class="grid-stack-item-content stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md); display:flex; flex-direction:column; height:100%;">
-        <div class="stat-title">Node Roles × Hops (Radial)<button class="graph-expand-btn" onclick="openGraphFs('d3-radial-roles','Node Roles × Hops')">⤢</button></div>
+        <div class="stat-title">Roles × Hops (Radial)<button class="graph-expand-btn" onclick="openGraphFs('d3-radial-roles','Node Roles × Hops')">⤢</button></div>
         <div id="d3-radial-roles" style="flex:1; position:relative; overflow:hidden;"></div>
+      </div>
+    </div>
+
+    <div class="grid-stack-item" gs-id="an-radial-roles-pkts-widget" gs-x="4" gs-y="12" gs-w="4" gs-h="5">
+      <div class="grid-stack-item-content stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md); display:flex; flex-direction:column; height:100%;">
+        <div class="stat-title">Roles × Packets (Radial)<button class="graph-expand-btn" onclick="openGraphFs('d3-radial-roles-pkts','Node Roles × Packets')">⤢</button></div>
+        <div id="d3-radial-roles-pkts" style="flex:1; position:relative; overflow:hidden;"></div>
+      </div>
+    </div>
+
+    <div class="grid-stack-item" gs-id="an-radial-hops-pkts-widget" gs-x="8" gs-y="12" gs-w="4" gs-h="5">
+      <div class="grid-stack-item-content stat-block" style="background:var(--surf2); border:1px solid var(--border); padding:12px; border-radius:var(--r-md); display:flex; flex-direction:column; height:100%;">
+        <div class="stat-title">Hops × Packets (Radial)<button class="graph-expand-btn" onclick="openGraphFs('d3-radial-hops-pkts','Hops × Packets')">⤢</button></div>
+        <div id="d3-radial-hops-pkts" style="flex:1; position:relative; overflow:hidden;"></div>
       </div>
     </div>
 
@@ -3186,6 +3200,8 @@ async function fetchNodes() {
     // Redraw radial chart if analytics tab is active
     if (document.getElementById('tab-analytics')?.classList.contains('active')) {
       drawRadialRolesChart('#d3-radial-roles');
+      drawRadialRolesPacketsChart('#d3-radial-roles-pkts');
+      drawRadialHopsPacketsChart('#d3-radial-hops-pkts');
     }
     if (activeConv === 'admin') renderAdminPanel();
   } catch(e) {}
@@ -4084,11 +4100,16 @@ async function initAnalytics() {
 
   } catch(e) { console.error('Analytics load error:', e); }
 
-  // Radial chart uses live node cache — draw now; retry if cache not yet populated
-  if (nodesCache.length) {
+  // Radial charts use live node cache — draw now; retry if cache not yet populated
+  const _drawAllRadial = () => {
     drawRadialRolesChart('#d3-radial-roles');
+    drawRadialRolesPacketsChart('#d3-radial-roles-pkts');
+    drawRadialHopsPacketsChart('#d3-radial-hops-pkts');
+  };
+  if (nodesCache.length) {
+    _drawAllRadial();
   } else {
-    setTimeout(() => drawRadialRolesChart('#d3-radial-roles'), 3000);
+    setTimeout(_drawAllRadial, 3000);
   }
 }
 
@@ -4271,6 +4292,176 @@ async function drawRadialRolesChart(selector) {
       .attr('fill','var(--muted)').attr('font-size', 9)
       .text(`${h} hop${h===1?'':'s'}`);
   });
+}
+
+// ── RADIAL: Roles × Packets ───────────────────────────────────
+async function drawRadialRolesPacketsChart(selector) {
+  const container = document.querySelector(selector);
+  if (!container || typeof d3 === 'undefined') return;
+  container.innerHTML = '';
+
+  const _hours = parseFloat(document.getElementById('analytics-hours')?.value || '168');
+  const _cutoff = _hours > 0 ? (Date.now()/1000 - _hours*3600) : 0;
+  const nodes = nodesCache.filter(n =>
+    !n.is_mine && !n.via_mqtt &&
+    (_cutoff === 0 || (n.last_heard && n.last_heard >= _cutoff))
+  );
+  if (!nodes.length) { container.innerHTML='<div style="padding:20px;color:var(--muted);font-size:.8em">No data.</div>'; return; }
+
+  let pktMap = {};
+  try { const r = await fetch(`/api/analytics/node_packet_counts?hours=${_hours}`); if(r.ok) pktMap=await r.json(); } catch(e){}
+
+  const roleLabel = r => {
+    const m={CLIENT:'CLIENT',CLIENT_MUTE:'MUTE',MUTE_CLIENT:'MUTE',ROUTER:'ROUTER',ROUTER_CLIENT:'ROUTER+',
+             TRACKER:'TRACKER',SENSOR:'SENSOR',TAK:'TAK',TAK_TRACKER:'TAK',CLIENT_HIDDEN:'HIDDEN',LOST_AND_FOUND:'L&F'};
+    return m[(r||'').toUpperCase()]||'CLIENT';
+  };
+  const ROLE_ORDER=['ROUTER','ROUTER+','CLIENT','MUTE','TRACKER','SENSOR','TAK','HIDDEN','L&F'];
+  const roleSeen=new Set(); nodes.forEach(n=>roleSeen.add(roleLabel(n.role)));
+  const roles=ROLE_ORDER.filter(r=>roleSeen.has(r));
+  roleSeen.forEach(r=>{if(!roles.includes(r))roles.push(r);});
+
+  const pktOf = n => pktMap[n.id] || 0;
+  const maxPkt = d3.max(nodes.map(pktOf)) || 1;
+
+  // Color by packet count (low=blue → high=yellow)
+  const pktColor = d3.scaleSequential(d3.interpolateYlOrRd).domain([0, maxPkt]);
+
+  const W=container.clientWidth||380, H=container.clientHeight||360;
+  const cx=W/2, cy=H/2, outerR=Math.min(cx,cy)*0.76, labelR=outerR+22;
+  const svg=d3.select(container).append('svg').attr('width',W).attr('height',H);
+  const g=svg.append('g').attr('transform',`translate(${cx},${cy})`);
+  const rScale=d3.scaleLinear().domain([0,maxPkt]).range([0,outerR]);
+  const angleSlice=(Math.PI*2)/roles.length;
+
+  // Background rings (5 evenly spaced packet-count references)
+  [1,.8,.6,.4,.2].forEach(t=>{
+    const r=outerR*t, val=Math.round(maxPkt*t);
+    g.append('circle').attr('r',r).attr('fill','none').attr('stroke','rgba(255,255,255,.06)');
+    g.append('text').attr('x',3).attr('y',-r+10).attr('fill','rgba(255,255,255,.22)')
+      .attr('font-size',9).attr('font-family','monospace').text(val+' pkt');
+  });
+
+  // Spokes
+  roles.forEach((_,i)=>{
+    const a=i*angleSlice-Math.PI/2;
+    g.append('line').attr('x1',0).attr('y1',0)
+      .attr('x2',Math.cos(a)*outerR).attr('y2',Math.sin(a)*outerR)
+      .attr('stroke','rgba(255,255,255,.08)');
+  });
+
+  // Dots
+  nodes.forEach(n=>{
+    const r=roleLabel(n.role), i=roles.indexOf(r);
+    if(i<0) return;
+    const pkts=pktOf(n);
+    const rv=Math.max(4, rScale(pkts));
+    const jA=(Math.random()-.5)*angleSlice*0.7;
+    const a=i*angleSlice-Math.PI/2+jA;
+    const dot=g.append('circle').attr('cx',Math.cos(a)*rv).attr('cy',Math.sin(a)*rv)
+      .attr('r',4.5).attr('fill',pktColor(pkts)).attr('fill-opacity',.85)
+      .attr('stroke','var(--bg)').attr('stroke-width',1).style('cursor','pointer');
+    dot.append('title').text(`${n.long_name||'!'+n.id}\nRole: ${r}\nPackets: ${pkts}`);
+  });
+
+  // Role labels
+  roles.forEach((r,i)=>{
+    const a=i*angleSlice-Math.PI/2;
+    const x=Math.cos(a)*labelR, y=Math.sin(a)*labelR;
+    g.append('text').attr('x',x).attr('y',y+4)
+      .attr('text-anchor',Math.abs(x)<5?'middle':x>0?'start':'end')
+      .attr('fill','var(--text)').attr('font-size',10).attr('font-family','var(--font-mono)').text(r);
+  });
+}
+
+// ── RADIAL: Hops × Packets ────────────────────────────────────
+async function drawRadialHopsPacketsChart(selector) {
+  const container = document.querySelector(selector);
+  if (!container || typeof d3 === 'undefined') return;
+  container.innerHTML = '';
+
+  const _hours = parseFloat(document.getElementById('analytics-hours')?.value || '168');
+  const _cutoff = _hours > 0 ? (Date.now()/1000 - _hours*3600) : 0;
+  const nodes = nodesCache.filter(n =>
+    !n.is_mine && !n.via_mqtt &&
+    (_cutoff === 0 || (n.last_heard && n.last_heard >= _cutoff))
+  );
+  if (!nodes.length) { container.innerHTML='<div style="padding:20px;color:var(--muted);font-size:.8em">No data.</div>'; return; }
+
+  let pktMap={}, avgHopsMap={};
+  try {
+    const [r1,r2] = await Promise.all([
+      fetch(`/api/analytics/node_packet_counts?hours=${_hours}`),
+      fetch(`/api/analytics/avg_hops?hours=${_hours}`)
+    ]);
+    if(r1.ok) pktMap=await r1.json();
+    if(r2.ok) avgHopsMap=await r2.json();
+  } catch(e){}
+
+  const hopColors=['#00ff88','#4dffd1','#88ccff','#88aaff','#cc88ff','#f0883e','#ff5555','#ff2222'];
+  const pktOf = n => pktMap[n.id] || 0;
+  const hopFloatOf = n => {
+    const db=avgHopsMap[n.id], cur=n.hops_away;
+    const v=(db!==undefined&&db!==null)?db:(cur!==null&&cur!==undefined?cur:7);
+    return Math.min(Math.max(v,0),7);
+  };
+  const maxPkt = d3.max(nodes.map(pktOf)) || 1;
+
+  const W=container.clientWidth||380, H=container.clientHeight||360;
+  const cx=W/2, cy=H/2, outerR=Math.min(cx,cy)*0.76, labelR=outerR+22;
+  const svg=d3.select(container).append('svg').attr('width',W).attr('height',H);
+  const g=svg.append('g').attr('transform',`translate(${cx},${cy})`);
+  const rScale=d3.scaleLinear().domain([0,maxPkt]).range([0,outerR]);
+  const N_HOPS=8, angleSlice=(Math.PI*2)/N_HOPS;
+
+  // Background rings (packet count references)
+  [1,.8,.6,.4,.2].forEach(t=>{
+    const r=outerR*t, val=Math.round(maxPkt*t);
+    g.append('circle').attr('r',r).attr('fill','none').attr('stroke','rgba(255,255,255,.06)');
+    g.append('text').attr('x',3).attr('y',-r+10).attr('fill','rgba(255,255,255,.22)')
+      .attr('font-size',9).attr('font-family','monospace').text(val+' pkt');
+  });
+
+  // Spokes
+  for(let h=0;h<N_HOPS;h++){
+    const a=h*angleSlice-Math.PI/2;
+    g.append('line').attr('x1',0).attr('y1',0)
+      .attr('x2',Math.cos(a)*outerR).attr('y2',Math.sin(a)*outerR)
+      .attr('stroke','rgba(255,255,255,.08)');
+  }
+
+  // Dots — each node: angle=avg hops sector, radius=packet count
+  nodes.forEach(n=>{
+    const hopF=hopFloatOf(n);
+    const pkts=pktOf(n);
+    const rv=Math.max(4, rScale(pkts));
+    // Place within the hop sector (fraction within sector = fractional part of avg hops)
+    const baseA=Math.floor(hopF)*angleSlice-Math.PI/2;
+    const sectorFrac=(hopF%1);
+    const jA=(Math.random()-.5)*angleSlice*0.5+sectorFrac*angleSlice*0.8;
+    const a=baseA+angleSlice*0.1+jA;
+    // Color by hop level
+    const c1=d3.color(hopColors[Math.floor(hopF)])||d3.color('#888');
+    const c2=d3.color(hopColors[Math.min(Math.ceil(hopF),7)])||c1;
+    const fill=d3.interpolateRgb(c1,c2)(hopF%1);
+    const dot=g.append('circle').attr('cx',Math.cos(a)*rv).attr('cy',Math.sin(a)*rv)
+      .attr('r',4.5).attr('fill',fill).attr('fill-opacity',.85)
+      .attr('stroke','var(--bg)').attr('stroke-width',1).style('cursor','pointer');
+    const avgDisp=hopF%1===0?hopF:hopF.toFixed(1);
+    dot.append('title').text(`${n.long_name||'!'+n.id}\nAvg hops: ${avgDisp}\nPackets: ${pkts}`);
+  });
+
+  // Hop labels
+  for(let h=0;h<N_HOPS;h++){
+    const a=h*angleSlice-Math.PI/2;
+    const x=Math.cos(a)*labelR, y=Math.sin(a)*labelR;
+    g.append('circle').attr('cx',Math.cos(a)*(outerR+10)).attr('cy',Math.sin(a)*(outerR+10))
+      .attr('r',5).attr('fill',hopColors[h]);
+    g.append('text').attr('x',x).attr('y',y+4)
+      .attr('text-anchor',Math.abs(x)<5?'middle':x>0?'start':'end')
+      .attr('fill','var(--text)').attr('font-size',10).attr('font-family','var(--font-mono)')
+      .text(`${h}h`);
+  }
 }
 
 // ── CONFIG TAB ────────────────────────────────────────────────
