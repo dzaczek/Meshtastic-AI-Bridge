@@ -699,9 +699,20 @@
       background:rgba(7,9,12,.96);flex-direction:column;padding:16px;gap:10px;
     }
     #graph-fs-overlay.active{display:flex;}
-    #graph-fs-header{display:flex;align-items:center;gap:10px;}
+    #graph-fs-header{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
     #graph-fs-title-text{color:var(--text);font-size:.9em;font-weight:600;
-      text-transform:uppercase;letter-spacing:1px;flex:1;}
+      text-transform:uppercase;letter-spacing:1px;flex:1;min-width:120px;}
+    #graph-fs-time-picker{display:flex;align-items:center;gap:4px;flex-wrap:wrap;}
+    .fs-time-btn{
+      background:var(--surf2);border:1px solid var(--border);color:var(--muted);
+      border-radius:4px;cursor:pointer;padding:3px 8px;font-size:.72em;
+      font-family:var(--font-mono);transition:all .12s;white-space:nowrap;
+    }
+    .fs-time-btn:hover{color:var(--text);border-color:var(--primary);}
+    .fs-time-btn.fs-active{background:rgba(77,255,209,.15);border-color:var(--primary);color:var(--primary);}
+    #graph-fs-refresh{background:none;border:1px solid var(--border-s);color:var(--muted);
+      border-radius:4px;cursor:pointer;padding:3px 8px;font-size:.8em;}
+    #graph-fs-refresh:hover{color:var(--primary);border-color:var(--primary);}
     #graph-fs-close{background:none;border:1px solid var(--border-s);color:var(--muted);
       border-radius:4px;cursor:pointer;padding:3px 10px;font-size:1.1em;}
     #graph-fs-close:hover{color:var(--text);border-color:var(--accent);}
@@ -3574,14 +3585,36 @@ function clearDm() {
 // ── ANALYTICS (D3) ─────────────────────────────────────────────────────────────
 let analyticsHeatmap = null;
 
-function openGraphFs(chartId, title) {
-  const overlay = document.getElementById('graph-fs-overlay');
-  const content = document.getElementById('graph-fs-content');
-  document.getElementById('graph-fs-title-text').textContent = title;
-  content.innerHTML = '';
-  overlay.classList.add('active');
+let _fsCurrentChartId = null;
 
-  // Force-directed graph → re-render interactively at full size
+// Charts that need a full fetchAnalytics() when time changes
+const _FS_ANALYTICS_CHARTS = new Set([
+  'd3-an-hourly','d3-an-types','d3-an-dest','d3-an-enc',
+  'd3-an-senders-bubble','d3-an-encrypted-senders-bubble',
+  'd3-an-dm-graph','d3-an-dm-text-graph',
+  'd3-an-pernode-hourly','d3-an-pernode-daily',
+  'd3-an-pernode-receivers','d3-an-pernode-senders','d3-an-pernode-dest',
+  'd3-an-pernode-dm-graph','d3-an-pernode-dm-text-graph',
+]);
+// Radial charts with their own async draw functions
+const _FS_RADIAL_DRAW = {
+  'd3-radial-roles':     () => drawRadialRolesChart('#d3-radial-roles'),
+  'd3-radial-roles-pkts':() => drawRadialRolesPacketsChart('#d3-radial-roles-pkts'),
+  'd3-radial-hops-pkts': () => drawRadialHopsPacketsChart('#d3-radial-hops-pkts'),
+};
+
+function _fsMarkActiveTime() {
+  const cur = parseFloat(document.getElementById('analytics-hours')?.value || '168');
+  document.querySelectorAll('.fs-time-btn').forEach(b => {
+    b.classList.toggle('fs-active', Math.abs(parseFloat(b.dataset.h) - cur) < 0.001);
+  });
+}
+
+function _fsRenderChart(chartId) {
+  const content = document.getElementById('graph-fs-content');
+  content.innerHTML = '';
+
+  // Force-directed graphs
   const selector = '#' + chartId;
   if (_forceGraphData[selector]) {
     const { linksData, color } = _forceGraphData[selector];
@@ -3589,23 +3622,90 @@ function openGraphFs(chartId, title) {
     return;
   }
 
-  // Other D3/Chart graphs → clone SVG (scaled)
+  // Radial charts with their own draw functions → render live into fs-content
+  if (_FS_RADIAL_DRAW[chartId]) {
+    // Temporarily redirect draw to a wrapper div inside fs-content
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'width:100%;height:100%;';
+    content.appendChild(wrap);
+    wrap.id = chartId + '-fs-tmp';
+    _FS_RADIAL_DRAW[chartId]().then ? _FS_RADIAL_DRAW[chartId]() : null;
+    // After async draw into original element, clone into fullscreen
+    setTimeout(() => {
+      const origEl = document.getElementById(chartId);
+      const svg = origEl && origEl.querySelector('svg');
+      if (svg) {
+        content.innerHTML = '';
+        const clone = svg.cloneNode(true);
+        _fsSvgScale(clone, svg);
+        content.appendChild(clone);
+      }
+    }, 600);
+    return;
+  }
+
+  // Standard SVG clone
   const src = document.getElementById(chartId);
   const svg = src && src.querySelector('svg');
   if (svg) {
     const clone = svg.cloneNode(true);
-    if (!clone.getAttribute('viewBox')) {
-      const w = svg.getBoundingClientRect().width  || svg.getAttribute('width')  || 400;
-      const h = svg.getBoundingClientRect().height || svg.getAttribute('height') || 300;
-      clone.setAttribute('viewBox', `0 0 ${w} ${h}`);
-    }
-    clone.removeAttribute('width');
-    clone.removeAttribute('height');
-    clone.style.cssText = 'width:100%;height:100%;display:block;';
+    _fsSvgScale(clone, svg);
     content.appendChild(clone);
   } else {
     content.innerHTML = '<p style="color:var(--muted);padding:20px">No data to display yet.</p>';
   }
+}
+
+function _fsSvgScale(clone, svg) {
+  if (!clone.getAttribute('viewBox')) {
+    const w = svg.getBoundingClientRect().width  || svg.getAttribute('width')  || 400;
+    const h = svg.getBoundingClientRect().height || svg.getAttribute('height') || 300;
+    clone.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  }
+  clone.removeAttribute('width'); clone.removeAttribute('height');
+  clone.style.cssText = 'width:100%;height:100%;display:block;';
+}
+
+async function fsSetTime(btn) {
+  const hours = parseFloat(btn.dataset.h);
+  const sel = document.getElementById('analytics-hours');
+  if (sel) {
+    // Find closest option or set value directly
+    let closest = null, minDiff = Infinity;
+    for (const opt of sel.options) {
+      const diff = Math.abs(parseFloat(opt.value) - hours);
+      if (diff < minDiff) { minDiff = diff; closest = opt; }
+    }
+    if (closest) sel.value = closest.value;
+    localStorage.setItem('analytics-hours', sel.value);
+  }
+  _fsMarkActiveTime();
+  await fsRefresh();
+}
+
+async function fsRefresh() {
+  const chartId = _fsCurrentChartId;
+  if (!chartId) return;
+  const btn = document.getElementById('graph-fs-refresh');
+  if (btn) { btn.textContent = '⟳'; btn.style.color = 'var(--primary)'; }
+
+  if (_FS_ANALYTICS_CHARTS.has(chartId)) {
+    await fetchAnalytics();
+  } else if (_FS_RADIAL_DRAW[chartId]) {
+    await _FS_RADIAL_DRAW[chartId]();
+  }
+  _fsRenderChart(chartId);
+
+  if (btn) { btn.textContent = '↻'; btn.style.color = ''; }
+}
+
+function openGraphFs(chartId, title) {
+  _fsCurrentChartId = chartId;
+  const overlay = document.getElementById('graph-fs-overlay');
+  document.getElementById('graph-fs-title-text').textContent = title;
+  overlay.classList.add('active');
+  _fsMarkActiveTime();
+  _fsRenderChart(chartId);
 }
 
 function openHeatmapFs() {
@@ -6975,6 +7075,20 @@ async function registerPasskey(){
 <div id="graph-fs-overlay" onclick="if(event.target===this)closeGraphFs()">
   <div id="graph-fs-header">
     <span id="graph-fs-title-text"></span>
+    <div id="graph-fs-time-picker">
+      <span style="color:var(--muted);font-size:.72em;margin-right:2px;">⏱</span>
+      <button class="fs-time-btn" data-h="0.0833" onclick="fsSetTime(this)">5m</button>
+      <button class="fs-time-btn" data-h="0.5"    onclick="fsSetTime(this)">30m</button>
+      <button class="fs-time-btn" data-h="1"      onclick="fsSetTime(this)">1h</button>
+      <button class="fs-time-btn" data-h="3"      onclick="fsSetTime(this)">3h</button>
+      <button class="fs-time-btn" data-h="6"      onclick="fsSetTime(this)">6h</button>
+      <button class="fs-time-btn" data-h="12"     onclick="fsSetTime(this)">12h</button>
+      <button class="fs-time-btn" data-h="24"     onclick="fsSetTime(this)">24h</button>
+      <button class="fs-time-btn" data-h="48"     onclick="fsSetTime(this)">2d</button>
+      <button class="fs-time-btn" data-h="168"    onclick="fsSetTime(this)">7d</button>
+      <button class="fs-time-btn" data-h="720"    onclick="fsSetTime(this)">30d</button>
+      <button id="graph-fs-refresh" onclick="fsRefresh()" title="Refresh">↻</button>
+    </div>
     <button id="graph-fs-close" onclick="closeGraphFs()" title="Close (Esc)">✕</button>
   </div>
   <div id="graph-fs-content"></div>
