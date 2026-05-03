@@ -6965,7 +6965,9 @@ async function loadLayout(id) {
     if (res.ok) {
       const data = await res.json();
       if (data.layout && data.layout.length > 0) {
-        grids[id].load(data.layout);
+        // addAndRemove=false → update positions of known widgets only;
+        // widgets not in the saved layout remain visible at their HTML position.
+        grids[id].load(data.layout, false);
         _postLayoutLoad(id);
         return;
       }
@@ -6978,7 +6980,7 @@ async function loadLayout(id) {
   try {
     const localData = localStorage.getItem(`dashboard-layout-${id}`);
     if (localData) {
-      grids[id].load(JSON.parse(localData));
+      grids[id].load(JSON.parse(localData), false);
     }
   } catch (err) {
     console.error(`Failed to load layout from localStorage for ${id}`, err);
