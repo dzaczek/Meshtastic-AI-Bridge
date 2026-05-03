@@ -922,21 +922,35 @@ class MeshtasticHandler:
 
             # Update Python library's local cache immediately so verify/display
             # shows the new position without waiting for the next 1-hour broadcast.
+            # interface.nodes keys are '!hexid' strings (NOT ints), so we must
+            # convert self.node_id (int) to '!hexid' for the lookup.
             try:
+                own_key = f'!{self.node_id:x}'
                 raw_nodes = getattr(self.interface, 'nodes', None) or {}
-                for num, info in raw_nodes.items():
-                    if num == self.node_id:
-                        if 'position' not in info or info['position'] is None:
-                            info['position'] = {}
-                        info['position'].update({
-                            'latitude':       lat,
-                            'longitude':      lon,
-                            'altitude':       alt,
-                            'latitudeI':      int(lat * 1e7),
-                            'longitudeI':     int(lon * 1e7),
-                            'locationSource': 1,  # LOC_MANUAL
+                node_entry = raw_nodes.get(own_key)
+                if node_entry is not None:
+                    if 'position' not in node_entry or node_entry['position'] is None:
+                        node_entry['position'] = {}
+                    node_entry['position'].update({
+                        'latitude':       lat,
+                        'longitude':      lon,
+                        'altitude':       alt,
+                        'latitudeI':      int(lat * 1e7),
+                        'longitudeI':     int(lon * 1e7),
+                        'locationSource': 1,  # LOC_MANUAL
+                    })
+                # Also update localNode.nodeInfo if accessible
+                local_node = getattr(self.interface, 'localNode', None)
+                if local_node:
+                    ni = getattr(local_node, 'nodeInfo', None)
+                    if isinstance(ni, dict):
+                        if 'position' not in ni or ni['position'] is None:
+                            ni['position'] = {}
+                        ni['position'].update({
+                            'latitude': lat, 'longitude': lon, 'altitude': alt,
+                            'latitudeI': int(lat * 1e7), 'longitudeI': int(lon * 1e7),
+                            'locationSource': 1,
                         })
-                        break
             except Exception as cache_err:
                 print(f"WARNING: local cache update failed: {cache_err}")
 
@@ -958,18 +972,18 @@ class MeshtasticHandler:
         if not self.interface or not self.node_id:
             return None
         try:
-            # Primary: read from interface.nodes cache
+            # interface.nodes is keyed by '!hexid' strings (NOT by int).
+            # Convert self.node_id (int) → '!hexid' for lookup.
             pos = {}
+            own_key = f'!{self.node_id:x}'
             raw_nodes = getattr(self.interface, 'nodes', None) or {}
-            for num, info in raw_nodes.items():
-                if num == self.node_id:
-                    pos = info.get('position') or {}
-                    break
+            node_entry = raw_nodes.get(own_key)
+            if node_entry:
+                pos = node_entry.get('position') or {}
 
-            # If cache has no locationSource the data may be stale (pre-setFixedPosition
-            # broadcast). Try to get fresher data from the device nodeInfo via admin.
-            src_raw = pos.get('locationSource') or pos.get('location_source')
-            if not src_raw:
+            # If cache has no locationSource the data may be stale.
+            # Try localNode.nodeInfo for fresher data.
+            if not pos or not (pos.get('locationSource') or pos.get('location_source')):
                 try:
                     local_node = getattr(self.interface, 'localNode', None)
                     if local_node:
@@ -981,13 +995,16 @@ class MeshtasticHandler:
                 except Exception:
                     pass
 
-            # Fallback: try localNode.nodeInfo
+            # Final fallback: iterate all nodes looking for our num
             if not pos:
-                local_node = getattr(self.interface, 'localNode', None)
-                if local_node:
-                    ni = getattr(local_node, 'nodeInfo', None)
-                    if isinstance(ni, dict):
-                        pos = ni.get('position') or {}
+                for key, info in raw_nodes.items():
+                    try:
+                        key_num = int(str(key).lstrip('!'), 16)
+                    except (ValueError, TypeError):
+                        continue
+                    if key_num == self.node_id:
+                        pos = info.get('position') or {}
+                        break
 
             if not pos:
                 return None
