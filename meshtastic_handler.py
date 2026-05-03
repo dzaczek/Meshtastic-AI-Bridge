@@ -906,19 +906,36 @@ class MeshtasticHandler:
             except Exception as cfg_err:
                 print(f"WARNING: writeConfig(position) failed: {cfg_err}")
 
-            # Step 2: Send SET_FIXED_POSITION admin message — the only reliable way
-            # to update stored coordinates on firmware ≥ 2.3.
-            # NOTE: sendPosition() is intentionally NOT used here because the
-            # firmware ignores broadcast position packets when fixedPosition=True.
-            # The official meshtastic CLI uses setFixedPosition() exclusively.
+            # Step 2: Send SET_FIXED_POSITION admin message with precision_bits=32.
+            # The library's node.setFixedPosition() does not set precision_bits,
+            # so the firmware defaults to ~11-bit obfuscation (~23 km grid).
+            # We bypass the library helper and build the admin message directly
+            # so we can include precision_bits=32 (= full precision, no obfuscation).
             try:
-                node.setFixedPosition(lat, lon, alt)
+                from meshtastic.protobuf import mesh_pb2 as _mesh_pb2
+                from meshtastic.protobuf import admin_pb2 as _admin_pb2
+
+                p = _mesh_pb2.Position()
+                p.latitude_i  = int(lat / 1e-7)
+                p.longitude_i = int(lon / 1e-7)
+                if alt:
+                    p.altitude = alt
+                p.precision_bits = 32  # full precision — disables firmware obfuscation
+
+                adm = _admin_pb2.AdminMessage()
+                adm.set_fixed_position.CopyFrom(p)
+                node._sendAdmin(adm)
+
                 # Wait for the flash write to complete on the device side.
-                # Without this delay the reboot may happen before the write finishes.
-                _t.sleep(1.5)
+                _t.sleep(2.0)
             except Exception as sfp_err:
-                print(f"WARNING: setFixedPosition failed: {sfp_err}")
-                return False, f"setFixedPosition error: {sfp_err}"
+                print(f"WARNING: setFixedPosition (custom) failed: {sfp_err}")
+                # Fallback to library helper (without precision_bits)
+                try:
+                    node.setFixedPosition(lat, lon, alt)
+                    _t.sleep(2.0)
+                except Exception as sfp_err2:
+                    return False, f"setFixedPosition error: {sfp_err2}"
 
             # Update Python library's local cache immediately so verify/display
             # shows the new position without waiting for the next 1-hour broadcast.
