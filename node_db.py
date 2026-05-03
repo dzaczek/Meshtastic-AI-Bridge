@@ -291,9 +291,10 @@ def get_node(node_id: str) -> dict | None:
     return dict(row) if row else None
 
 
-def get_min_hops_per_node(hours: float = 168.0, no_mqtt: bool = True) -> dict:
-    """Return {node_id: min_hops_away} for all nodes seen within the time window.
-    Uses minimum observed hop count (best route) to avoid flicker from rerouting."""
+def get_avg_hops_per_node(hours: float = 168.0, no_mqtt: bool = True) -> dict:
+    """Return {node_id: avg_hops_away} for all nodes seen within the time window.
+    Uses average hop count so a node observed at 6 and 7 hops yields 6.5,
+    placing its dot between the two rings on the radial chart."""
     if not _conn:
         return {}
     import time
@@ -301,13 +302,13 @@ def get_min_hops_per_node(hours: float = 168.0, no_mqtt: bool = True) -> dict:
     mq_and = "AND via_mqtt = 0" if no_mqtt else ""
     with _lock:
         rows = _conn.execute(
-            f"""SELECT node_id, MIN(hops_away)
+            f"""SELECT node_id, AVG(hops_away), COUNT(*)
                 FROM signal_history
                 WHERE ts >= ? AND hops_away IS NOT NULL {mq_and}
                 GROUP BY node_id""",
             (cutoff,),
         ).fetchall()
-    return {r[0]: r[1] for r in rows}
+    return {r[0]: round(r[1], 2) for r in rows}
 
 
 def get_signal_history(node_id: str, limit: int = 300) -> list[dict]:

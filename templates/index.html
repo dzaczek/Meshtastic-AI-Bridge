@@ -4110,22 +4110,24 @@ async function drawRadialRolesChart(selector) {
     return;
   }
 
-  // Fetch minimum observed hops per node over the time window (best route, not flicker)
-  let minHopsMap = {};
+  // Fetch average hops per node over the time window
+  // A node seen at 6 and 7 hops gets avg=6.5 → placed between rings
+  let avgHopsMap = {};
   try {
-    const r = await fetch(`/api/analytics/min_hops?hours=${_hours}`);
-    if (r.ok) minHopsMap = await r.json();
+    const r = await fetch(`/api/analytics/avg_hops?hours=${_hours}`);
+    if (r.ok) avgHopsMap = await r.json();
   } catch(e) {}
 
-  // hop for a node: prefer DB min-hops (stable), fall back to last-known cache value
-  const _hopOf = n => {
-    const dbMin = minHopsMap[n.id];
+  // avg hops: float value from DB, capped at 7; fall back to cache value
+  const _hopAvg = n => {
+    const dbAvg = avgHopsMap[n.id];
     const cur   = n.hops_away;
-    const best  = (dbMin !== undefined && dbMin !== null)
-      ? (cur !== null && cur !== undefined ? Math.min(dbMin, cur) : dbMin)
-      : (cur !== null && cur !== undefined ? cur : 7);
-    return Math.min(best, 7);
+    const avg   = (dbAvg !== undefined && dbAvg !== null) ? dbAvg
+                : (cur !== null && cur !== undefined ? cur : 7);
+    return Math.min(Math.max(avg, 0), 7);
   };
+  // Integer bucket for stacked area counting (round to nearest)
+  const _hopOf = n => Math.min(Math.round(_hopAvg(n)), 7);
 
   // Role normaliser — empty/unknown → CLIENT
   const roleLabel = r => {
@@ -4227,25 +4229,37 @@ async function drawRadialRolesChart(selector) {
     const r = roleKey(n.role);
     const i = roles.indexOf(r);
     if (i < 0) return;
-    const hop = _hopOf(n);
+    const hopBucket = _hopOf(n);         // integer for color/area
+    const hopFloat  = _hopAvg(n);         // float for precise radial position
     const baseA = i * angleSlice - Math.PI / 2;
-    // Jitter within ±35% of the sector and ±8% of the hop ring width
-    const jA = (Math.random() - 0.5) * angleSlice * 0.7;
-    const ringMin = outerR * hop / 8, ringMax = outerR * (hop + 1) / 8;
-    const rv = ringMin + Math.random() * (ringMax - ringMin) * 0.85 + (ringMax - ringMin) * 0.08;
+    // Dot placed at exact avg-hop radius + small jitter (±4% of one ring width)
+    const ringW  = outerR / 8;
+    const baseRv = outerR * hopFloat / 8;
+    const jA  = (Math.random() - 0.5) * angleSlice * 0.7;
+    const jRv = (Math.random() - 0.5) * ringW * 0.08;
+    const rv  = Math.max(ringW * 0.1, Math.min(outerR - ringW * 0.1, baseRv + jRv));
     const a = baseA + jA;
     const dx = Math.cos(a) * rv, dy = Math.sin(a) * rv;
 
+    // Color: interpolate between integer-hop colors for fractional values
+    const c1 = d3.color(hopColors[Math.floor(hopFloat)]) || d3.color('#888');
+    const c2 = d3.color(hopColors[Math.min(Math.ceil(hopFloat), 7)]) || c1;
+    const t  = hopFloat - Math.floor(hopFloat);
+    const fillColor = d3.interpolateRgb(c1, c2)(t);
+
     const dot = g.append('circle')
       .attr('cx', dx).attr('cy', dy).attr('r', 4.5)
-      .attr('fill', hopColors[hop])
+      .attr('fill', fillColor)
       .attr('fill-opacity', 0.85)
       .attr('stroke', 'var(--bg)').attr('stroke-width', 1)
       .style('cursor', 'pointer');
     const curHop = n.hops_away !== null && n.hops_away !== undefined ? n.hops_away : '?';
-    const hopNote = hop !== curHop ? ` (now: ${curHop}, min: ${hop})` : ` (${hop})`;
+    const avgDisp = hopFloat % 1 === 0 ? hopFloat : hopFloat.toFixed(1);
+    const hopNote = hopFloat !== curHop
+      ? `avg ${avgDisp} (now: ${curHop})`
+      : `${avgDisp}`;
     dot.append('title').text(
-      `${n.long_name || '!'+n.id}\nRole: ${r}\nHops${hopNote}`
+      `${n.long_name || '!'+n.id}\nRole: ${roleKey(n.role)}\nHops: ${hopNote}`
     );
   });
 
