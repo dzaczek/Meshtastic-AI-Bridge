@@ -186,23 +186,21 @@ class ConnectionStateMachine:
             self._connection_check_thread.start()
 
     def _connection_monitor_loop(self) -> None:
-        """Monitor connection health and handle reconnection.
+        """Keep the state machine thread alive.
 
-        Uses a time-based inactivity window (60 s) instead of a per-tick
-        counter so normal quiet periods don't trigger spurious reconnects.
+        Reconnection is driven by two reliable external signals:
+          1. meshtastic 'connection.lost' pubsub event → connection_failed()
+          2. cli_connection_monitor_loop() in main_app — polls every 30 s
+             and recreates the handler when is_connected is False.
+
+        We deliberately do NOT trigger reconnects from inactivity here.
+        Meshtastic meshes can be completely silent for hours during low-
+        traffic periods. Inactivity-based reconnects caused two competing
+        reconnect systems to fight each other and made the app appear to
+        "never reconnect" after a quiet night.
         """
-        INACTIVITY_TIMEOUT = 60.0  # seconds of silence before declaring unhealthy
         while not self._stop_event.is_set():
             try:
-                if self.state == ConnectionState.CONNECTED:
-                    silence = (datetime.now() - self._last_activity).total_seconds()
-                    if silence > INACTIVITY_TIMEOUT:
-                        logger.warning(
-                            f"No activity for {silence:.0f}s — initiating reconnection"
-                        )
-                        self.connection_failed(
-                            Exception(f"Inactivity timeout ({silence:.0f}s)")
-                        )
                 time.sleep(self.config.connection_check_interval)
             except Exception as exc:
                 logger.error(f"Error in connection monitor: {exc}")

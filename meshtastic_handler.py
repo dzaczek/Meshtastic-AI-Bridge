@@ -58,11 +58,14 @@ class MeshtasticHandler:
             self._conn_sm.connection_failed(Exception("Connection lost (flagged externally)"))
 
     def _on_state_change(self, old_state: ConnectionState, new_state: ConnectionState):
-        """React to state machine transitions."""
+        """React to state machine transitions (log only).
+
+        Reconnection is handled exclusively by cli_connection_monitor_loop()
+        in main_app.py. We do NOT start _do_reconnect here to avoid two
+        competing reconnect flows running simultaneously and fighting over
+        the interface object.
+        """
         log_info(f"Connection state: {old_state.name} -> {new_state.name}")
-        if new_state == ConnectionState.CONNECTING and old_state in {ConnectionState.RECONNECTING, ConnectionState.FAILED}:
-            # State machine scheduled a reconnect — attempt it in a background thread
-            threading.Thread(target=self._do_reconnect, daemon=True).start()
 
     def _do_connect(self):
         """Perform the initial connection."""
