@@ -6248,6 +6248,10 @@ async function loadLayout(id) {
     }
   } catch (err) {
     console.error(`Failed to load layout from localStorage for ${id}`, err);
+    try {
+      localStorage.removeItem(`dashboard-layout-${id}`);
+      grids[id].load(gridDefaults[id]);
+    } catch(e) {}
   }
   _postLayoutLoad(id);
 }
