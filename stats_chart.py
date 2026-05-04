@@ -25,6 +25,7 @@ ROLE_COLORS = {
     'TAK':     '#ff5555', 'HIDDEN':  '#666677', 'L&F':     '#ff88cc',
 }
 _ROLE_ORDER = ['ROUTER', 'ROUTER+', 'CLIENT', 'MUTE', 'TRACKER', 'SENSOR', 'TAK', 'HIDDEN', 'L&F']
+RADIAL_HOP_COLORS = ['#00ff88','#4dffd1','#88ccff','#88aaff','#cc88ff','#f0883e','#ff5555','#ff2222']
 _ROLE_MAP = {
     'CLIENT': 'CLIENT', 'CLIENT_MUTE': 'MUTE', 'MUTE_CLIENT': 'MUTE',
     'ROUTER': 'ROUTER', 'ROUTER_CLIENT': 'ROUTER+', 'TRACKER': 'TRACKER',
