@@ -772,6 +772,19 @@ if _HAS_FLASK:
     app.secret_key = os.environ.get("WEB_UI_SECRET_KEY") or os.urandom(32)
     app.permanent_session_lifetime = timedelta(days=30)
 
+    @app.after_request
+    def _set_security_headers(response):
+        # Prevent browser extensions (e.g. MetaMask lockdown-install.js) from
+        # injecting scripts that freeze our JavaScript.
+        # 'self' allows our own inline scripts; cdn sources allow CDN libs.
+        response.headers["Content-Security-Policy"] = (
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' "
+            "https://unpkg.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; "
+            "object-src 'none';"
+        )
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
+
     WEB_UI_PASSWORD = os.environ.get("WEB_UI_PASSWORD", "")
     WEB_UI_USERNAME = os.environ.get("WEB_UI_USERNAME", "admin")
     WEB_UI_RP_ID = os.environ.get("WEB_UI_WEBAUTHN_RP_ID", "localhost")
