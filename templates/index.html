@@ -3009,8 +3009,13 @@ async function fetchStatus() {
     // ── Stale link alert ──────────────────────────────────────────────
     if (st.link_stale && !banner.classList.contains('visible')) {
       document.getElementById('error-text').textContent =
-        `No packets received for ${st.last_rx_str} — link may be down or device offline`;
+        `Radio quiet for ${st.last_rx_str} — TCP link up, but no packets heard on the mesh`;
       banner.classList.add('visible');
+    }
+    // Clear stale banner automatically if traffic resumes
+    if (!st.link_stale && banner.classList.contains('visible')) {
+      const txt = document.getElementById('error-text').textContent || '';
+      if (txt.startsWith('Radio quiet')) banner.classList.remove('visible');
     }
   } catch(e) {}
 }

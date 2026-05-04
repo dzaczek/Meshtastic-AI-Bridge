@@ -1003,10 +1003,12 @@ if _HAS_FLASK:
                 ago = int(time.time() - last_rx)
                 st["last_rx_ago_s"] = ago
                 st["last_rx_str"]   = _fmt_age(ago)
-                # If state-machine says connected but radio is silent > 3 min → warn
-                if st.get("connected") and ago > 180:
+                # Warn if radio is silent > 30 min while TCP connection is up.
+                # Do NOT override connected=False — the TCP link to the device is
+                # still alive; this is just a "no radio traffic" advisory, not a
+                # connection failure. Quiet meshes can be silent for hours.
+                if st.get("connected") and ago > 1800:
                     st["link_stale"] = True
-                    st["connected"]  = False   # correct the displayed status
             else:
                 st["last_rx_ago_s"] = None
                 st["last_rx_str"]   = "no data"
