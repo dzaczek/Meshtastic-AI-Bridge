@@ -3643,7 +3643,7 @@ const _FS_COLOR_CHARTS = {
   'd3-radial-hops-pkts':  'hops-pkts',
 };
 
-// Charts that need a full fetchAnalytics() when time changes
+// Charts that need a full initAnalytics() when time changes
 const _FS_ANALYTICS_CHARTS = new Set([
   'd3-an-hourly','d3-an-types','d3-an-dest','d3-an-enc',
   'd3-an-senders-bubble','d3-an-encrypted-senders-bubble',
@@ -3747,7 +3747,7 @@ async function fsRefresh() {
   if (btn) { btn.textContent = '⟳'; btn.style.color = 'var(--primary)'; }
 
   if (_FS_ANALYTICS_CHARTS.has(chartId)) {
-    await fetchAnalytics();
+    await initAnalytics();
   } else if (_FS_RADIAL_DRAW[chartId]) {
     await _FS_RADIAL_DRAW[chartId]();
   }
