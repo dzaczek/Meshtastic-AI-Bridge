@@ -142,9 +142,21 @@ class HalBot:
                     rssi = info['lastPacketRssi']
                 if snr is None and 'lastPacketSnr' in info:
                     snr = info['lastPacketSnr']
-                
+
                 hops_away = info.get('hopsAway', None)
-                
+
+                # interface.nodes['hopsAway'] is only updated from NodeInfo packets,
+                # not from text messages. Fall back to the most recent signal_history row.
+                if hops_away is None or rssi is None or snr is None:
+                    sig = node_db.get_latest_signal(node_id_str)
+                    if sig:
+                        if hops_away is None:
+                            hops_away = sig.get('hops_away')
+                        if rssi is None:
+                            rssi = sig.get('rssi')
+                        if snr is None:
+                            snr = sig.get('snr')
+
                 # Get timing info
                 last_heard = info.get('lastHeard', time.time())
                 uptime = self._format_uptime(info.get('uptime', 0))
@@ -273,7 +285,7 @@ class HalBot:
         dist_str = self._get_distance_str(node_info.get('lat'), node_info.get('lon'))
         dist_line = dist_str.strip() if dist_str else "• Dist: N/A (no GPS)"
 
-        tag = 'PING (MQTT)' if is_mqtt else 'PING'
+        tag = 'PONG (MQTT)' if is_mqtt else 'PONG'
         response  = f"[{tag}] {name} !{node_id}\n"
         response += f"• Hops: {hops_str}\n"
         response += f"• Sig:  {rssi_str}/{snr_str}\n"

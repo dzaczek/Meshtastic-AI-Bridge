@@ -397,6 +397,19 @@ def get_signal_history(node_id: str, limit: int = 300) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def get_latest_signal(node_id: str) -> dict | None:
+    """Return the most recent signal_history row for a node, or None."""
+    if not _conn:
+        return None
+    with _lock:
+        row = _conn.execute(
+            "SELECT ts,snr,rssi,hops_away,via_mqtt FROM signal_history "
+            "WHERE node_id=? ORDER BY ts DESC LIMIT 1",
+            (node_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
 def get_position_history(node_id: str, limit: int = 500) -> list[dict]:
     if not _conn:
         return []
