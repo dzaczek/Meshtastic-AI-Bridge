@@ -67,6 +67,8 @@ class MeshtasticHandler:
         """
         log_info(f"Connection state: {old_state.name} -> {new_state.name}")
 
+    _TCP_CONNECT_TIMEOUT = 25  # seconds
+
     def _do_connect(self):
         """Perform the initial connection."""
         try:
@@ -87,7 +89,31 @@ class MeshtasticHandler:
             elif self._connection_type == "tcp":
                 if not self._device_specifier:
                     raise ValueError("Hostname/IP (device_specifier) is required for TCP connection.")
-                self.interface = meshtastic.tcp_interface.TCPInterface(hostname=self._device_specifier)
+                # Wrap TCP connect in daemon thread with timeout so a hanging
+                # device (e.g. rebooting / network partitioned) cannot block
+                # the monitor thread forever.
+                new_iface = [None]
+                new_err   = [None]
+                done_ev   = threading.Event()
+
+                def _tcp_connect():
+                    try:
+                        new_iface[0] = meshtastic.tcp_interface.TCPInterface(
+                            hostname=self._device_specifier)
+                    except Exception as e:
+                        new_err[0] = e
+                    finally:
+                        done_ev.set()
+
+                t = threading.Thread(target=_tcp_connect, daemon=True)
+                t.start()
+                if not done_ev.wait(timeout=self._TCP_CONNECT_TIMEOUT):
+                    raise TimeoutError(
+                        f"TCP connection to {self._device_specifier} timed out "
+                        f"after {self._TCP_CONNECT_TIMEOUT}s")
+                if new_err[0]:
+                    raise new_err[0]
+                self.interface = new_iface[0]
             else:
                 raise ValueError(f"Unsupported connection_type: {self._connection_type}")
         except KeyboardInterrupt:
@@ -194,7 +220,6 @@ class MeshtasticHandler:
 
             # Recreate interface — wrap in thread with timeout so a hanging
             # TCP connect (device rebooting) doesn't block forever.
-            _TCP_TIMEOUT = 25  # seconds
             new_iface = [None]
             new_err   = [None]
             done_ev   = threading.Event()
@@ -218,8 +243,8 @@ class MeshtasticHandler:
 
             t = threading.Thread(target=_connect, daemon=True)
             t.start()
-            if not done_ev.wait(timeout=_TCP_TIMEOUT):
-                raise TimeoutError(f"Connection attempt timed out after {_TCP_TIMEOUT}s")
+            if not done_ev.wait(timeout=self._TCP_CONNECT_TIMEOUT):
+                raise TimeoutError(f"Connection attempt timed out after {self._TCP_CONNECT_TIMEOUT}s")
             if new_err[0]:
                 raise new_err[0]
 

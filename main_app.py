@@ -609,19 +609,48 @@ def cli_connection_monitor_loop(app_instance_ref_list, stop_event_ref):
                             break
                         dprint(f"CLI Monitor: Reconnect attempt {attempt}/{max_attempts}...")
                         try:
-                            app.meshtastic_handler = MeshtasticHandler(
-                                connection_type=app.app_config.MESHTASTIC_CONNECTION_TYPE,
-                                device_specifier=app.app_config.MESHTASTIC_DEVICE_SPECIFIER,
-                                on_message_received_callback=app.handle_meshtastic_message,
-                                on_packet_callback=web_ui.on_packet if _HAS_WEB_UI else None,
-                            )
-                            # Wait up to 15s for the handler to connect
-                            for _ in range(15):
-                                if app.meshtastic_handler.is_connected:
-                                    break
-                                time.sleep(1)
+                            # Belt-and-suspenders: wrap handler creation in a
+                            # daemon thread with timeout so a hanging device
+                            # cannot block the monitor.  _do_connect() already
+                            # has a 25 s TCP guard; 60 s here covers serial +
+                            # myInfo wait + extra margin.
+                            _MH = None
+                            _MH_ERR = None
+                            _MH_DONE = threading.Event()
 
-                            if (app.meshtastic_handler.is_connected
+                            def _create_handler():
+                                nonlocal _MH, _MH_ERR
+                                try:
+                                    _MH = MeshtasticHandler(
+                                        connection_type=app.app_config.MESHTASTIC_CONNECTION_TYPE,
+                                        device_specifier=app.app_config.MESHTASTIC_DEVICE_SPECIFIER,
+                                        on_message_received_callback=app.handle_meshtastic_message,
+                                        on_packet_callback=web_ui.on_packet if _HAS_WEB_UI else None,
+                                    )
+                                except Exception as e:
+                                    _MH_ERR = e
+                                finally:
+                                    _MH_DONE.set()
+
+                            _MH_THREAD = threading.Thread(target=_create_handler, daemon=True)
+                            _MH_THREAD.start()
+                            if not _MH_DONE.wait(timeout=60):
+                                print(f"ERROR: CLI Monitor: Handler creation timed out (60 s)")
+                                app.meshtastic_handler = None
+                            elif _MH_ERR:
+                                raise _MH_ERR
+                            else:
+                                app.meshtastic_handler = _MH
+
+                            if app.meshtastic_handler is not None:
+                                # Wait up to 15s for the handler to connect
+                                for _ in range(15):
+                                    if app.meshtastic_handler.is_connected:
+                                        break
+                                    time.sleep(1)
+
+                            if (app.meshtastic_handler is not None
+                                    and app.meshtastic_handler.is_connected
                                     and app.meshtastic_handler.node_id is not None):
                                 app.ai_node_id_hex = f"{app.meshtastic_handler.node_id:x}"
                                 print(f"INFO: CLI Monitor: Reconnected. Node ID: {app.ai_node_id_hex}")
@@ -630,7 +659,8 @@ def cli_connection_monitor_loop(app_instance_ref_list, stop_event_ref):
                             else:
                                 dprint(f"CLI Monitor: Attempt {attempt} — not connected within timeout.")
                                 try:
-                                    app.meshtastic_handler.close()
+                                    if app.meshtastic_handler:
+                                        app.meshtastic_handler.close()
                                 except Exception:
                                     pass
                                 app.meshtastic_handler = None
@@ -681,7 +711,21 @@ def cli_connection_monitor_loop(app_instance_ref_list, stop_event_ref):
                     app.is_actively_reconnecting = False
 
             else:
-                # Connected — clear stale reconnecting flag if it got stuck
+                # Connected — check for silent TCP disconnects where pubsub
+                # never fires 'connection.lost' but the link is actually dead.
+                # 15-min grace: even a quiet mesh gets periodic node broadcasts.
+                handler = app.meshtastic_handler
+                _STALE_LINK_MINUTES = 15
+                if (handler
+                        and handler.last_rx_time != 0
+                        and handler.last_rx_time < time.time() - _STALE_LINK_MINUTES * 60):
+                    stale_min = (time.time() - handler.last_rx_time) / 60
+                    print(f"WARNING: CLI Monitor: Connected but no RX for {stale_min:.0f}m "
+                          f"— forcing reconnect.")
+                    handler.is_connected = False
+                    continue  # let the !connected branch above handle it
+
+                # Clear stale reconnecting flag if it got stuck
                 if app.is_actively_reconnecting:
                     app.is_actively_reconnecting = False
                     dprint("CLI Monitor: Connection restored (flag cleared).")
