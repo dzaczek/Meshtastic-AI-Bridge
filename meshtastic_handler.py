@@ -760,7 +760,7 @@ class MeshtasticHandler:
 
     def set_device_config(self, section: str, values: dict) -> tuple:
         """Write one config section to the device. Returns (ok, message)."""
-        if not self.interface or not self.is_connected:
+        if not self.interface:
             return False, "Not connected"
         LOCAL_SECS  = {'device', 'position', 'power', 'network', 'display', 'lora', 'bluetooth'}
         MODULE_SECS = {
