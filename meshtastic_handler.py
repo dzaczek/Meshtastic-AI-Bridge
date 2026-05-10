@@ -854,45 +854,60 @@ class MeshtasticHandler:
                 if hasattr(node, '_fixupChannels'):
                     node._fixupChannels()
 
-                # Build admin message and send with ACK/NAK handler
-                # (same as writeChannel but with onResponse wired up)
+                # ── begin → set_channel → commit transaction ──
+                # The device ACKs the set_channel admin message immediately
+                # ("I received it") but only writes to flash on commit.
+                # Long-lived connections MUST use the begin/commit pair.
                 from meshtastic.protobuf import admin_pb2
-                ack_event = threading.Event()
-                ack_result = [None]  # mutable container: 'ACK', 'NAK: <reason>', or None (timeout)
 
-                def _on_ack_nak(p):
-                    try:
-                        err = p.get("decoded", {}).get("routing", {}).get("errorReason", "NONE")
-                        if err != "NONE":
-                            ack_result[0] = f"NAK: {err}"
-                        else:
-                            ack_result[0] = "ACK"
-                    except Exception:
-                        ack_result[0] = "ACK (implicit)"
-                    ack_event.set()
+                def _send_and_wait(msg: admin_pb2.AdminMessage, label: str, timeout_s: float = 8.0) -> str:
+                    """Send an admin message and wait for ACK/NAK. Returns 'ACK' or 'NAK: <reason>'."""
+                    evt = threading.Event()
+                    res = [None]
+
+                    def _on_resp(pkt):
+                        try:
+                            err = pkt.get("decoded", {}).get("routing", {}).get("errorReason", "NONE")
+                            res[0] = "NAK: " + err if err != "NONE" else "ACK"
+                        except Exception:
+                            res[0] = "ACK"
+                        evt.set()
+
+                    node._sendAdmin(msg, wantResponse=True, onResponse=_on_resp)
+                    if evt.wait(timeout=timeout_s):
+                        return res[0] or "ACK"
+                    return "TIMEOUT"
 
                 try:
-                    # ensureSessionKey + build + send, exactly like writeChannel
                     if hasattr(node, 'ensureSessionKey'):
                         node.ensureSessionKey()
+
+                    # Step 1: begin edit transaction
+                    if hasattr(node, 'beginSettingsTransaction'):
+                        _log.info("CH%d: beginSettingsTransaction", ch_idx)
+                        node.beginSettingsTransaction()
+                        _time.sleep(0.3)
+
+                    # Step 2: send the channel
+                    _log.info("CH%d: set_channel", ch_idx)
                     p = admin_pb2.AdminMessage()
                     p.set_channel.CopyFrom(ch)
-                    # _sendAdmin with onResponse=local ack handler
-                    node._sendAdmin(p, wantResponse=True, onResponse=_on_ack_nak)
-                    # Wait up to 8s for device ACK/NAK
-                    if ack_event.wait(timeout=8.0):
-                        result = ack_result[0] or "ACK (no detail)"
-                        if result.startswith("NAK"):
-                            _log.error("CH%d save NAK: %s", ch_idx, result)
-                            return False, f"Device rejected: {result}"
-                        _log.info("CH%d save ACK: %s", ch_idx, result)
-                    else:
-                        _log.warning("CH%d save: no ACK/NAK within 8s (implicit ACK assumed)", ch_idx)
-                except Exception as exc:
-                    _log.error("CH%d _sendAdmin exception: %s", ch_idx, exc, exc_info=True)
-                    return False, f"Admin send failed: {exc}"
+                    result = _send_and_wait(p, "set_channel")
+                    if result.startswith("NAK"):
+                        _log.error("CH%d set_channel NAK: %s", ch_idx, result)
+                        return False, f"Device rejected channel: {result}"
+                    _log.info("CH%d set_channel ACK", ch_idx)
 
-                _time.sleep(1.0)  # flash write
+                    # Step 3: commit
+                    if hasattr(node, 'commitSettingsTransaction'):
+                        _log.info("CH%d: commitSettingsTransaction", ch_idx)
+                        node.commitSettingsTransaction()
+                        _time.sleep(1.0)  # flash write
+
+                except Exception as exc:
+                    _log.error("CH%d transaction error: %s", ch_idx, exc, exc_info=True)
+                    return False, f"Transaction failed: {exc}"
+
                 return True, f"Channel {ch_idx} saved"
             else:
                 return False, f"Unknown section: {section}"
