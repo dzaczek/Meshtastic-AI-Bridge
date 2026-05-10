@@ -5198,6 +5198,7 @@ async function saveChannel(idx) {
       },
     },
   };
+  console.log('saveChannel', idx, payload);
   const msgEl = document.getElementById('cfgmsg-channels');
   if (msgEl) { msgEl.className='cfg-msg'; msgEl.textContent='Saving…'; msgEl.style.display='inline'; }
   try {
@@ -5206,16 +5207,18 @@ async function saveChannel(idx) {
       body: JSON.stringify(payload),
     });
     const d = await r.json();
+    console.log('saveChannel response', d);
     if (msgEl) {
       msgEl.textContent = d.message || (d.ok ? 'Saved!' : 'Error');
       msgEl.className   = `cfg-msg ${d.ok ? 'ok' : 'err'}`;
       msgEl.style.display = 'inline';
-      setTimeout(() => { if (msgEl) msgEl.style.display='none'; }, 6000);
+      // Keep error visible longer
+      if (!d.ok) { setTimeout(() => { if (msgEl) msgEl.style.display='none'; }, 10000); }
+      else       { setTimeout(() => { if (msgEl) msgEl.style.display='none'; }, 4000); }
     }
-    if (!d.ok) { console.error('saveChannel failed:', d); }
   } catch(e) {
-    if (msgEl) { msgEl.textContent='Network error: ' + e.message; msgEl.className='cfg-msg err'; msgEl.style.display='inline'; }
     console.error('saveChannel error:', e);
+    if (msgEl) { msgEl.textContent='Network error: ' + e.message; msgEl.className='cfg-msg err'; msgEl.style.display='inline'; }
   }
 }
 

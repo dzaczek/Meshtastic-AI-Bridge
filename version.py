@@ -1,2 +1,2 @@
-__version__ = "5.88.3"
+__version__ = "5.88.4"
 GITHUB_REPO  = "dzaczek/Meshtastic-AI-Bridge"

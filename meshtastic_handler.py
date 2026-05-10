@@ -804,71 +804,79 @@ class MeshtasticHandler:
                 node.writeConfig(section)
                 return True, f"Saved module/{section}"
             elif section == 'channel':
+                # ── Mirror the official Meshtastic CLI --ch-set flow exactly ──
+                # 1. Get the channel object directly from node.channels[ch_idx]
+                # 2. Set fields directly on the protobuf (like setPref does)
+                # 3. Call node.writeChannel(ch_idx) — this alone persists to flash
                 import base64 as _b64, time as _time, logging
                 _log = logging.getLogger(__name__)
                 ch_idx = int(values.get('index', 0))
-                # Find the channel object in node.channels (list or dict)
-                node_chs = getattr(node, 'channels', None)
-                if not node_chs:
-                    return False, "No channels list on node — device may not be fully configured yet"
-                ch_obj = None
-                if isinstance(node_chs, list):
-                    for c in node_chs:
-                        if getattr(c, 'index', None) == ch_idx:
-                            ch_obj = c
-                            break
-                elif isinstance(node_chs, dict):
-                    ch_obj = node_chs.get(ch_idx)
-                if ch_obj is None:
-                    if isinstance(node_chs, list) and ch_idx < len(node_chs):
-                        ch_obj = node_chs[ch_idx]
-                    else:
-                        from meshtastic import channel_pb2
-                        ch_obj = channel_pb2.Channel()
-                        ch_obj.index = ch_idx
-                        if isinstance(node_chs, list):
-                            while len(node_chs) <= ch_idx:
-                                node_chs.append(channel_pb2.Channel())
-                            node_chs[ch_idx] = ch_obj
-                # Apply settings
-                ch_obj.role = int(values.get('role', 0))
+
+                if not hasattr(node, 'channels') or not node.channels:
+                    return False, "No channels on node — device not fully configured"
+                if ch_idx < 0 or ch_idx >= len(node.channels):
+                    return False, f"Channel index {ch_idx} out of range (0..{len(node.channels)-1})"
+
+                # Direct reference — same as the CLI's ch = node.channels[channelIndex]
+                ch = node.channels[ch_idx]
+
+                # Apply role
+                ch.role = int(values.get('role', 0))
+
+                # Apply settings directly on the protobuf (mirrors setPref in CLI)
                 settings = values.get('settings', {})
                 if settings:
-                    setts = dict(settings)
-                    psk_b64 = setts.pop('psk', None)
-                    if psk_b64 is not None:
-                        psk_b64_clean = str(psk_b64).strip()
-                        if psk_b64_clean:
-                            missing = len(psk_b64_clean) % 4
+                    # PSK — special handling like fromPSK() in the CLI
+                    psk_raw = settings.get('psk')
+                    if psk_raw is not None:
+                        psk_str = str(psk_raw).strip()
+                        if psk_str:
+                            missing = len(psk_str) % 4
                             if missing:
-                                psk_b64_clean += '=' * (4 - missing)
-                            ch_obj.settings.psk = _b64.b64decode(psk_b64_clean)
+                                psk_str += '=' * (4 - missing)
+                            ch.settings.psk = _b64.b64decode(psk_str)
                         else:
-                            ch_obj.settings.psk = b''
-                    ms = setts.pop('module_settings', None)
+                            ch.settings.psk = b''
+
+                    # Name
+                    if 'name' in settings:
+                        ch.settings.name = str(settings['name'] or '')
+
+                    # Uplink / downlink
+                    if 'uplink_enabled' in settings:
+                        ch.settings.uplink_enabled = bool(settings['uplink_enabled'])
+                    if 'downlink_enabled' in settings:
+                        ch.settings.downlink_enabled = bool(settings['downlink_enabled'])
+
+                    # module_settings — nested, mirroring CLI: setPref(ch.settings, "module_settings.position_precision", val)
+                    ms = settings.get('module_settings')
                     if isinstance(ms, dict):
-                        ch_obj.settings.module_settings.position_precision = int(ms.get('position_precision', 0))
-                        ch_obj.settings.module_settings.is_muted = bool(ms.get('is_muted', False))
-                    if setts:
-                        ParseDict(setts, ch_obj.settings, ignore_unknown_fields=True)
-                # Verify what we're about to write
-                _log.info("channel save: CH%d uplink=%s downlink=%s precision=%d psk_len=%d",
-                          ch_idx, ch_obj.settings.uplink_enabled,
-                          ch_obj.settings.downlink_enabled,
-                          ch_obj.settings.module_settings.position_precision,
-                          len(ch_obj.settings.psk or b''))
-                # Write to device
-                if not hasattr(node, 'writeChannel'):
-                    return False, "writeChannel not available on node"
+                        if 'position_precision' in ms:
+                            ch.settings.module_settings.position_precision = int(ms['position_precision'])
+                        if 'is_muted' in ms:
+                            ch.settings.module_settings.is_muted = bool(ms['is_muted'])
+
+                # Log exactly what we are about to send to the device
+                _log.info("CH%d write: role=%d name=%r uplink=%s downlink=%s prec=%d psk=%d",
+                          ch_idx, ch.role, ch.settings.name,
+                          ch.settings.uplink_enabled, ch.settings.downlink_enabled,
+                          ch.settings.module_settings.position_precision,
+                          len(ch.settings.psk or b''))
+
+                # Ensure channels list is properly indexed (8 slots, ch.index == position)
+                if hasattr(node, '_fixupChannels'):
+                    node._fixupChannels()
+
+                # Write to device — writeChannel alone persists to flash
+                # (no begin/commit transaction needed per official library)
                 try:
-                    # Ensure channels list is properly fixuped (8 slots, correct indexes)
-                    if hasattr(node, '_fixupChannels'):
-                        node._fixupChannels()
                     node.writeChannel(ch_idx)
-                    _time.sleep(2.5)  # allow flash write
                 except Exception as exc:
-                    _log.error("writeChannel(%d) raised: %s", ch_idx, exc)
+                    _log.error("writeChannel(%d) exception: %s", ch_idx, exc, exc_info=True)
                     return False, f"writeChannel failed: {exc}"
+
+                # Allow flash write to complete
+                _time.sleep(0.5)
                 return True, f"Channel {ch_idx} saved"
             else:
                 return False, f"Unknown section: {section}"
