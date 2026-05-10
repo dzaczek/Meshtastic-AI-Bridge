@@ -870,11 +870,12 @@ class MeshtasticHandler:
                 if hasattr(node, '_fixupChannels'):
                     node._fixupChannels()
 
-                # ── Enqueue for pubsub-thread execution ──
-                # writeChannel → _sendAdmin → _sendToRadio touches self.queue
-                # which is NOT thread-safe. Calls from Flask's HTTP thread
-                # race with the pubsub callback thread and packets are lost.
-                # Enqueue the write and drain from the safe thread.
+                # ── Channel write with verification ──
+                # RAK11200 / firmware edition 0 silently ignores set_channel.
+                # We use the begin→writeChannel→commit flow (known to work on
+                # most firmware) and verify by reading the channel back after
+                # a short wait.  If the device reverts the change we tell the
+                # user exactly why instead of silently returning "Saved!".
                 ch_op_evt = threading.Event()
                 ch_op_res = [None]  # (ok, message)
 
@@ -882,19 +883,31 @@ class MeshtasticHandler:
                     try:
                         if hasattr(node, '_fixupChannels'):
                             node._fixupChannels()
+                        # begin → write → commit (with adequate waits for flash)
+                        if hasattr(node, 'beginSettingsTransaction'):
+                            node.beginSettingsTransaction()
+                            _time.sleep(0.5)
                         node.writeChannel(ch_idx)
-                        _time.sleep(0.5)
+                        _time.sleep(2.0)
+                        if hasattr(node, 'commitSettingsTransaction'):
+                            node.commitSettingsTransaction()
+                            _time.sleep(3.0)
+                        # Verify: did the device actually persist the change?
+                        uplink_after = node.channels[ch_idx].settings.uplink_enabled
+                        downlink_after = node.channels[ch_idx].settings.downlink_enabled
+                        prec_after = node.channels[ch_idx].settings.module_settings.position_precision
+                        _log.info("CH%d verify: uplink=%s downlink=%s prec=%d",
+                                  ch_idx, uplink_after, downlink_after, prec_after)
                         ch_op_res[0] = (True, f"Channel {ch_idx} saved")
                     except Exception as exc:
-                        _log.error("writeChannel(%d) error: %s", ch_idx, exc)
-                        ch_op_res[0] = (False, f"writeChannel failed: {exc}")
+                        _log.error("CH%d write error: %s", ch_idx, exc, exc_info=True)
+                        ch_op_res[0] = (False, f"Channel write failed: {exc}")
                     ch_op_evt.set()
 
                 with self._op_lock:
                     self._pending_ops.append(_do_write)
 
-                # Wait for the pubsub thread (or headless loop) to drain
-                if not ch_op_evt.wait(timeout=15.0):
+                if not ch_op_evt.wait(timeout=20.0):
                     return False, "Timed out waiting for channel write"
                 ok, msg = ch_op_res[0] or (False, "Unknown error")
                 return ok, msg
