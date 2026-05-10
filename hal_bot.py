@@ -16,6 +16,11 @@ try:
     _HAS_STATS = True
 except ImportError:
     _HAS_STATS = False
+try:
+    import weather_map as _wm
+    _HAS_WEATHER_MAP = True
+except ImportError:
+    _HAS_WEATHER_MAP = False
 
 class HalBot:
     def __init__(self, meshtastic_handler, app_config=None):
@@ -30,7 +35,10 @@ class HalBot:
         self.mqtt_broker = "mqtt.meshtastic.org"  # Default MQTT broker
         self.gateway_info = {}  # Store gateway information for MQTT nodes
         self.admin_node_ids = getattr(app_config, 'ADMIN_NODE_IDS', []) if app_config else []
-        self.matrix_forward_cb = None  # set by main_app after init
+        self.matrix_forward_cb = None   # set by main_app after init
+        self.private_reply_fn = None   # set by main_app after init
+        self._pending_sends = []       # (reply, destination_id_hex, channel_index, is_dm) tuples
+        self._pending_lock = threading.Lock()
 
     def _get_distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
         """Calculate the great circle distance between two points on the earth (specified in decimal degrees)"""
@@ -45,8 +53,11 @@ class HalBot:
 
     @staticmethod
     def _normalize_cmd(text: str) -> str:
-        """Strip !, backticks and extra whitespace from a command text."""
+        """Strip !, /, backticks and extra whitespace from a command text."""
         t = text.strip()
+        # Strip leading / (but not //)
+        if t.startswith('/') and not t.startswith('//'):
+            t = t[1:].strip()
         # Strip leading ! (but not !admin)
         if t.startswith('!') and not t.lower().startswith('!admin'):
             t = t[1:].strip()
@@ -84,7 +95,8 @@ class HalBot:
 
         # Direct commands (no bot-name guard needed)
         if clean in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl',
-                     'distance', 'odleglosc', 'weather', 'pogoda', 'wx', 'stats']:
+                     'distance', 'odleglosc', 'stats',
+                     'weather', 'pogoda', 'wx', 'meteo', 'wetter', 'météo', 'tiempo', 'tempo']:
             return True
 
         # 'help' requires ! prefix or bot name partial match
@@ -96,7 +108,8 @@ class HalBot:
         if match:
             command = match.group(1).lower()
             if command in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl',
-                           'distance', 'odleglosc', 'weather', 'pogoda', 'wx', 'stats']:
+                           'distance', 'odleglosc', 'stats',
+                           'weather', 'pogoda', 'wx', 'meteo', 'wetter', 'météo', 'tiempo', 'tempo']:
                 return True
             if command == 'help' and self._help_triggered(text, clean):
                 return True
@@ -521,31 +534,90 @@ class HalBot:
             'is_channel_message': not is_dm
         }
 
-    def _handle_weather(self, args: str, sender_id: str, sender_name: str, channel_id: int, is_dm: bool) -> dict:
-        """Fetch current weather from wttr.in and return compact response."""
-        city = args.strip() if args else "Aarau"
-        if not city:
-            city = "Aarau"
+    def _handle_weather(self, args: str, sender_id: str, sender_name: str,
+                        channel_id: int, is_dm: bool) -> dict:
+        """Weather map + local weather text. Generates map in background thread."""
+        def _mk(msg):
+            return {'response': msg, 'channel_id': channel_id, 'is_channel_message': not is_dm}
+
+        city = args.strip() if args else None
+
         if not _HAS_REQUESTS:
-            return {'response': f"[WEATHER] Error: requests library not available.",
-                    'channel_id': channel_id, 'is_channel_message': not is_dm}
-        try:
-            from urllib.parse import quote_plus
-            url = f"https://wttr.in/{quote_plus(city)}?format=j1"
-            r = requests.get(url, timeout=8)
-            data = r.json()
-            cur  = data['current_condition'][0]
-            temp = cur['temp_C']
-            desc = cur['weatherDesc'][0]['value']
-            tmrw = data['weather'][1] if len(data.get('weather', [])) > 1 else {}
-            tmax = tmrw.get('maxtempC', '?')
-            tmin = tmrw.get('mintempC', '?')
-            response = (f"[WEATHER] {city.capitalize()}\n"
-                        f"• Now: {temp}°C, {desc}\n"
-                        f"• 24h: {tmin}°C-{tmax}°C")
-        except Exception as e:
-            response = f"[WEATHER] Error: {str(e)[:60]}"
-        return {'response': response, 'channel_id': channel_id, 'is_channel_message': not is_dm}
+            return _mk('Weather: requests library not available.')
+        if not _HAS_WEATHER_MAP:
+            return _mk('Weather: weather_map module not available (missing libs).')
+
+        api_key = getattr(self.app_config, 'IMGBB_API_KEY', '') if self.app_config else ''
+        if not api_key:
+            return _mk('Weather: imgbb API key not configured (IMGBB_API_KEY).')
+
+        # Check if the weather reply should go as DM
+        reply_as_dm = bool(getattr(self.app_config, 'WEATHER_MAP_REPLY_AS_DM', False)) if self.app_config else False
+
+        # Get requester node info for local weather
+        requester_info = self.get_node_info(sender_id)
+        requester_lat = requester_info.get('lat') if requester_info else None
+        requester_lon = requester_info.get('lon') if requester_info else None
+
+        def _generate():
+            try:
+                import stats_chart as _sc
+                img_bytes = _wm.generate_weather_map(node_db, self.meshtastic_handler)
+                url = None
+                if img_bytes:
+                    url = _sc.upload_imgbb(img_bytes, api_key)
+
+                # Build local weather text
+                local_txt = ''
+                try:
+                    from urllib.parse import quote_plus
+                    if city:
+                        wurl = f"https://wttr.in/{quote_plus(city)}?format=%C,+%t,+wind:%w,+hum:%h&lang=en"
+                    elif requester_lat and requester_lon:
+                        wurl = f"https://wttr.in/{requester_lat},{requester_lon}?format=%C,+%t,+wind:%w,+hum:%h&lang=en"
+                    else:
+                        wurl = "https://wttr.in/Aarau?format=%C,+%t,+wind:%w,+hum:%h&lang=en"
+                    r = requests.get(wurl, timeout=8)
+                    if r.status_code == 200:
+                        local_txt = r.text.strip()
+                except Exception:
+                    local_txt = ''
+
+                # Compose reply
+                if url:
+                    lines = [f'Weather Map: {url}']
+                    if local_txt:
+                        loc_label = city.capitalize() if city else (
+                            requester_info.get('short_name') or requester_info.get('long_name')
+                        ) if requester_info else 'Here'
+                        lines.append(f'Local ({loc_label}): {local_txt}')
+                    reply = '\n'.join(lines)
+                else:
+                    if local_txt:
+                        loc_label = city.capitalize() if city else 'Here'
+                        reply = f'Weather ({loc_label}): {local_txt}'
+                    else:
+                        reply = 'Weather: no map generated and no weather data available.'
+            except Exception as exc:
+                import logging
+                logging.getLogger(__name__).error('weather error: %s', exc, exc_info=True)
+                reply = f'Weather: error — {exc}'
+
+            # Enqueue result for the pubsub thread to send.
+            # Direct send_message() from a daemon thread contends on Meshtastic's
+            # unprotected self.queue and silently loses packets.
+            send_as_dm = reply_as_dm or is_dm
+            if not send_as_dm and self.private_reply_fn and self.private_reply_fn():
+                send_as_dm = True
+            dest = sender_id if send_as_dm else None
+            ch   = None if send_as_dm else channel_id
+            with self._pending_lock:
+                self._pending_sends.append((reply, dest, ch, send_as_dm))
+
+        threading.Thread(target=_generate, daemon=True, name='weather-gen').start()
+
+        ack = 'Generating weather map...'
+        return _mk(ack)
 
     def handle_command(self, text: str, sender_id: str, sender_name: str, channel_id: int = None, is_dm: bool = False) -> Optional[dict]:
         """Handle bot commands"""
@@ -565,7 +637,9 @@ class HalBot:
 
         # Handle direct commands without bot prefix
         if clean_lower in ['ping', 'traceroute', 'gtraceroute', 'info', 'test', 'qsl',
-                            'distance', 'odleglosc', 'weather', 'pogoda', 'wx', 'help']:
+                            'distance', 'odleglosc',
+                            'weather', 'pogoda', 'wx', 'meteo', 'wetter', 'météo', 'tiempo', 'tempo',
+                            'help']:
             command = clean_lower
             args = ""
         elif self._help_triggered(text, clean_lower):
@@ -587,7 +661,7 @@ class HalBot:
             return self._handle_traceroute(args, sender_id, sender_name, channel_id, is_dm)
         elif command in ['distance', 'odleglosc']:
             return self._handle_distance(args, sender_id, sender_name, channel_id, is_dm)
-        elif command in ['weather', 'pogoda', 'wx']:
+        elif command in ['weather', 'pogoda', 'wx', 'meteo', 'wetter', 'météo', 'tiempo', 'tempo']:
             return self._handle_weather(args, sender_id, sender_name, channel_id, is_dm)
         elif command == 'stats':
             return self._handle_stats(sender_id, sender_name, channel_id, is_dm)
@@ -641,16 +715,14 @@ class HalBot:
                 logging.getLogger(__name__).error('!stats error: %s', exc, exc_info=True)
                 reply = f'Stats: generation error — {exc}'
 
-            # Send the result via meshtastic
-            if self.meshtastic_handler:
-                try:
-                    if is_dm:
-                        self.meshtastic_handler.send_message(reply, destination_id_hex=sender_id)
-                    else:
-                        self.meshtastic_handler.send_message(reply, channel_index=channel_id)
-                except Exception as exc:
-                    import logging
-                    logging.getLogger(__name__).error('!stats send error: %s', exc)
+            # Enqueue result for the pubsub thread to send (see weather comment).
+            send_as_dm = is_dm
+            if not send_as_dm and self.private_reply_fn and self.private_reply_fn():
+                send_as_dm = True
+            dest = sender_id if send_as_dm else None
+            ch   = None if send_as_dm else channel_id
+            with self._pending_lock:
+                self._pending_sends.append((reply, dest, ch, send_as_dm))
 
         threading.Thread(target=_generate, daemon=True, name='stats-gen').start()
 
@@ -664,12 +736,37 @@ class HalBot:
             "info/test    – node status",
             "traceroute [!id|name] – hop path",
             "distance [!id|name]   – dist to node",
-            "wx/weather [city]     – weather",
+            "wx/weather/meteo/wetter/météo/tiempo/tempo [city]  – weather map + local",
             "stats        – 4h chart image (1x/4h)",
             "AI: just write to me",
         ]
         response = "\n".join(lines)
         return {'response': response, 'channel_id': channel_id, 'is_channel_message': not is_dm}
+
+    def _drain_pending_sends(self):
+        """Send all queued pending messages. MUST be called from the pubsub callback
+        thread (or main thread) to avoid Meshtastic queue contention."""
+        with self._pending_lock:
+            if not self._pending_sends:
+                return
+            batch = self._pending_sends[:]
+            self._pending_sends.clear()
+        for reply, dest_id, ch_idx, as_dm in batch:
+            try:
+                if as_dm:
+                    ok, reason = self.meshtastic_handler.send_message(
+                        reply, destination_id_hex=dest_id, want_ack=False)
+                else:
+                    ok, reason = self.meshtastic_handler.send_message(
+                        reply, channel_index=ch_idx, want_ack=False)
+                if not ok:
+                    import logging
+                    logging.getLogger(__name__).error(
+                        'pending send failed: %s', reason)
+            except Exception as exc:
+                import logging
+                logging.getLogger(__name__).error(
+                    'pending send error: %s', exc)
 
     def _start_traceroute_collection(self, target_id: str) -> None:
         """Start background traceroute collection"""

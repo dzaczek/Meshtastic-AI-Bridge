@@ -364,8 +364,11 @@ class MeshtasticHandler:
             print(f"ERROR in _on_receive_internal (From: {error_user_context}). Packet: {packet}. Error: {e}")
             traceback.print_exc()
 
-    def send_message(self, text: str, destination_id_hex: str = None, channel_index: int = None) -> Tuple[bool, str]:
-        """Send a message to a specific node or channel"""
+    def send_message(self, text: str, destination_id_hex: str = None, channel_index: int = None, want_ack: bool = None) -> Tuple[bool, str]:
+        """Send a message to a specific node or channel.
+
+        want_ack: for DMs, whether to request acknowledgment (default True).
+                   Set False for background-thread sends to avoid ARQ contention."""
         if not self.is_connected:
             return False, "Not connected to Meshtastic device"
             
@@ -399,9 +402,10 @@ class MeshtasticHandler:
             if destination_id_hex and not is_broadcast_destination:
                 try:
                     dest_node_num = int(destination_id_hex, 16)
-                    log_info(f"{log_prefix} Sending DM to node {dest_node_num:x}")
+                    _want_ack = want_ack if want_ack is not None else True
+                    log_info(f"{log_prefix} Sending DM to node {dest_node_num:x} wantAck={_want_ack}")
                     before = datetime.now()
-                    pkt = self.interface.sendText(text, destinationId=dest_node_num, wantAck=True)
+                    pkt = self.interface.sendText(text, destinationId=dest_node_num, wantAck=_want_ack)
                     self._last_tx_packet_id = getattr(pkt, 'id', None)
                     after = datetime.now()
                     log_info(f"{log_prefix} sendText() for DM completed in {(after-before).total_seconds():.3f}s")
@@ -413,9 +417,10 @@ class MeshtasticHandler:
                     log_error(msg)
                     return (False, "invalid_destination_id_hex")
             else:
-                log_info(f"{log_prefix} Sending channel message on channel {channel_index}")
+                _want_ack = want_ack if want_ack is not None else False
+                log_info(f"{log_prefix} Sending channel message on channel {channel_index} wantAck={_want_ack}")
                 before = datetime.now()
-                pkt = self.interface.sendText(text, channelIndex=channel_index, wantAck=False)
+                pkt = self.interface.sendText(text, channelIndex=channel_index, wantAck=_want_ack)
                 self._last_tx_packet_id = getattr(pkt, 'id', None)
                 after = datetime.now()
                 log_info(f"{log_prefix} sendText() for channel completed in {(after-before).total_seconds():.3f}s")

@@ -30,6 +30,9 @@ AI_ENABLED = os.environ.get("AI_ENABLED", "true").lower() in ("true", "1", "yes"
 # Set to False to disable bot commands (ping, info, traceroute, !admin)
 BOT_COMMANDS_ENABLED = os.environ.get("BOT_COMMANDS_ENABLED", "true").lower() in ("true", "1", "yes")
 
+# Weather map reply routing: True = DM the requester, False = reply on channel
+WEATHER_MAP_REPLY_AS_DM = os.environ.get("WEATHER_MAP_REPLY_AS_DM", "false").lower() in ("true", "1", "yes")
+
 # --- AI Settings ---
 DEFAULT_AI_SERVICE = os.environ.get("DEFAULT_AI_SERVICE", "openai")
 

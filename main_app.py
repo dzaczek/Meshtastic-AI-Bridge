@@ -227,6 +227,7 @@ class MeshtasticAIAppConsole:
                     except Exception as _e:
                         dprint(f"Matrix hal-forward error: {_e}")
             self.hal_bot.matrix_forward_cb = _hal_matrix_forward
+            self.hal_bot.private_reply_fn = web_ui.is_bot_private_replies if _HAS_WEB_UI else None
             self.router = MessageRouter(
                 self.app_config, self.ai_bridge,
                 self.conversation_manager, self.hal_bot,
@@ -268,6 +269,15 @@ class MeshtasticAIAppConsole:
 
     def handle_meshtastic_message(self, text, sender_id, sender_name, destination_id, channel_id):
         """Incoming message handler - delegates to MessageRouter."""
+        # Drain any pending sends from background threads FIRST.
+        # This runs in the pubsub callback thread, which is the only thread
+        # that can safely access Meshtastic's unprotected send queue.
+        if hasattr(self, 'hal_bot') and self.hal_bot:
+            try:
+                self.hal_bot._drain_pending_sends()
+            except Exception:
+                pass
+
         print(f"\n[RX CONSOLE] From: {sender_name} ({sender_id}) | To: {destination_id} | Ch: {channel_id} | Msg: \"{text[:100]}\"")
 
         if _HAS_WEB_UI:
@@ -429,6 +439,12 @@ class MeshtasticAIAppConsole:
                         node_id=self.ai_node_id_hex,
                         ai_service=getattr(self.ai_bridge, 'current_ai_service', 'openai'),
                     )
+                # Drain pending background-thread sends even with no traffic
+                if hasattr(self, 'hal_bot') and self.hal_bot:
+                    try:
+                        self.hal_bot._drain_pending_sends()
+                    except Exception:
+                        pass
                 self._stop_event.wait(timeout=15)
         except KeyboardInterrupt:
             pass
@@ -654,6 +670,11 @@ def cli_connection_monitor_loop(app_instance_ref_list, stop_event_ref):
                                     and app.meshtastic_handler.node_id is not None):
                                 app.ai_node_id_hex = f"{app.meshtastic_handler.node_id:x}"
                                 print(f"INFO: CLI Monitor: Reconnected. Node ID: {app.ai_node_id_hex}")
+                                # Refresh handler references in dependent objects
+                                if hasattr(app, 'hal_bot') and app.hal_bot:
+                                    app.hal_bot.meshtastic_handler = app.meshtastic_handler
+                                if hasattr(app, 'router') and app.router:
+                                    app.router.meshtastic_handler = app.meshtastic_handler
                                 reconnected = True
                                 break
                             else:
