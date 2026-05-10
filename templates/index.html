@@ -5177,7 +5177,9 @@ async function saveChannel(idx) {
   const ul      = ulEl?.checked  || false;
   const posEn   = posEl?.checked || false;
   const step    = parseInt(precEl?.value || '0');
-  const precVal = posEn ? (PREC_STEPS[step]?.prec || 0) : 0;
+  // When position sharing is enabled but slider is at 0 (Disabled),
+  // default to ~44m (precision 19) so the user doesn't accidentally save "off"
+  const precVal = posEn ? (PREC_STEPS[Math.max(step, 1)]?.prec || 19) : 0;
 
   // Verify DOM elements exist
   if (!ulEl || !dlEl || !posEl) {
