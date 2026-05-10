@@ -277,6 +277,11 @@ class MeshtasticAIAppConsole:
                 self.hal_bot._drain_pending_sends()
             except Exception:
                 pass
+        if self.meshtastic_handler:
+            try:
+                self.meshtastic_handler.drain_pending_ops()
+            except Exception:
+                pass
 
         print(f"\n[RX CONSOLE] From: {sender_name} ({sender_id}) | To: {destination_id} | Ch: {channel_id} | Msg: \"{text[:100]}\"")
 
@@ -443,6 +448,11 @@ class MeshtasticAIAppConsole:
                 if hasattr(self, 'hal_bot') and self.hal_bot:
                     try:
                         self.hal_bot._drain_pending_sends()
+                    except Exception:
+                        pass
+                if self.meshtastic_handler:
+                    try:
+                        self.meshtastic_handler.drain_pending_ops()
                     except Exception:
                         pass
                 self._stop_event.wait(timeout=15)

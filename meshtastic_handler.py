@@ -30,6 +30,8 @@ class MeshtasticHandler:
         self._device_specifier = device_specifier
         self._last_rx_time: float = 0.0    # unix ts of last received packet
         self._last_tx_packet_id: int | None = None  # id of last sent packet
+        self._pending_ops: list = []         # callables to run from pubsub thread
+        self._op_lock = threading.Lock()
 
         # Initialize connection state machine
         self._conn_sm = ConnectionStateMachine(
@@ -363,6 +365,20 @@ class MeshtasticHandler:
             error_user_context = user_name_to_use if user_name_to_use else sender_id_hex
             print(f"ERROR in _on_receive_internal (From: {error_user_context}). Packet: {packet}. Error: {e}")
             traceback.print_exc()
+
+    def drain_pending_ops(self):
+        """Execute any pending admin operations (channel writes etc).
+        MUST be called from the pubsub callback thread."""
+        with self._op_lock:
+            if not self._pending_ops:
+                return
+            ops = self._pending_ops[:]
+            self._pending_ops.clear()
+        for op in ops:
+            try:
+                op()
+            except Exception:
+                traceback.print_exc()
 
     def send_message(self, text: str, destination_id_hex: str = None, channel_index: int = None, want_ack: bool = None) -> Tuple[bool, str]:
         """Send a message to a specific node or channel.
@@ -854,61 +870,34 @@ class MeshtasticHandler:
                 if hasattr(node, '_fixupChannels'):
                     node._fixupChannels()
 
-                # ── begin → set_channel → commit transaction ──
-                # The device ACKs the set_channel admin message immediately
-                # ("I received it") but only writes to flash on commit.
-                # Long-lived connections MUST use the begin/commit pair.
-                from meshtastic.protobuf import admin_pb2
+                # ── Enqueue for pubsub-thread execution ──
+                # writeChannel → _sendAdmin → _sendToRadio touches self.queue
+                # which is NOT thread-safe. Calls from Flask's HTTP thread
+                # race with the pubsub callback thread and packets are lost.
+                # Enqueue the write and drain from the safe thread.
+                ch_op_evt = threading.Event()
+                ch_op_res = [None]  # (ok, message)
 
-                def _send_and_wait(msg: admin_pb2.AdminMessage, label: str, timeout_s: float = 8.0) -> str:
-                    """Send an admin message and wait for ACK/NAK. Returns 'ACK' or 'NAK: <reason>'."""
-                    evt = threading.Event()
-                    res = [None]
+                def _do_write():
+                    try:
+                        if hasattr(node, '_fixupChannels'):
+                            node._fixupChannels()
+                        node.writeChannel(ch_idx)
+                        _time.sleep(0.5)
+                        ch_op_res[0] = (True, f"Channel {ch_idx} saved")
+                    except Exception as exc:
+                        _log.error("writeChannel(%d) error: %s", ch_idx, exc)
+                        ch_op_res[0] = (False, f"writeChannel failed: {exc}")
+                    ch_op_evt.set()
 
-                    def _on_resp(pkt):
-                        try:
-                            err = pkt.get("decoded", {}).get("routing", {}).get("errorReason", "NONE")
-                            res[0] = "NAK: " + err if err != "NONE" else "ACK"
-                        except Exception:
-                            res[0] = "ACK"
-                        evt.set()
+                with self._op_lock:
+                    self._pending_ops.append(_do_write)
 
-                    node._sendAdmin(msg, wantResponse=True, onResponse=_on_resp)
-                    if evt.wait(timeout=timeout_s):
-                        return res[0] or "ACK"
-                    return "TIMEOUT"
-
-                try:
-                    if hasattr(node, 'ensureSessionKey'):
-                        node.ensureSessionKey()
-
-                    # Step 1: begin edit transaction
-                    if hasattr(node, 'beginSettingsTransaction'):
-                        _log.info("CH%d: beginSettingsTransaction", ch_idx)
-                        node.beginSettingsTransaction()
-                        _time.sleep(0.3)
-
-                    # Step 2: send the channel
-                    _log.info("CH%d: set_channel", ch_idx)
-                    p = admin_pb2.AdminMessage()
-                    p.set_channel.CopyFrom(ch)
-                    result = _send_and_wait(p, "set_channel")
-                    if result.startswith("NAK"):
-                        _log.error("CH%d set_channel NAK: %s", ch_idx, result)
-                        return False, f"Device rejected channel: {result}"
-                    _log.info("CH%d set_channel ACK", ch_idx)
-
-                    # Step 3: commit
-                    if hasattr(node, 'commitSettingsTransaction'):
-                        _log.info("CH%d: commitSettingsTransaction", ch_idx)
-                        node.commitSettingsTransaction()
-                        _time.sleep(1.0)  # flash write
-
-                except Exception as exc:
-                    _log.error("CH%d transaction error: %s", ch_idx, exc, exc_info=True)
-                    return False, f"Transaction failed: {exc}"
-
-                return True, f"Channel {ch_idx} saved"
+                # Wait for the pubsub thread (or headless loop) to drain
+                if not ch_op_evt.wait(timeout=15.0):
+                    return False, "Timed out waiting for channel write"
+                ok, msg = ch_op_res[0] or (False, "Unknown error")
+                return ok, msg
             else:
                 return False, f"Unknown section: {section}"
         except Exception as e:
