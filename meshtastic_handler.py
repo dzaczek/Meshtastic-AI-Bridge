@@ -804,7 +804,7 @@ class MeshtasticHandler:
                 node.writeConfig(section)
                 return True, f"Saved module/{section}"
             elif section == 'channel':
-                import base64 as _b64
+                import base64 as _b64, time as _time
                 ch_idx = int(values.get('index', 0))
                 # Find the channel object in node.channels (list or dict)
                 node_chs = getattr(node, 'channels', None)
@@ -825,42 +825,42 @@ class MeshtasticHandler:
                         from meshtastic import channel_pb2
                         ch_obj = channel_pb2.Channel()
                         ch_obj.index = ch_idx
+                        # Ensure the channel is in node.channels so writeChannel can find it
+                        if isinstance(node_chs, list):
+                            # Extend list to at least ch_idx+1 slots
+                            while len(node_chs) <= ch_idx:
+                                node_chs.append(channel_pb2.Channel())
+                            node_chs[ch_idx] = ch_obj
                 # Set role
                 ch_obj.role = int(values.get('role', 0))
                 settings = values.get('settings', {})
                 if settings:
-                    # Handle PSK explicitly — NEVER rely on ParseDict for bytes fields.
-                    # ParseDict can silently mangle the bytes depending on protobuf version.
-                    # We decode base64 → raw bytes directly, matching what the official
-                    # Meshtastic clients do.
-                    psk_b64 = settings.pop('psk', None)
+                    setts = dict(settings)  # shallow copy — we modify below
+                    # --- PSK: NEVER rely on ParseDict for bytes fields ---
+                    psk_b64 = setts.pop('psk', None)
                     if psk_b64 is not None:
                         psk_b64_clean = str(psk_b64).strip()
                         if psk_b64_clean:
-                            # Normalise padding and decode
                             missing = len(psk_b64_clean) % 4
                             if missing:
                                 psk_b64_clean += '=' * (4 - missing)
                             ch_obj.settings.psk = _b64.b64decode(psk_b64_clean)
                         else:
-                            ch_obj.settings.psk = b''   # empty = no encryption
-                    # Remaining settings (name, uplink_enabled, etc.) via ParseDict
-                    if settings:
-                        ParseDict(settings, ch_obj.settings, ignore_unknown_fields=True)
-                # Write to device — prefer writeChannel(idx), fall back to setChannel
+                            ch_obj.settings.psk = b''
+                    # --- module_settings: set explicitly to avoid ParseDict nesting issues ---
+                    ms = setts.pop('module_settings', None)
+                    if isinstance(ms, dict):
+                        ch_obj.settings.module_settings.position_precision = int(ms.get('position_precision', 0))
+                        ch_obj.settings.module_settings.is_muted = bool(ms.get('is_muted', False))
+                    # --- Flat fields (name, uplink_enabled, downlink_enabled, etc.) via ParseDict ---
+                    if setts:
+                        ParseDict(setts, ch_obj.settings, ignore_unknown_fields=True)
+                # Write to device
                 if hasattr(node, 'writeChannel'):
                     node.writeChannel(ch_idx)
-                elif hasattr(node, 'setChannel'):
-                    node.setChannel(ch_obj)
+                    _time.sleep(2.0)  # allow flash write to complete
                 else:
-                    return False, "No write method (writeChannel/setChannel) on node"
-                # Verify what was actually written back
-                try:
-                    written_psk = _b64.b64encode(ch_obj.settings.psk).decode()
-                    print(f"[channel] CH{ch_idx} saved — role={ch_obj.role} "
-                          f"psk_written={written_psk!r} ({len(ch_obj.settings.psk)}B)")
-                except Exception:
-                    pass
+                    return False, "writeChannel not available on node"
                 return True, f"Channel {ch_idx} saved"
             else:
                 return False, f"Unknown section: {section}"
