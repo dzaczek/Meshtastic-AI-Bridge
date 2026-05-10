@@ -855,10 +855,19 @@ class MeshtasticHandler:
                     # --- Flat fields (name, uplink_enabled, downlink_enabled, etc.) via ParseDict ---
                     if setts:
                         ParseDict(setts, ch_obj.settings, ignore_unknown_fields=True)
-                # Write to device
-                if hasattr(node, 'writeChannel'):
+                # Write to device — use begin/commit transaction so the device
+                # actually persists the channel to flash (writeChannel alone
+                # only updates RAM and is lost on reboot).
+                if hasattr(node, 'writeChannel') and hasattr(node, 'beginSettingsTransaction'):
+                    node.beginSettingsTransaction()
+                    _time.sleep(0.5)
                     node.writeChannel(ch_idx)
-                    _time.sleep(2.0)  # allow flash write to complete
+                    _time.sleep(0.5)
+                    node.commitSettingsTransaction()
+                    _time.sleep(1.5)  # allow flash write to complete
+                elif hasattr(node, 'writeChannel'):
+                    node.writeChannel(ch_idx)
+                    _time.sleep(2.0)
                 else:
                     return False, "writeChannel not available on node"
                 return True, f"Channel {ch_idx} saved"
