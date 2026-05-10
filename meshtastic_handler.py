@@ -804,10 +804,13 @@ class MeshtasticHandler:
                 node.writeConfig(section)
                 return True, f"Saved module/{section}"
             elif section == 'channel':
-                import base64 as _b64, time as _time
+                import base64 as _b64, time as _time, logging
+                _log = logging.getLogger(__name__)
                 ch_idx = int(values.get('index', 0))
                 # Find the channel object in node.channels (list or dict)
                 node_chs = getattr(node, 'channels', None)
+                if not node_chs:
+                    return False, "No channels list on node — device may not be fully configured yet"
                 ch_obj = None
                 if isinstance(node_chs, list):
                     for c in node_chs:
@@ -817,26 +820,21 @@ class MeshtasticHandler:
                 elif isinstance(node_chs, dict):
                     ch_obj = node_chs.get(ch_idx)
                 if ch_obj is None:
-                    # Channel slot not found — use the slot directly from the list
-                    # (writeChannel uses list index, NOT ch.index field)
                     if isinstance(node_chs, list) and ch_idx < len(node_chs):
                         ch_obj = node_chs[ch_idx]
                     else:
                         from meshtastic import channel_pb2
                         ch_obj = channel_pb2.Channel()
                         ch_obj.index = ch_idx
-                        # Ensure the channel is in node.channels so writeChannel can find it
                         if isinstance(node_chs, list):
-                            # Extend list to at least ch_idx+1 slots
                             while len(node_chs) <= ch_idx:
                                 node_chs.append(channel_pb2.Channel())
                             node_chs[ch_idx] = ch_obj
-                # Set role
+                # Apply settings
                 ch_obj.role = int(values.get('role', 0))
                 settings = values.get('settings', {})
                 if settings:
-                    setts = dict(settings)  # shallow copy — we modify below
-                    # --- PSK: NEVER rely on ParseDict for bytes fields ---
+                    setts = dict(settings)
                     psk_b64 = setts.pop('psk', None)
                     if psk_b64 is not None:
                         psk_b64_clean = str(psk_b64).strip()
@@ -847,29 +845,30 @@ class MeshtasticHandler:
                             ch_obj.settings.psk = _b64.b64decode(psk_b64_clean)
                         else:
                             ch_obj.settings.psk = b''
-                    # --- module_settings: set explicitly to avoid ParseDict nesting issues ---
                     ms = setts.pop('module_settings', None)
                     if isinstance(ms, dict):
                         ch_obj.settings.module_settings.position_precision = int(ms.get('position_precision', 0))
                         ch_obj.settings.module_settings.is_muted = bool(ms.get('is_muted', False))
-                    # --- Flat fields (name, uplink_enabled, downlink_enabled, etc.) via ParseDict ---
                     if setts:
                         ParseDict(setts, ch_obj.settings, ignore_unknown_fields=True)
-                # Write to device — use begin/commit transaction so the device
-                # actually persists the channel to flash (writeChannel alone
-                # only updates RAM and is lost on reboot).
-                if hasattr(node, 'writeChannel') and hasattr(node, 'beginSettingsTransaction'):
-                    node.beginSettingsTransaction()
-                    _time.sleep(0.5)
-                    node.writeChannel(ch_idx)
-                    _time.sleep(0.5)
-                    node.commitSettingsTransaction()
-                    _time.sleep(1.5)  # allow flash write to complete
-                elif hasattr(node, 'writeChannel'):
-                    node.writeChannel(ch_idx)
-                    _time.sleep(2.0)
-                else:
+                # Verify what we're about to write
+                _log.info("channel save: CH%d uplink=%s downlink=%s precision=%d psk_len=%d",
+                          ch_idx, ch_obj.settings.uplink_enabled,
+                          ch_obj.settings.downlink_enabled,
+                          ch_obj.settings.module_settings.position_precision,
+                          len(ch_obj.settings.psk or b''))
+                # Write to device
+                if not hasattr(node, 'writeChannel'):
                     return False, "writeChannel not available on node"
+                try:
+                    # Ensure channels list is properly fixuped (8 slots, correct indexes)
+                    if hasattr(node, '_fixupChannels'):
+                        node._fixupChannels()
+                    node.writeChannel(ch_idx)
+                    _time.sleep(2.5)  # allow flash write
+                except Exception as exc:
+                    _log.error("writeChannel(%d) raised: %s", ch_idx, exc)
+                    return False, f"writeChannel failed: {exc}"
                 return True, f"Channel {ch_idx} saved"
             else:
                 return False, f"Unknown section: {section}"

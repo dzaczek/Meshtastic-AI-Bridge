@@ -5161,17 +5161,31 @@ function renderChannelsCfg() {
 }
 
 async function saveChannel(idx) {
-  const name = (document.getElementById(`ch${idx}-name`)?.value || '').trim();
-  // Strip all whitespace, normalise base64 padding
-  let psk = (document.getElementById(`ch${idx}-psk`)?.value || '').trim().replace(/\s+/g,'');
+  const nameEl = document.getElementById(`ch${idx}-name`);
+  const pskEl  = document.getElementById(`ch${idx}-psk`);
+  const roleEl = document.getElementById(`ch${idx}-role`);
+  const ulEl   = document.getElementById(`ch${idx}-ul`);
+  const dlEl   = document.getElementById(`ch${idx}-dl`);
+  const posEl  = document.getElementById(`ch${idx}-pos-en`);
+  const precEl = document.getElementById(`ch${idx}-prec`);
+
+  const name = (nameEl?.value || '').trim();
+  let psk = (pskEl?.value || '').trim().replace(/\s+/g,'');
   if (psk && psk.length % 4 !== 0) psk += '='.repeat(4 - psk.length % 4);
-  const role = parseInt(document.getElementById(`ch${idx}-role`)?.value || '0');
-  const dl      = document.getElementById(`ch${idx}-dl`)?.checked  || false;
-  const ul      = document.getElementById(`ch${idx}-ul`)?.checked  || false;
-  const posEn   = document.getElementById(`ch${idx}-pos-en`)?.checked || false;
-  const step    = parseInt(document.getElementById(`ch${idx}-prec`)?.value || '0');
-  // Convert slider index → actual Meshtastic precision value
+  const role    = parseInt(roleEl?.value || '0');
+  const dl      = dlEl?.checked  || false;
+  const ul      = ulEl?.checked  || false;
+  const posEn   = posEl?.checked || false;
+  const step    = parseInt(precEl?.value || '0');
   const precVal = posEn ? (PREC_STEPS[step]?.prec || 0) : 0;
+
+  // Verify DOM elements exist
+  if (!ulEl || !dlEl || !posEl) {
+    const msgEl = document.getElementById('cfgmsg-channels');
+    if (msgEl) { msgEl.textContent='Error: channel form elements missing — refresh page'; msgEl.className='cfg-msg err'; msgEl.style.display='inline'; }
+    return;
+  }
+
   const payload = {
     index: idx, role,
     settings: {
@@ -5185,6 +5199,7 @@ async function saveChannel(idx) {
     },
   };
   const msgEl = document.getElementById('cfgmsg-channels');
+  if (msgEl) { msgEl.className='cfg-msg'; msgEl.textContent='Saving…'; msgEl.style.display='inline'; }
   try {
     const r = await fetch('/api/config/channel', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -5195,10 +5210,12 @@ async function saveChannel(idx) {
       msgEl.textContent = d.message || (d.ok ? 'Saved!' : 'Error');
       msgEl.className   = `cfg-msg ${d.ok ? 'ok' : 'err'}`;
       msgEl.style.display = 'inline';
-      setTimeout(() => { if (msgEl) msgEl.style.display='none'; }, 4000);
+      setTimeout(() => { if (msgEl) msgEl.style.display='none'; }, 6000);
     }
+    if (!d.ok) { console.error('saveChannel failed:', d); }
   } catch(e) {
-    if (msgEl) { msgEl.textContent='Network error'; msgEl.className='cfg-msg err'; msgEl.style.display='inline'; }
+    if (msgEl) { msgEl.textContent='Network error: ' + e.message; msgEl.className='cfg-msg err'; msgEl.style.display='inline'; }
+    console.error('saveChannel error:', e);
   }
 }
 
