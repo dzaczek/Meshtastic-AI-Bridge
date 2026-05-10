@@ -870,61 +870,53 @@ class MeshtasticHandler:
                 if hasattr(node, '_fixupChannels'):
                     node._fixupChannels()
 
-                # ── Channel write with comparison-based verification ──
-                # On some firmware (RAK11200 edition 0) set_channel is
-                # silently ignored by the device.  We compare the values
-                # we requested against what the device reports back after
-                # the write and return an explicit error on mismatch.
+                # ── Channel write (best-effort, safe for all firmware) ──
+                # set_channel is known to crash/reboot RAK11200 firmware.
+                # We use the official begin→writeChannel→commit pattern and
+                # verify. If the device reboots (connection drops) or reverts
+                # the change we return a clear error.
                 expected_uplink = ch.settings.uplink_enabled
                 expected_downlink = ch.settings.downlink_enabled
                 expected_prec = ch.settings.module_settings.position_precision
 
-                ch_op_evt = threading.Event()
-                ch_op_res = [None]  # (ok, message)
+                _log.info("CH%d write request: uplink=%s downlink=%s prec=%d",
+                          ch_idx, expected_uplink, expected_downlink, expected_prec)
 
-                def _do_write():
-                    try:
-                        if hasattr(node, '_fixupChannels'):
-                            node._fixupChannels()
-                        if hasattr(node, 'beginSettingsTransaction'):
-                            node.beginSettingsTransaction()
-                            _time.sleep(0.5)
-                        node.writeChannel(ch_idx)
-                        _time.sleep(2.5)
-                        if hasattr(node, 'commitSettingsTransaction'):
-                            node.commitSettingsTransaction()
-                            _time.sleep(3.0)
-                        # After write + wait the device may have pushed its
-                        # actual state back — compare with what we asked for.
-                        ch_now = node.channels[ch_idx]
-                        ok_uplink   = ch_now.settings.uplink_enabled == expected_uplink
-                        ok_downlink = ch_now.settings.downlink_enabled == expected_downlink
-                        ok_prec     = ch_now.settings.module_settings.position_precision == expected_prec
-                        all_ok = ok_uplink and ok_downlink and ok_prec
-                        _log.info("CH%d verify: uplink=%s(%s) downlink=%s(%s) prec=%d(%s) — %s",
-                                  ch_idx,
-                                  ch_now.settings.uplink_enabled, "ok" if ok_uplink else f"want {expected_uplink}",
-                                  ch_now.settings.downlink_enabled, "ok" if ok_downlink else f"want {expected_downlink}",
-                                  ch_now.settings.module_settings.position_precision, "ok" if ok_prec else f"want {expected_prec}",
-                                  "PERSISTED" if all_ok else "REVERTED")
-                        if all_ok:
-                            ch_op_res[0] = (True, f"Channel {ch_idx} saved")
-                        else:
-                            ch_op_res[0] = (False,
-                                f"Device reverted changes — firmware may not support channel writes. "
-                                f"Use official Meshtastic app to configure uplink/precision.")
-                    except Exception as exc:
-                        _log.error("CH%d write error: %s", ch_idx, exc, exc_info=True)
-                        ch_op_res[0] = (False, f"Channel write failed: {exc}")
-                    ch_op_evt.set()
-
-                with self._op_lock:
-                    self._pending_ops.append(_do_write)
-
-                if not ch_op_evt.wait(timeout=25.0):
-                    return False, "Timed out waiting for channel write"
-                ok, msg = ch_op_res[0] or (False, "Unknown error")
-                return ok, msg
+                try:
+                    if hasattr(node, '_fixupChannels'):
+                        node._fixupChannels()
+                    if hasattr(node, 'beginSettingsTransaction'):
+                        node.beginSettingsTransaction()
+                        _time.sleep(0.3)
+                    node.writeChannel(ch_idx)
+                    _time.sleep(1.0)
+                    if hasattr(node, 'commitSettingsTransaction'):
+                        node.commitSettingsTransaction()
+                        _time.sleep(2.0)
+                    # Verify
+                    ch_now = node.channels[ch_idx]
+                    ok_uplink   = ch_now.settings.uplink_enabled == expected_uplink
+                    ok_downlink = ch_now.settings.downlink_enabled == expected_downlink
+                    ok_prec     = ch_now.settings.module_settings.position_precision == expected_prec
+                    all_ok = ok_uplink and ok_downlink and ok_prec
+                    if all_ok:
+                        return True, f"Channel {ch_idx} saved"
+                    else:
+                        _log.warning("CH%d reverted: uplink=%s(want %s) downlink=%s(want %s) prec=%d(want %d)",
+                                     ch_idx,
+                                     ch_now.settings.uplink_enabled, expected_uplink,
+                                     ch_now.settings.downlink_enabled, expected_downlink,
+                                     ch_now.settings.module_settings.position_precision, expected_prec)
+                        return False, (
+                            "Device did not persist channel changes. "
+                            "This firmware may not support channel writes via TCP. "
+                            "Use official Meshtastic app (Bluetooth) to set uplink/precision.")
+                except BrokenPipeError:
+                    _log.error("CH%d write: device disconnected (reboot?)", ch_idx)
+                    return False, "Device disconnected during channel write — it may have rebooted. Changes not persisted."
+                except Exception as exc:
+                    _log.error("CH%d write error: %s", ch_idx, exc, exc_info=True)
+                    return False, f"Channel write failed: {exc}"
             else:
                 return False, f"Unknown section: {section}"
         except Exception as e:
