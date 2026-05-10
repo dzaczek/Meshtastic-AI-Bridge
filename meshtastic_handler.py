@@ -804,11 +804,11 @@ class MeshtasticHandler:
                 node.writeConfig(section)
                 return True, f"Saved module/{section}"
             elif section == 'channel':
-                # ── Mirror the official Meshtastic CLI --ch-set flow exactly ──
-                # 1. Get the channel object directly from node.channels[ch_idx]
-                # 2. Set fields directly on the protobuf (like setPref does)
-                # 3. Call node.writeChannel(ch_idx) — this alone persists to flash
-                import base64 as _b64, time as _time, logging
+                # ── Mirror the official CLI --ch-set + wait for ACK/NAK ──
+                # writeChannel() is fire-and-forget (no ACK/NAK check). If the
+                # device rejects the admin message we silently return "saved".
+                # Instead we call _sendAdmin directly with an ACK/NAK handler.
+                import base64 as _b64, time as _time, logging, threading
                 _log = logging.getLogger(__name__)
                 ch_idx = int(values.get('index', 0))
 
@@ -817,16 +817,11 @@ class MeshtasticHandler:
                 if ch_idx < 0 or ch_idx >= len(node.channels):
                     return False, f"Channel index {ch_idx} out of range (0..{len(node.channels)-1})"
 
-                # Direct reference — same as the CLI's ch = node.channels[channelIndex]
                 ch = node.channels[ch_idx]
-
-                # Apply role
                 ch.role = int(values.get('role', 0))
 
-                # Apply settings directly on the protobuf (mirrors setPref in CLI)
                 settings = values.get('settings', {})
                 if settings:
-                    # PSK — special handling like fromPSK() in the CLI
                     psk_raw = settings.get('psk')
                     if psk_raw is not None:
                         psk_str = str(psk_raw).strip()
@@ -837,18 +832,12 @@ class MeshtasticHandler:
                             ch.settings.psk = _b64.b64decode(psk_str)
                         else:
                             ch.settings.psk = b''
-
-                    # Name
                     if 'name' in settings:
                         ch.settings.name = str(settings['name'] or '')
-
-                    # Uplink / downlink
                     if 'uplink_enabled' in settings:
                         ch.settings.uplink_enabled = bool(settings['uplink_enabled'])
                     if 'downlink_enabled' in settings:
                         ch.settings.downlink_enabled = bool(settings['downlink_enabled'])
-
-                    # module_settings — nested, mirroring CLI: setPref(ch.settings, "module_settings.position_precision", val)
                     ms = settings.get('module_settings')
                     if isinstance(ms, dict):
                         if 'position_precision' in ms:
@@ -856,27 +845,54 @@ class MeshtasticHandler:
                         if 'is_muted' in ms:
                             ch.settings.module_settings.is_muted = bool(ms['is_muted'])
 
-                # Log exactly what we are about to send to the device
                 _log.info("CH%d write: role=%d name=%r uplink=%s downlink=%s prec=%d psk=%d",
                           ch_idx, ch.role, ch.settings.name,
                           ch.settings.uplink_enabled, ch.settings.downlink_enabled,
                           ch.settings.module_settings.position_precision,
                           len(ch.settings.psk or b''))
 
-                # Ensure channels list is properly indexed (8 slots, ch.index == position)
                 if hasattr(node, '_fixupChannels'):
                     node._fixupChannels()
 
-                # Write to device — writeChannel alone persists to flash
-                # (no begin/commit transaction needed per official library)
-                try:
-                    node.writeChannel(ch_idx)
-                except Exception as exc:
-                    _log.error("writeChannel(%d) exception: %s", ch_idx, exc, exc_info=True)
-                    return False, f"writeChannel failed: {exc}"
+                # Build admin message and send with ACK/NAK handler
+                # (same as writeChannel but with onResponse wired up)
+                from meshtastic.protobuf import admin_pb2
+                ack_event = threading.Event()
+                ack_result = [None]  # mutable container: 'ACK', 'NAK: <reason>', or None (timeout)
 
-                # Allow flash write to complete
-                _time.sleep(0.5)
+                def _on_ack_nak(p):
+                    try:
+                        err = p.get("decoded", {}).get("routing", {}).get("errorReason", "NONE")
+                        if err != "NONE":
+                            ack_result[0] = f"NAK: {err}"
+                        else:
+                            ack_result[0] = "ACK"
+                    except Exception:
+                        ack_result[0] = "ACK (implicit)"
+                    ack_event.set()
+
+                try:
+                    # ensureSessionKey + build + send, exactly like writeChannel
+                    if hasattr(node, 'ensureSessionKey'):
+                        node.ensureSessionKey()
+                    p = admin_pb2.AdminMessage()
+                    p.set_channel.CopyFrom(ch)
+                    # _sendAdmin with onResponse=local ack handler
+                    node._sendAdmin(p, wantResponse=True, onResponse=_on_ack_nak)
+                    # Wait up to 8s for device ACK/NAK
+                    if ack_event.wait(timeout=8.0):
+                        result = ack_result[0] or "ACK (no detail)"
+                        if result.startswith("NAK"):
+                            _log.error("CH%d save NAK: %s", ch_idx, result)
+                            return False, f"Device rejected: {result}"
+                        _log.info("CH%d save ACK: %s", ch_idx, result)
+                    else:
+                        _log.warning("CH%d save: no ACK/NAK within 8s (implicit ACK assumed)", ch_idx)
+                except Exception as exc:
+                    _log.error("CH%d _sendAdmin exception: %s", ch_idx, exc, exc_info=True)
+                    return False, f"Admin send failed: {exc}"
+
+                _time.sleep(1.0)  # flash write
                 return True, f"Channel {ch_idx} saved"
             else:
                 return False, f"Unknown section: {section}"
