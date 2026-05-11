@@ -194,6 +194,65 @@ From any authorised mesh node:
 
 ---
 
+## Map Reporting (MQTT)
+
+The bridge publishes the node's position to MQTT so it appears on public
+maps like <https://meshtastic.liamcottle.net/>.
+
+### How it works
+
+`mqtt_reporter.py` runs as a background thread and sends a **MapReport**
+protobuf (portnum 73) wrapped in a `ServiceEnvelope` every 60 seconds to
+two MQTT brokers:
+
+| Broker | Precision | Purpose |
+|---|---|---|
+| `mqtt.meshtastic.liamcottle.net` | 32 bit | liamcottle map direct uplink |
+| `mqtt.meshtastic.org` | 16 bit | public MQTT mesh (other maps, bridges) |
+
+The 16-bit precision on the public server satisfies its location filtering
+requirement (10–16 bits for default PSK).
+
+### MapReport contents
+
+- `long_name` / `short_name` — from `config.py` (`NODE_LONG_NAME`, `NODE_SHORT_NAME`)
+- `latitude_i` / `longitude_i` / `altitude` — from device fixed position
+- `has_opted_report_location: True` — equivalent to `map_report_settings.should_report_location`
+- `hw_model`, `region`, `modem_preset`, `firmware_version`
+
+### Web UI — MQTT Config panel
+
+The MQTT section in the dashboard (`/` → Settings → MQTT) exposes:
+
+| Field | Protobuf path |
+|---|---|
+| Map Reporting | `mqtt.map_reporting_enabled` |
+| Report My Location | `mqtt.map_report_settings.should_report_location` |
+| Map Position Precision | `mqtt.map_report_settings.position_precision` |
+| Map Publish Interval (s) | `mqtt.map_report_settings.publish_interval_secs` |
+
+These use dotted-path notation (`map_report_settings.should_report_location`)
+to write into the nested `ModuleConfig.MQTTConfig` protobuf.
+
+### Troubleshooting
+
+**Node not appearing on the map:**
+1. Verify the reporter is running: `docker logs meshtastic-ai-bridge \| grep MapReport`
+2. Confirm position is set on the device (Settings → Position → Fixed Position)
+3. Check `map_reporting_enabled` and `should_report_location` are both ON in the MQTT panel
+4. The liamcottle map uses **MapReport** format (portnum 73), not raw Position
+
+**Node shows as "disconnected" on the map:**
+This is normal for MQTT-only nodes — the map distinguishes radio-connected
+nodes from those seen only via MQTT uplink. Publishing every 60s keeps the
+position current.
+
+**RAK11200 firmware MQTT:**
+The RAK11200 ESP32-S3 firmware may not connect its native MQTT client
+reliably. The Python bridge's `mqtt_reporter.py` works around this.
+
+---
+
 ## Security Notes
 
 - `config.py` and `.env` are git-ignored — do not override this

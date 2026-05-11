@@ -39,6 +39,12 @@ try:
 except ImportError:
     _HAS_MATRIX_BRIDGE = False
 
+try:
+    from mqtt_reporter import MqttReporter
+    _HAS_MQTT_REPORTER = True
+except ImportError:
+    _HAS_MQTT_REPORTER = False
+
 _matrix_bridge = None   # global instance, set in __main__
 
 # --- Initial Setup & Debug Function ---
@@ -257,6 +263,24 @@ class MeshtasticAIAppConsole:
                 _matrix_bridge.meshtastic_handler = self.meshtastic_handler
                 _matrix_bridge.start()
                 log_info("Matrix bridge started")
+
+            # MQTT position reporter — publishes node position to
+            # mqtt.meshtastic.org so the node appears on public maps.
+            self._mqtt_reporter = None
+            if _HAS_MQTT_REPORTER:
+                try:
+                    self._mqtt_reporter = MqttReporter(
+                        get_position=lambda: self.meshtastic_handler.get_own_position(),
+                        get_node_id=lambda: self.meshtastic_handler.node_id,
+                        hw_model="RAK11200",
+                        node_name=long_name or "MARVIN-GPP",
+                        short_name=short_name or "MN",
+                    )
+                    self._mqtt_reporter.start()
+                    log_info("MQTT position reporter started")
+                except Exception as e:
+                    log_error(f"MQTT reporter init failed: {e}")
+                    self._mqtt_reporter = None
 
         except KeyboardInterrupt:
             if self.meshtastic_handler:
@@ -536,6 +560,8 @@ class MeshtasticAIAppConsole:
     def close_app(self):
         dprint("MeshtasticAIAppConsole.close_app() called.")
         self._stop_event.set()
+        if hasattr(self, '_mqtt_reporter') and self._mqtt_reporter:
+            self._mqtt_reporter.stop()
         if self.meshtastic_handler: self.meshtastic_handler.close()
         if self.reconnection_monitor_thread and self.reconnection_monitor_thread.is_alive():
             dprint("Waiting for console reconnection monitor thread to join...")

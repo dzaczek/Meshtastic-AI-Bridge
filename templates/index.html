@@ -2306,6 +2306,12 @@
         <input class="cfg-chk" type="checkbox" data-cfg="proxy_to_client_enabled"></div>
       <div class="cfg-row"><span class="cfg-label">Map Reporting</span>
         <input class="cfg-chk" type="checkbox" data-cfg="map_reporting_enabled"></div>
+      <div class="cfg-row"><span class="cfg-label">Report My Location<small>Send this node's position to MQTT map</small></span>
+        <input class="cfg-chk" type="checkbox" data-cfg="map_report_settings.should_report_location"></div>
+      <div class="cfg-row"><span class="cfg-label">Map Position Precision<small>Bits (32=exact, 16≈1.2km, 13≈300m)</small></span>
+        <input class="cfg-input" type="number" min="0" max="32" data-cfg="map_report_settings.position_precision"></div>
+      <div class="cfg-row"><span class="cfg-label">Map Publish Interval (s)<small>How often to publish to map (900=15min)</small></span>
+        <input class="cfg-input" type="number" min="0" data-cfg="map_report_settings.publish_interval_secs"></div>
       <button class="cfg-save" onclick="saveCfg('mqtt')">Save MQTT</button>
       <span class="cfg-msg" id="cfgmsg-mqtt"></span>
     </div>
@@ -4942,14 +4948,24 @@ function showCfgSec(sec) {
   if (sec === 'position') verifyPosition();  // auto-check on open
 }
 
+function _getNested(obj, path) {
+  // resolve dotted path like 'map_report_settings.should_report_location'
+  const parts = path.split('.');
+  for (const p of parts) {
+    if (obj === null || obj === undefined) return undefined;
+    obj = obj[p];
+  }
+  return obj;
+}
+
 function fillCfgSection(sec) {
   const data = cfgData[sec] || {};
   const form = document.getElementById(`cfgs-${sec}`);
   if (!form) return;
   form.querySelectorAll('[data-cfg]').forEach(el => {
     const key = el.dataset.cfg;
-    if (!(key in data)) return;          // don't touch fields not present in response
-    const val = data[key];
+    const val = _getNested(data, key);
+    if (val === undefined) return;
     if (el.type === 'checkbox') {
       el.checked = Boolean(val);
     } else if (el.tagName === 'SELECT') {
@@ -4974,9 +4990,18 @@ function getCfgFormData(sec) {
   const data = {};
   form.querySelectorAll('[data-cfg]').forEach(el => {
     const key = el.dataset.cfg;
-    if (el.type === 'checkbox') data[key] = el.checked;
-    else if (el.type === 'number') data[key] = el.value === '' ? 0 : Number(el.value);
-    else data[key] = el.value;
+    let val;
+    if (el.type === 'checkbox') val = el.checked;
+    else if (el.type === 'number') val = el.value === '' ? 0 : Number(el.value);
+    else val = el.value;
+    // dotted path → nested objects (e.g. 'map_report_settings.should_report_location')
+    const parts = key.split('.');
+    let target = data;
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (!(parts[i] in target)) target[parts[i]] = {};
+      target = target[parts[i]];
+    }
+    target[parts[parts.length - 1]] = val;
   });
   return data;
 }
