@@ -269,9 +269,16 @@ class MeshtasticAIAppConsole:
             self._mqtt_reporter = None
             if _HAS_MQTT_REPORTER:
                 try:
+                    def _count_online_nodes():
+                        now = time.time()
+                        nodes_dict = getattr(self.meshtastic_handler.interface, 'nodes', None) or {}
+                        return sum(1 for nd in nodes_dict.values()
+                                   if now - nd.get('lastHeard', 0) < 3600)
+
                     self._mqtt_reporter = MqttReporter(
                         get_position=lambda: self.meshtastic_handler.get_own_position(),
                         get_node_id=lambda: self.meshtastic_handler.node_id,
+                        get_online_nodes=_count_online_nodes,
                         hw_model="RAK11200",
                         node_name=long_name or "MARVIN-GPP",
                         short_name=short_name or "MN",

@@ -44,11 +44,12 @@ _BROKERS = [
 class MqttReporter:
     """Periodically publishes the bridge's own position to MQTT."""
 
-    def __init__(self, get_position, get_node_id, region="EU_868",
-                 channel_name="LongFast", hw_model="RAK11200",
+    def __init__(self, get_position, get_node_id, get_online_nodes=None,
+                 region="EU_868", channel_name="LongFast", hw_model="RAK11200",
                  node_name="MARVIN-GPP", short_name="MN"):
-        self._get_position = get_position      # callable → dict or None
-        self._get_node_id = get_node_id        # callable → int (node_num) or None
+        self._get_position = get_position       # callable → dict or None
+        self._get_node_id = get_node_id         # callable → int (node_num) or None
+        self._get_online_nodes = get_online_nodes  # callable → int or None
         self._region = region
         self._channel_name = channel_name
         self._hw_model = hw_model
@@ -141,9 +142,17 @@ class MqttReporter:
         topic_e = (f"{_MQTT_ROOT}/{self._region}/2/e/"
                    f"{self._channel_name}/!{node_id_hex}")
 
+        num_online = 1
+        if self._get_online_nodes:
+            try:
+                num_online = self._get_online_nodes() or 1
+            except Exception:
+                pass
+
         precision = broker["precision_bits"]
         envelope = _build_map_report_envelope(node_num, position,
                                               precision_bits=precision,
+                                              num_online_nodes=num_online,
                                               hw_model=self._hw_model,
                                               region=self._region,
                                               long_name=self._node_name,
@@ -167,7 +176,8 @@ class MqttReporter:
 # ---------------------------------------------------------------------------
 
 def _build_map_report_envelope(node_num, position, *,
-                                precision_bits=32, hw_model="RAK11200",
+                                precision_bits=32, num_online_nodes=1,
+                                hw_model="RAK11200",
                                 region="EU_868", long_name="", short_name=""):
     """Build a ServiceEnvelope wrapping a MeshPacket with MapReport payload."""
     from meshtastic.protobuf import mesh_pb2, mqtt_pb2, portnums_pb2
@@ -190,7 +200,7 @@ def _build_map_report_envelope(node_num, position, *,
     if position.get('alt'):
         report.altitude = int(position['alt'])
     report.position_precision = precision_bits
-    report.num_online_local_nodes = 1
+    report.num_online_local_nodes = num_online_nodes
     report.has_opted_report_location = True
 
     mp = mesh_pb2.MeshPacket()
