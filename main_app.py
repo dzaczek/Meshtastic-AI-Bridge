@@ -294,11 +294,19 @@ class MeshtasticAIAppConsole:
                             })
                         return results
 
+                    def _get_primary_channel_name():
+                        channels = self.meshtastic_handler.list_channels()
+                        for ch in channels:
+                            if ch.get('index') == 0 and ch.get('name'):
+                                return ch['name']
+                        return "LongFast"
+
                     self._mqtt_reporter = MqttReporter(
                         get_position=lambda: self.meshtastic_handler.get_own_position(),
                         get_node_id=lambda: self.meshtastic_handler.node_id,
                         get_online_nodes=_count_online_nodes,
                         get_neighbors=_get_neighbors,
+                        get_channel_name=_get_primary_channel_name,
                         hw_model="RAK11200",
                         node_name=long_name or "MARVIN-GPP",
                         short_name=short_name or "MN",

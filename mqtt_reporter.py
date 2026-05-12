@@ -45,15 +45,15 @@ class MqttReporter:
     """Periodically publishes the bridge's own position to MQTT."""
 
     def __init__(self, get_position, get_node_id, get_online_nodes=None,
-                 get_neighbors=None,
-                 region="EU_868", channel_name="LongFast", hw_model="RAK11200",
+                 get_neighbors=None, get_channel_name=None,
+                 region="EU_868", hw_model="RAK11200",
                  node_name="MARVIN-GPP", short_name="MN"):
         self._get_position = get_position       # callable → dict or None
         self._get_node_id = get_node_id         # callable → int (node_num) or None
         self._get_online_nodes = get_online_nodes  # callable → int or None
         self._get_neighbors = get_neighbors     # callable → list of dicts or None
+        self._get_channel_name = get_channel_name  # callable → str or None
         self._region = region
-        self._channel_name = channel_name
         self._hw_model = hw_model
         self._node_name = node_name
         self._short_name = short_name
@@ -141,8 +141,14 @@ class MqttReporter:
 
     def _publish_one(self, broker, node_num, position):
         node_id_hex = f"{node_num:x}"
+        channel_name = "LongFast"
+        if self._get_channel_name:
+            try:
+                channel_name = self._get_channel_name() or "LongFast"
+            except Exception:
+                pass
         topic_e = (f"{_MQTT_ROOT}/{self._region}/2/e/"
-                   f"{self._channel_name}/!{node_id_hex}")
+                   f"{channel_name}/!{node_id_hex}")
 
         num_online = 1
         if self._get_online_nodes:
@@ -157,6 +163,7 @@ class MqttReporter:
         map_env = _build_map_report_envelope(node_num, position,
                                              precision_bits=precision,
                                              num_online_nodes=num_online,
+                                             channel_name=channel_name,
                                              hw_model=self._hw_model,
                                              region=self._region,
                                              long_name=self._node_name,
@@ -180,6 +187,7 @@ class MqttReporter:
             # NeighborInfo (separate packet)
             if neighbors:
                 nei_env = _build_neighbor_info_envelope(node_num, neighbors,
+                                                        channel_name=channel_name,
                                                         hw_model=self._hw_model,
                                                         long_name=self._node_name,
                                                         short_name=self._short_name)
@@ -200,6 +208,7 @@ class MqttReporter:
 
 def _build_map_report_envelope(node_num, position, *,
                                 precision_bits=32, num_online_nodes=1,
+                                channel_name="LongFast",
                                 hw_model="RAK11200",
                                 region="EU_868", long_name="", short_name=""):
     """Build a ServiceEnvelope wrapping a MeshPacket with MapReport payload."""
@@ -237,13 +246,14 @@ def _build_map_report_envelope(node_num, position, *,
     mp.hop_limit = 3
 
     envelope = mqtt_pb2.ServiceEnvelope()
-    envelope.channel_id = "LongFast"
+    envelope.channel_id = channel_name
     envelope.gateway_id = f"!{node_num:x}"
     envelope.packet.CopyFrom(mp)
     return envelope
 
 
 def _build_neighbor_info_envelope(node_num, neighbors, *,
+                                    channel_name="LongFast",
                                     hw_model="RAK11200",
                                     long_name="", short_name=""):
     """Build a ServiceEnvelope with NeighborInfo payload."""
@@ -273,7 +283,7 @@ def _build_neighbor_info_envelope(node_num, neighbors, *,
     mp.hop_limit = 3
 
     envelope = mqtt_pb2.ServiceEnvelope()
-    envelope.channel_id = "LongFast"
+    envelope.channel_id = channel_name
     envelope.gateway_id = f"!{node_num:x}"
     envelope.packet.CopyFrom(mp)
     return envelope
