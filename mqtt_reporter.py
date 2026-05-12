@@ -45,11 +45,13 @@ class MqttReporter:
     """Periodically publishes the bridge's own position to MQTT."""
 
     def __init__(self, get_position, get_node_id, get_online_nodes=None,
+                 get_neighbors=None,
                  region="EU_868", channel_name="LongFast", hw_model="RAK11200",
                  node_name="MARVIN-GPP", short_name="MN"):
         self._get_position = get_position       # callable → dict or None
         self._get_node_id = get_node_id         # callable → int (node_num) or None
         self._get_online_nodes = get_online_nodes  # callable → int or None
+        self._get_neighbors = get_neighbors     # callable → list of dicts or None
         self._region = region
         self._channel_name = channel_name
         self._hw_model = hw_model
@@ -150,22 +152,43 @@ class MqttReporter:
                 pass
 
         precision = broker["precision_bits"]
-        envelope = _build_map_report_envelope(node_num, position,
-                                              precision_bits=precision,
-                                              num_online_nodes=num_online,
-                                              hw_model=self._hw_model,
-                                              region=self._region,
-                                              long_name=self._node_name,
-                                              short_name=self._short_name)
+
+        # MapReport
+        map_env = _build_map_report_envelope(node_num, position,
+                                             precision_bits=precision,
+                                             num_online_nodes=num_online,
+                                             hw_model=self._hw_model,
+                                             region=self._region,
+                                             long_name=self._node_name,
+                                             short_name=self._short_name)
+
+        # NeighborInfo — collect neighbor data from device
+        neighbors = []
+        if self._get_neighbors:
+            try:
+                neighbors = self._get_neighbors() or []
+            except Exception:
+                pass
 
         client = None
         try:
             client = self._connect(broker)
-            client.publish(topic_e, envelope.SerializeToString(), qos=1) \
+            # MapReport
+            client.publish(topic_e, map_env.SerializeToString(), qos=1) \
                   .wait_for_publish(timeout=5.0)
-            logger.info("MqttReporter: %s ← %.5f,%.5f [MapReport %db]",
+
+            # NeighborInfo (separate packet)
+            if neighbors:
+                nei_env = _build_neighbor_info_envelope(node_num, neighbors,
+                                                        hw_model=self._hw_model,
+                                                        long_name=self._node_name,
+                                                        short_name=self._short_name)
+                client.publish(topic_e, nei_env.SerializeToString(), qos=1) \
+                      .wait_for_publish(timeout=5.0)
+
+            logger.info("MqttReporter: %s ← %.5f,%.5f [MapReport %db, %d neighbors]",
                         broker["label"], position['lat'], position['lon'],
-                        precision)
+                        precision, len(neighbors))
         finally:
             if client:
                 self._disconnect(client)
@@ -210,6 +233,42 @@ def _build_map_report_envelope(node_num, position, *,
     mp.want_ack = False
     mp.decoded.portnum = portnums_pb2.MAP_REPORT_APP
     mp.decoded.payload = report.SerializeToString()
+    mp.hop_start = 3
+    mp.hop_limit = 3
+
+    envelope = mqtt_pb2.ServiceEnvelope()
+    envelope.channel_id = "LongFast"
+    envelope.gateway_id = f"!{node_num:x}"
+    envelope.packet.CopyFrom(mp)
+    return envelope
+
+
+def _build_neighbor_info_envelope(node_num, neighbors, *,
+                                    hw_model="RAK11200",
+                                    long_name="", short_name=""):
+    """Build a ServiceEnvelope with NeighborInfo payload."""
+    from meshtastic.protobuf import mesh_pb2, mqtt_pb2, portnums_pb2
+
+    now = int(time.time())
+
+    info = mesh_pb2.NeighborInfo()
+    info.node_id = node_num
+    info.node_broadcast_interval_secs = 3600  # default broadcast interval
+
+    for nb in neighbors:
+        n = info.neighbors.add()
+        n.node_id = nb.get('node_id', 0)
+        snr = nb.get('snr', 0)
+        if snr is not None:
+            n.snr = float(snr)
+
+    mp = mesh_pb2.MeshPacket()
+    mp.id = (now * 1000 + (node_num & 0xFFFF)) & 0xFFFFFFFF
+    setattr(mp, 'from', node_num)
+    mp.to = 0xFFFFFFFF
+    mp.want_ack = False
+    mp.decoded.portnum = portnums_pb2.NEIGHBORINFO_APP
+    mp.decoded.payload = info.SerializeToString()
     mp.hop_start = 3
     mp.hop_limit = 3
 

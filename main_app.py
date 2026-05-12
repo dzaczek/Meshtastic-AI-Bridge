@@ -275,10 +275,30 @@ class MeshtasticAIAppConsole:
                         return sum(1 for nd in nodes_dict.values()
                                    if now - nd.get('lastHeard', 0) < 3600)
 
+                    def _get_neighbors():
+                        now = time.time()
+                        nodes_dict = getattr(self.meshtastic_handler.interface, 'nodes', None) or {}
+                        results = []
+                        for key, nd in nodes_dict.items():
+                            if now - nd.get('lastHeard', 0) > 3600:
+                                continue
+                            try:
+                                nid = int(str(key).lstrip('!'), 16)
+                            except (ValueError, TypeError):
+                                continue
+                            if nid == self.meshtastic_handler.node_id:
+                                continue
+                            results.append({
+                                'node_id': nid,
+                                'snr': nd.get('snr', 0),
+                            })
+                        return results
+
                     self._mqtt_reporter = MqttReporter(
                         get_position=lambda: self.meshtastic_handler.get_own_position(),
                         get_node_id=lambda: self.meshtastic_handler.node_id,
                         get_online_nodes=_count_online_nodes,
+                        get_neighbors=_get_neighbors,
                         hw_model="RAK11200",
                         node_name=long_name or "MARVIN-GPP",
                         short_name=short_name or "MN",
