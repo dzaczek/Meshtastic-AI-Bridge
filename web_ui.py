@@ -354,11 +354,20 @@ def on_packet(packet, interface):
 def _node_name(node_id_hex: str, interface) -> str:
     if not interface or not hasattr(interface, 'nodes'):
         return node_id_hex
-    for nd in (interface.nodes or {}).values():
-        num = nd.get('num')
-        if num and f"{num:x}" == node_id_hex:
+
+    nodes = interface.nodes or {}
+    try:
+        num = int(node_id_hex, 16)
+        nd = nodes.get(num)
+        if nd is None:
+            nd = nodes.get(str(num))
+
+        if nd:
             u = nd.get('user', {})
             return u.get('shortName') or u.get('longName') or node_id_hex
+    except (ValueError, TypeError):
+        pass
+
     return node_id_hex
 
 
@@ -366,15 +375,22 @@ def _node_pos(node_id_hex: str, interface):
     """Return (lat, lon) for a node — tries interface.nodes then node_db."""
     # 1. Live interface node cache
     if interface and hasattr(interface, 'nodes'):
-        for nd in (interface.nodes or {}).values():
-            num = nd.get('num')
-            if num and f"{num:x}" == node_id_hex:
+        nodes = interface.nodes or {}
+        try:
+            num = int(node_id_hex, 16)
+            nd = nodes.get(num)
+            if nd is None:
+                nd = nodes.get(str(num))
+
+            if nd:
                 pos = nd.get('position') or {}
                 # Coordinates may be stored as float or as integer × 1e-7
                 lat = pos.get('latitude') or (pos.get('latitudeI', 0) / 1e7 or None)
                 lon = pos.get('longitude') or (pos.get('longitudeI', 0) / 1e7 or None)
                 if lat and lon:
                     return float(lat), float(lon)
+        except (ValueError, TypeError):
+            pass
     # 2. node_db — last known GPS position
     if _HAS_NODE_DB:
         try:
